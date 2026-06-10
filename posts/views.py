@@ -10,6 +10,9 @@ def _cors_json(response):
     response["Access-Control-Allow-Origin"] = "*"
     response["Access-Control-Allow-Headers"] = "Content-Type"
     response["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response["Pragma"] = "no-cache"
+    response["Expires"] = "0"
     return response
 
 
