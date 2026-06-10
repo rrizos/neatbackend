@@ -1,4 +1,5 @@
 import json
+import logging
 
 from django.contrib.auth import authenticate, get_user_model
 from django.db import IntegrityError
@@ -12,6 +13,7 @@ from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _cors_json(response):
@@ -41,6 +43,22 @@ def _bad_request(message):
 
 def _server_error(message='Internal server error'):
     return _cors_json(JsonResponse({'error': message}, status=500))
+
+
+def _handle_exception(context, exc):
+    logger.exception('%s failed', context)
+    detail = str(exc).strip()
+    if detail:
+        return _server_error(detail)
+    return _server_error()
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def health(request):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    return _cors_json(JsonResponse({'ok': True, 'service': 'auth'}))
 
 
 @csrf_exempt
@@ -75,8 +93,8 @@ def signup(request):
         profile.save(update_fields=['full_name', 'bio'])
         token = AuthToken.create_for_user(user)
         return _cors_json(JsonResponse(auth_payload(user, token), status=201))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('signup', exc)
 
 
 @csrf_exempt
@@ -99,8 +117,8 @@ def login(request):
         ensure_profile(user)
         token = AuthToken.create_for_user(user)
         return _cors_json(JsonResponse(auth_payload(user, token)))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('login', exc)
 
 
 @csrf_exempt
@@ -114,8 +132,8 @@ def logout(request):
         if header.startswith('Token '):
             AuthToken.objects.filter(key=header.removeprefix('Token ').strip()).delete()
         return _cors_json(JsonResponse({'ok': True}))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('logout', exc)
 
 
 @csrf_exempt
@@ -142,8 +160,8 @@ def me(request):
             profile.save(update_fields=['full_name', 'bio', 'avatar_url'])
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('me', exc)
 
 
 @csrf_exempt
@@ -163,8 +181,8 @@ def profile_detail(request, username):
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=viewer)}))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('profile_detail', exc)
 
 
 @csrf_exempt
@@ -196,5 +214,5 @@ def follow_toggle(request, username):
             Follow.objects.create(follower=viewer, following=target)
 
         return _cors_json(JsonResponse({'user': user_to_dict(target, viewer=viewer)}))
-    except Exception:
-        return _server_error()
+    except Exception as exc:
+        return _handle_exception('follow_toggle', exc)
