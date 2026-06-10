@@ -1,4 +1,5 @@
 import json
+from django.db import connection
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -19,12 +20,25 @@ def _get_post_or_404(post_id):
         return None
 
 
+def _ensure_posts_table():
+    table_name = Post._meta.db_table
+    with connection.cursor() as cursor:
+        existing_tables = connection.introspection.table_names(cursor)
+    if table_name in existing_tables:
+        return
+
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Post)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def posts_list(request):
     # Simple CORS support for development
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
 
     if request.method == "GET":
         posts = Post.objects.all().order_by("-created")
@@ -52,6 +66,8 @@ def post_like(request, post_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
+    _ensure_posts_table()
+
     post = _get_post_or_404(post_id)
     if post is None:
         return JsonResponse({"error": "Post not found"}, status=404)
@@ -78,6 +94,8 @@ def post_like(request, post_id):
 def post_comment(request, post_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
 
     post = _get_post_or_404(post_id)
     if post is None:
