@@ -103,8 +103,6 @@ def signup(request):
 
         if not username or not password:
             return _bad_request('Username and password are required')
-        if not city:
-            return _bad_request('City is required')
         if len(password) < 8:
             return _bad_request('Password must be at least 8 characters')
 
