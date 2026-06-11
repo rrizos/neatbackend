@@ -51,7 +51,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'posts',
-    'messages.apps.MessagesConfig',
+    'dm_messages.apps.DmMessagesConfig',
 ]
 
 MIDDLEWARE = [
