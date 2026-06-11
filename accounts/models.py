@@ -45,3 +45,38 @@ class AuthToken(models.Model):
     def mark_used(self):
         self.last_used = timezone.now()
         self.save(update_fields=['last_used'])
+
+
+class Notification(models.Model):
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='actor_notifications',
+    )
+    verb = models.CharField(max_length=32)
+    target_type = models.CharField(max_length=32, blank=True, default='')
+    target_id = models.CharField(max_length=64, blank=True, default='')
+    target_text = models.CharField(max_length=255, blank=True, default='')
+    is_read = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created']
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'recipientId': self.recipient_id,
+            'actor': self.actor.username,
+            'verb': self.verb,
+            'targetType': self.target_type,
+            'targetId': self.target_id,
+            'targetText': self.target_text,
+            'isRead': self.is_read,
+            'created': self.created.isoformat(),
+        }

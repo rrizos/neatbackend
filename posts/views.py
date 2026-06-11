@@ -4,6 +4,7 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
+from accounts.models import Notification
 from .models import Post, PostComment, PostLike
 
 
@@ -41,6 +42,19 @@ def _post_to_dict(post, viewer=None):
     else:
         data["following"] = post.user_id is not None
     return data
+
+
+def _notify(recipient, actor, verb, post):
+    if recipient == actor or recipient is None:
+        return
+    Notification.objects.create(
+        recipient=recipient,
+        actor=actor,
+        verb=verb,
+        target_type='post',
+        target_id=str(post.id),
+        target_text=post.text[:255],
+    )
 
 
 def _ensure_posts_table():
@@ -113,6 +127,7 @@ def post_like(request, post_id):
 
     if bool(liked):
         PostLike.objects.get_or_create(post=post, user=user)
+        _notify(post.user, user, 'liked your post', post)
     else:
         PostLike.objects.filter(post=post, user=user).delete()
     post.likes = post.like_rows.count()
@@ -145,4 +160,5 @@ def post_comment(request, post_id):
         return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
 
     PostComment.objects.create(post=post, user=user, text=text)
+    _notify(post.user, user, 'commented on your post', post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))

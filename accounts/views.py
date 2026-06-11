@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
-from .models import AuthToken, Follow
+from .models import AuthToken, Follow, Notification
 from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
@@ -60,6 +60,19 @@ def _user_list_response(users, viewer):
                 'users': [user_to_dict(user, viewer=viewer) for user in users],
             }
         )
+    )
+
+
+def _notify(recipient, actor, verb, target_type='', target_id='', target_text=''):
+    if recipient == actor:
+        return
+    Notification.objects.create(
+        recipient=recipient,
+        actor=actor,
+        verb=verb,
+        target_type=target_type,
+        target_id=str(target_id or ''),
+        target_text=target_text[:255],
     )
 
 
@@ -289,6 +302,7 @@ def follow_toggle(request, username):
             existing.delete()
         else:
             Follow.objects.create(follower=viewer, following=target)
+            _notify(target, viewer, 'followed you', 'user', target.id, viewer.username)
 
         return _cors_json(
             JsonResponse(
@@ -300,3 +314,28 @@ def follow_toggle(request, username):
         )
     except Exception as exc:
         return _handle_exception('follow_toggle', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'OPTIONS'])
+def notifications(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        if request.method == 'POST':
+            body = _json_body(request) or {}
+            ids = body.get('ids') or []
+            Notification.objects.filter(recipient=viewer, id__in=ids).update(is_read=True)
+            return _cors_json(JsonResponse({'ok': True}))
+
+        qs = Notification.objects.select_related('actor').filter(recipient=viewer)
+        data = [item.to_dict() for item in qs[:50]]
+        unread = Notification.objects.filter(recipient=viewer, is_read=False).count()
+        return _cors_json(JsonResponse({'notifications': data, 'unread': unread}))
+    except Exception as exc:
+        return _handle_exception('notifications', exc)
