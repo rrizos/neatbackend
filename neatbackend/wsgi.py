@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/6.0/howto/deployment/wsgi/
 import os
 import logging
 
+import django
 from django.core.management import call_command
 from django.core.wsgi import get_wsgi_application
 
@@ -23,6 +24,7 @@ def _run_startup_migrations():
         return
 
     try:
+        django.setup()
         call_command('migrate', interactive=False, run_syncdb=True, verbosity=0)
     except Exception:
         logger.exception('Automatic startup migrations failed')
