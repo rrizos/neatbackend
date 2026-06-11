@@ -2,4 +2,5 @@ Django>=4.2
 gunicorn
 django-cors-headers
 dj-database-url
-psycopg[binary]
+psycopg2-binary
+dj-database-url
