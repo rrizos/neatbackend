@@ -181,7 +181,7 @@ def start_conversation(request):
     if body is None:
         return _bad_request('Invalid JSON')
 
-    username = (body.get('username') or '').strip()
+    username = (body.get('username') or body.get('recipient') or '').strip().lstrip('@')
     if not username:
         return _bad_request('Username is required')
 
