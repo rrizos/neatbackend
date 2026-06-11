@@ -79,7 +79,12 @@ def posts_list(request):
 
     if request.method == "GET":
         viewer = get_authenticated_user(request)
+        viewer_city = ""
+        if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
+            viewer_city = viewer.profile.city
         posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows").all().order_by("-created")
+        if viewer_city:
+            posts = posts.filter(city=viewer_city)
         data = [_post_to_dict(p, viewer=viewer) for p in posts]
         return _cors_json(JsonResponse(data, safe=False))
 
@@ -87,6 +92,9 @@ def posts_list(request):
     user = require_authenticated_user(request)
     if user is None:
         return _unauthorized()
+    user_city = getattr(getattr(user, "profile", None), "city", "")
+    if not user_city:
+        return _cors_json(JsonResponse({"error": "Choose a city first"}, status=400))
 
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")
@@ -97,7 +105,7 @@ def posts_list(request):
     if not text:
         return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
 
-    post = Post.objects.create(user=user, author=user.username, text=text)
+    post = Post.objects.create(user=user, author=user.username, text=text, city=user_city)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
 
 
@@ -115,6 +123,8 @@ def post_like(request, post_id):
     post = _get_post_or_404(post_id)
     if post is None:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+        return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")
@@ -149,6 +159,8 @@ def post_comment(request, post_id):
     post = _get_post_or_404(post_id)
     if post is None:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+        return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")

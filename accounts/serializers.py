@@ -22,6 +22,7 @@ def user_to_dict(user, viewer=None):
         'email': user.email,
         'fullName': profile.full_name,
         'bio': profile.bio,
+        'city': profile.city,
         'avatarUrl': profile.avatar_url,
         'followers': followers,
         'following': following,

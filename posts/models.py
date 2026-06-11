@@ -12,6 +12,7 @@ class Post(models.Model):
         on_delete=models.SET_NULL,
         related_name='posts',
     )
+    city = models.CharField(max_length=120, blank=True, default='')
     author = models.CharField(max_length=150, default='Anonymous')
     text = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
@@ -31,6 +32,7 @@ class Post(models.Model):
             'id': self.id,
             'author': self.user.username if self.user_id else self.author,
             'authorId': self.user_id,
+            'city': self.city,
             'text': self.text,
             'created': self.created.isoformat(),
             'minutesAgo': minutes_ago,

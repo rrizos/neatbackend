@@ -99,9 +99,12 @@ def signup(request):
         email = (body.get('email') or '').strip()
         password = body.get('password') or ''
         full_name = (body.get('fullName') or body.get('full_name') or '').strip()
+        city = (body.get('city') or '').strip()
 
         if not username or not password:
             return _bad_request('Username and password are required')
+        if not city:
+            return _bad_request('City is required')
         if len(password) < 8:
             return _bad_request('Password must be at least 8 characters')
 
@@ -113,7 +116,8 @@ def signup(request):
         profile = ensure_profile(user)
         profile.full_name = full_name
         profile.bio = (body.get('bio') or '').strip()
-        profile.save(update_fields=['full_name', 'bio'])
+        profile.city = city
+        profile.save(update_fields=['full_name', 'bio', 'city'])
         token = AuthToken.create_for_user(user)
         return _cors_json(JsonResponse(auth_payload(user, token), status=201))
     except Exception as exc:
@@ -179,8 +183,9 @@ def me(request):
             user.save(update_fields=['email'])
             profile.full_name = (body.get('fullName') or body.get('full_name') or profile.full_name).strip()
             profile.bio = (body.get('bio') if body.get('bio') is not None else profile.bio).strip()
+            profile.city = (body.get('city') or profile.city).strip()
             profile.avatar_url = (body.get('avatarUrl') or body.get('avatar_url') or profile.avatar_url).strip()
-            profile.save(update_fields=['full_name', 'bio', 'avatar_url'])
+            profile.save(update_fields=['full_name', 'bio', 'city', 'avatar_url'])
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
     except Exception as exc:
@@ -265,11 +270,20 @@ def suggestions(request):
         if viewer is None:
             return _unauthorized()
 
+        viewer_city = ensure_profile(viewer).city
         following_ids = Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
-        candidate_ids = User.objects.exclude(id=viewer.id).exclude(id__in=following_ids).order_by('username')
-        users = list(candidate_ids[:10])
+        candidate_ids = [
+            user
+            for user in User.objects.exclude(id=viewer.id).exclude(id__in=following_ids).order_by('username')
+            if ensure_profile(user).city == viewer_city
+        ]
+        users = candidate_ids[:10]
         if not users:
-            users = list(User.objects.exclude(id=viewer.id).order_by('username')[:10])
+            users = [
+                user
+                for user in User.objects.exclude(id=viewer.id).order_by('username')
+                if ensure_profile(user).city == viewer_city
+            ][:10]
         return _user_list_response(users, viewer)
     except Exception as exc:
         return _handle_exception('suggestions', exc)
@@ -292,6 +306,8 @@ def follow_toggle(request, username):
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
         if target == viewer:
             return _bad_request('You cannot follow yourself')
+        if ensure_profile(target).city != ensure_profile(viewer).city:
+            return _bad_request('You can only follow people in your city')
 
         body = _json_body(request) or {}
         should_follow = body.get('follow')
