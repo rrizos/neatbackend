@@ -11,8 +11,10 @@ def user_to_dict(user, viewer=None):
     followers = Follow.objects.filter(following=user).count()
     following = Follow.objects.filter(follower=user).count()
     is_following = False
+    is_mutual = False
     if viewer and viewer.is_authenticated and viewer != user:
         is_following = Follow.objects.filter(follower=viewer, following=user).exists()
+        is_mutual = is_following and Follow.objects.filter(follower=user, following=viewer).exists()
 
     return {
         'id': user.id,
@@ -24,6 +26,7 @@ def user_to_dict(user, viewer=None):
         'followers': followers,
         'following': following,
         'isFollowing': is_following,
+        'isMutual': is_mutual,
     }
 
 

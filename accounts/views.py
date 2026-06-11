@@ -53,6 +53,16 @@ def _handle_exception(context, exc):
     return _server_error()
 
 
+def _user_list_response(users, viewer):
+    return _cors_json(
+        JsonResponse(
+            {
+                'users': [user_to_dict(user, viewer=viewer) for user in users],
+            }
+        )
+    )
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'OPTIONS'])
 def health(request):
@@ -186,6 +196,73 @@ def profile_detail(request, username):
 
 
 @csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def followers_list(request, username):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
+
+        follower_ids = Follow.objects.filter(following=user).values_list('follower_id', flat=True)
+        users = User.objects.filter(id__in=follower_ids).order_by('username')
+        return _user_list_response(users, viewer)
+    except Exception as exc:
+        return _handle_exception('followers_list', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def following_list(request, username):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
+
+        following_ids = Follow.objects.filter(follower=user).values_list('following_id', flat=True)
+        users = User.objects.filter(id__in=following_ids).order_by('username')
+        return _user_list_response(users, viewer)
+    except Exception as exc:
+        return _handle_exception('following_list', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def suggestions(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        following_ids = Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+        candidate_ids = User.objects.exclude(id=viewer.id).exclude(id__in=following_ids).order_by('username')
+        users = list(candidate_ids[:10])
+        if not users:
+            users = list(User.objects.exclude(id=viewer.id).order_by('username')[:10])
+        return _user_list_response(users, viewer)
+    except Exception as exc:
+        return _handle_exception('suggestions', exc)
+
+
+@csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def follow_toggle(request, username):
     try:
@@ -213,6 +290,13 @@ def follow_toggle(request, username):
         else:
             Follow.objects.create(follower=viewer, following=target)
 
-        return _cors_json(JsonResponse({'user': user_to_dict(target, viewer=viewer)}))
+        return _cors_json(
+            JsonResponse(
+                {
+                    'user': user_to_dict(target, viewer=viewer),
+                    'viewer': user_to_dict(viewer, viewer=viewer),
+                }
+            )
+        )
     except Exception as exc:
         return _handle_exception('follow_toggle', exc)
