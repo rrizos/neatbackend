@@ -69,6 +69,26 @@ def _ensure_posts_table():
 
 
 @csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def cities_list(request):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    viewer = get_authenticated_user(request)
+    viewer_city = getattr(getattr(viewer, "profile", None), "city", "") if viewer else ""
+    cities = list(
+        Post.objects.exclude(city='')
+        .values_list('city', flat=True)
+        .distinct()
+        .order_by('city')
+    )
+    if viewer_city and viewer_city not in cities:
+        cities.insert(0, viewer_city)
+    return _cors_json(JsonResponse({"cities": cities}))
+
+
+@csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def posts_list(request):
     # Simple CORS support for development
@@ -83,7 +103,12 @@ def posts_list(request):
         if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
             viewer_city = viewer.profile.city
         posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows").all().order_by("-created")
-        if viewer_city:
+        requested_city = (request.GET.get("city") or "").strip()
+        if requested_city:
+            posts = posts.filter(city=requested_city)
+            if viewer_city and requested_city != viewer_city:
+                viewer = None
+        elif viewer_city:
             posts = posts.filter(city=viewer_city)
         data = [_post_to_dict(p, viewer=viewer) for p in posts]
         return _cors_json(JsonResponse(data, safe=False))
