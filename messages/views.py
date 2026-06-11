@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -37,6 +38,27 @@ def _json_body(request):
         return json.loads(request.body.decode('utf-8') or '{}')
     except Exception:
         return None
+
+
+def _ensure_messages_tables():
+    table_names = set()
+    with connection.cursor() as cursor:
+        table_names = set(connection.introspection.table_names(cursor))
+
+    models_to_create = []
+    if Conversation._meta.db_table not in table_names:
+        models_to_create.append(Conversation)
+    if ConversationMember._meta.db_table not in table_names:
+        models_to_create.append(ConversationMember)
+    if Message._meta.db_table not in table_names:
+        models_to_create.append(Message)
+
+    if not models_to_create:
+        return
+
+    with connection.schema_editor() as schema_editor:
+        for model in models_to_create:
+            schema_editor.create_model(model)
 
 
 def _message_to_dict(message):
@@ -85,6 +107,7 @@ def inbox(request):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
 
+    _ensure_messages_tables()
     viewer = require_authenticated_user(request)
     if viewer is None:
         return _unauthorized()
@@ -104,6 +127,7 @@ def conversation_detail(request, conversation_id):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
 
+    _ensure_messages_tables()
     viewer = require_authenticated_user(request)
     if viewer is None:
         return _unauthorized()
@@ -148,6 +172,7 @@ def start_conversation(request):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
 
+    _ensure_messages_tables()
     viewer = require_authenticated_user(request)
     if viewer is None:
         return _unauthorized()
@@ -161,7 +186,7 @@ def start_conversation(request):
         return _bad_request('Username is required')
 
     try:
-        other = User.objects.get(username=username)
+        other = User.objects.get(username__iexact=username)
     except User.DoesNotExist:
         return _cors_json(JsonResponse({'error': 'User not found'}, status=404))
 
@@ -177,4 +202,3 @@ def start_conversation(request):
             status=201,
         )
     )
-
