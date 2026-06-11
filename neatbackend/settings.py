@@ -51,7 +51,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'posts',
-    'messages',
+    'messages.apps.MessagesConfig',
 ]
 
 MIDDLEWARE = [
