@@ -171,7 +171,7 @@ def post_like(request, post_id):
 
 
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
+@require_http_methods(["POST", "DELETE", "OPTIONS"])
 def post_comment(request, post_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
@@ -199,3 +199,24 @@ def post_comment(request, post_id):
     PostComment.objects.create(post=post, user=user, text=text)
     _notify(post.user, user, 'commented on your post', post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
+
+
+@csrf_exempt
+@require_http_methods(["DELETE", "OPTIONS"])
+def post_delete(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if post.user_id != user.id:
+        return _cors_json(JsonResponse({"error": "You can only delete your own post"}, status=403))
+
+    post.delete()
+    return _cors_json(JsonResponse({"ok": True}))

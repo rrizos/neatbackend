@@ -43,6 +43,7 @@ class Event(models.Model):
             'description': self.description,
             'location': self.location,
             'imageUrl': self.image_url,
+            'creator': self.creator.username if self.creator_id else '',
             'organizer': self.organizer,
             'hasTickets': self.has_tickets,
             'ticketsUrl': self.tickets_url,

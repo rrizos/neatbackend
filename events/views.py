@@ -121,7 +121,7 @@ def events_list(request):
 
 
 @csrf_exempt
-@require_http_methods(['POST', 'OPTIONS'])
+@require_http_methods(['POST', 'DELETE', 'OPTIONS'])
 def event_attend(request, event_id):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
@@ -145,6 +145,25 @@ def event_attend(request, event_id):
         _notify(event.creator or viewer, viewer, 'is attending your event', 'event', event.id, event.title)
     event.save(update_fields=['attendees', 'updated'])
     return _cors_json(JsonResponse({'event': event.to_dict()}))
+
+
+@csrf_exempt
+@require_http_methods(['DELETE', 'OPTIONS'])
+def event_delete(request, event_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    _ensure_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+    try:
+        event = Event.objects.get(pk=event_id)
+    except Event.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Event not found'}, status=404))
+    if event.creator_id != viewer.id:
+        return _cors_json(JsonResponse({'error': 'You can only delete your own event'}, status=403))
+    event.delete()
+    return _cors_json(JsonResponse({'ok': True}))
 
 
 @csrf_exempt
