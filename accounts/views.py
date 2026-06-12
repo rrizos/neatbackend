@@ -177,8 +177,15 @@ def me(request):
             body = _json_body(request)
             if body is None:
                 return _bad_request('Invalid JSON')
+            new_username = (body.get('username') or user.username).strip()
+            if new_username != user.username:
+                if not new_username:
+                    return _bad_request('Username cannot be empty')
+                if User.objects.exclude(pk=user.pk).filter(username=new_username).exists():
+                    return _bad_request('Username is already taken')
+                user.username = new_username
             user.email = (body.get('email') or user.email).strip()
-            user.save(update_fields=['email'])
+            user.save(update_fields=['username', 'email'])
             profile.full_name = (body.get('fullName') or body.get('full_name') or profile.full_name).strip()
             profile.bio = (body.get('bio') if body.get('bio') is not None else profile.bio).strip()
             profile.city = (body.get('city') or profile.city).strip()

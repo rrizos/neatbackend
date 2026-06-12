@@ -16,7 +16,7 @@ class Event(models.Model):
     title = models.CharField(max_length=180)
     description = models.TextField(blank=True, default='')
     location = models.CharField(max_length=200, blank=True, default='')
-    image_url = models.URLField(blank=True, default='')
+    image_url = models.TextField(blank=True, default='')
     creator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
