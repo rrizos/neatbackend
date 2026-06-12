@@ -69,4 +69,5 @@ class PostComment(models.Model):
             'author': self.user.username,
             'text': self.text,
             'created': self.created.isoformat(),
+            'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
         }
