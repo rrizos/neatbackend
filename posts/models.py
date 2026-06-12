@@ -15,6 +15,7 @@ class Post(models.Model):
     city = models.CharField(max_length=120, blank=True, default='')
     author = models.CharField(max_length=150, default='Anonymous')
     text = models.TextField()
+    image_url = models.TextField(blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     likes = models.IntegerField(default=0)
     comments = models.TextField(blank=True, default='[]')
@@ -34,6 +35,7 @@ class Post(models.Model):
             'authorId': self.user_id,
             'city': self.city,
             'text': self.text,
+            'imageUrl': self.image_url,
             'created': self.created.isoformat(),
             'minutesAgo': minutes_ago,
             'likes': self.likes,

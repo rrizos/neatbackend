@@ -10,7 +10,7 @@ class Profile(models.Model):
     city = models.CharField(max_length=120, blank=True, default='')
     full_name = models.CharField(max_length=150, blank=True)
     bio = models.TextField(blank=True)
-    avatar_url = models.URLField(blank=True)
+    avatar_url = models.TextField(blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

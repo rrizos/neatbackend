@@ -129,8 +129,15 @@ def posts_list(request):
     text = body.get("text") or body.get("content")
     if not text:
         return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+    image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
 
-    post = Post.objects.create(user=user, author=user.username, text=text, city=user_city)
+    post = Post.objects.create(
+        user=user,
+        author=user.username,
+        text=text,
+        city=user_city,
+        image_url=image_url,
+    )
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
 
 
