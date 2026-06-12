@@ -288,6 +288,69 @@ def suggestions(request):
 
 
 @csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def search_users(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        query = (request.GET.get('q') or '').strip().lower()
+        viewer_city = ensure_profile(viewer).city
+        users = []
+        for user in User.objects.exclude(id=viewer.id).order_by('username'):
+            profile = ensure_profile(user)
+            if viewer_city and profile.city != viewer_city:
+                continue
+            if query and query not in user.username.lower() and query not in profile.full_name.lower() and query not in profile.bio.lower():
+                continue
+            users.append(user)
+            if len(users) >= 25:
+                break
+        return _user_list_response(users, viewer)
+    except Exception as exc:
+        return _handle_exception('search_users', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def search_users(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        query = (request.GET.get('q') or '').strip().lower()
+        viewer_city = ensure_profile(viewer).city
+        users_qs = User.objects.exclude(id=viewer.id).order_by('username')
+        if viewer_city:
+            users_qs = [
+                user for user in users_qs if ensure_profile(user).city == viewer_city
+            ]
+        else:
+            users_qs = list(users_qs)
+
+        if query:
+            users_qs = [
+                user
+                for user in users_qs
+                if query in user.username.lower()
+                or query in ensure_profile(user).full_name.lower()
+                or query in ensure_profile(user).bio.lower()
+            ]
+
+        return _user_list_response(users_qs[:25], viewer)
+    except Exception as exc:
+        return _handle_exception('search_users', exc)
+
+
+@csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def follow_toggle(request, username):
     try:

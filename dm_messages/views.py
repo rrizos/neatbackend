@@ -101,6 +101,12 @@ def _get_or_create_direct_conversation(user_a, user_b):
     return conversation
 
 
+def _same_city(user_a, user_b):
+    city_a = getattr(getattr(user_a, 'profile', None), 'city', '') or ''
+    city_b = getattr(getattr(user_b, 'profile', None), 'city', '') or ''
+    return bool(city_a) and city_a == city_b
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'OPTIONS'])
 def inbox(request):
@@ -158,6 +164,10 @@ def conversation_detail(request, conversation_id):
     body = _json_body(request)
     if body is None:
         return _bad_request('Invalid JSON')
+    members = list(conversation.members.select_related('user').all())
+    other_members = [m.user for m in members if m.user_id != viewer.id]
+    if other_members and not _same_city(viewer, other_members[0]):
+        return _bad_request('You can only message people in your city')
     text = (body.get('text') or '').strip()
     if not text:
         return _bad_request('Message text is required')
@@ -192,6 +202,8 @@ def start_conversation(request):
 
     if other == viewer:
         return _bad_request('You cannot message yourself')
+    if not _same_city(viewer, other):
+        return _bad_request('You can only message people in your city')
 
     conversation = _get_or_create_direct_conversation(viewer, other)
     return _cors_json(
