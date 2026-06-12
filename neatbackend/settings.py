@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'accounts',
     'posts',
     'dm_messages.apps.DmMessagesConfig',
+    'events.apps.EventsConfig',
 ]
 
 MIDDLEWARE = [

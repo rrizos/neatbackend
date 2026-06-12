@@ -6,5 +6,5 @@ urlpatterns = [
     path('api/auth/', include('accounts.urls')),
     path('api/posts/', include('posts.urls')),
     path('api/messages/', include('dm_messages.urls')),
+    path('api/events/', include('events.urls')),
 ]
-
