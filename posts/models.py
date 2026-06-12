@@ -33,6 +33,7 @@ class Post(models.Model):
             'id': self.id,
             'author': self.user.username if self.user_id else self.author,
             'authorId': self.user_id,
+            'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
             'city': self.city,
             'text': self.text,
             'imageUrl': self.image_url,
