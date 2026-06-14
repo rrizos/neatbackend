@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Notification
-from .models import Post, PostComment, PostLike
+from .models import Post, PostComment, PostLike, PostSave
 
 
 def _cors_json(response):
@@ -36,8 +36,10 @@ def _post_to_dict(post, viewer=None):
         data["comments"] = [comment.to_dict() for comment in row_comments]
     data["likes"] = post.like_rows.count() or post.likes
     data["liked"] = False
+    data["saved"] = False
     if viewer and viewer.is_authenticated:
         data["liked"] = PostLike.objects.filter(post=post, user=viewer).exists()
+        data["saved"] = PostSave.objects.filter(post=post, user=viewer).exists()
         data["following"] = post.user_id == viewer.id or post.user_id is not None
     else:
         data["following"] = post.user_id is not None
@@ -206,6 +208,56 @@ def post_comment(request, post_id):
     PostComment.objects.create(post=post, user=user, text=text)
     _notify(post.user, user, 'commented on your post', post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def post_save(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+
+    try:
+        body = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _cors_json(JsonResponse({"error": "Invalid JSON"}, status=400))
+
+    if body.get("saved"):
+        PostSave.objects.get_or_create(post=post, user=user)
+    else:
+        PostSave.objects.filter(post=post, user=user).delete()
+
+    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def saved_posts(request):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    save_rows = (
+        PostSave.objects
+        .filter(user=user)
+        .select_related('post__user')
+        .prefetch_related('post__comment_rows__user', 'post__like_rows')
+        .order_by('-created')
+    )
+    posts = [_post_to_dict(s.post, viewer=user) for s in save_rows]
+    return _cors_json(JsonResponse({"posts": posts}))
 
 
 @csrf_exempt

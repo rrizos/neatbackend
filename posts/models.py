@@ -55,6 +55,17 @@ class PostLike(models.Model):
         ]
 
 
+class PostSave(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='save_rows')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='post_saves')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['post', 'user'], name='unique_post_save'),
+        ]
+
+
 class PostComment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comment_rows')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='post_comments')
