@@ -292,9 +292,18 @@ def comment_like(request, comment_id):
         return _unauthorized()
 
     try:
-        comment = PostComment.objects.get(pk=comment_id)
+        comment = PostComment.objects.select_related('post').get(pk=comment_id)
     except PostComment.DoesNotExist:
         return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    # City restriction: viewer must be in the same city as the post
+    post_city = (comment.post.city or '').strip().lower()
+    viewer_city = getattr(getattr(user, 'profile', None), 'city', '').strip().lower()
+    if post_city and viewer_city and post_city != viewer_city:
+        return _cors_json(JsonResponse(
+            {"error": "You can only like comments on posts from your city"},
+            status=403,
+        ))
 
     try:
         body = json.loads(request.body or b'{}')
