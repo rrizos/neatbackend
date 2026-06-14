@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Notification
-from .models import Post, PostComment, PostLike, PostSave
+from .models import Post, PostComment, PostLike, PostSave, CommentLike
 
 
 def _cors_json(response):
@@ -31,9 +31,9 @@ def _unauthorized():
 
 def _post_to_dict(post, viewer=None):
     data = post.to_dict()
-    row_comments = list(post.comment_rows.select_related("user").all())
+    row_comments = list(post.comment_rows.select_related("user").prefetch_related("comment_likes").all())
     if row_comments:
-        data["comments"] = [comment.to_dict() for comment in row_comments]
+        data["comments"] = [comment.to_dict(viewer=viewer) for comment in row_comments]
     data["likes"] = post.like_rows.count() or post.likes
     data["liked"] = False
     data["saved"] = False
@@ -279,3 +279,34 @@ def post_delete(request, post_id):
 
     post.delete()
     return _cors_json(JsonResponse({"ok": True}))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def comment_like(request, comment_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    try:
+        comment = PostComment.objects.get(pk=comment_id)
+    except PostComment.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    if body.get("liked", True):
+        CommentLike.objects.get_or_create(comment=comment, user=user)
+    else:
+        CommentLike.objects.filter(comment=comment, user=user).delete()
+
+    return _cors_json(JsonResponse({
+        "likes": comment.comment_likes.count(),
+        "liked": CommentLike.objects.filter(comment=comment, user=user).exists(),
+    }))

@@ -75,11 +75,27 @@ class PostComment(models.Model):
     class Meta:
         ordering = ['created']
 
-    def to_dict(self):
+    def to_dict(self, viewer=None):
+        liked = False
+        if viewer and viewer.is_authenticated:
+            liked = self.comment_likes.filter(user=viewer).exists()
         return {
             'id': self.id,
             'author': self.user.username,
             'text': self.text,
             'created': self.created.isoformat(),
             'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
+            'likes': self.comment_likes.count(),
+            'liked': liked,
         }
+
+
+class CommentLike(models.Model):
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, related_name='comment_likes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='comment_likes')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['comment', 'user'], name='unique_comment_like'),
+        ]
