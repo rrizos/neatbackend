@@ -11,7 +11,7 @@ from .models import Post, PostComment, PostLike, PostSave, CommentLike
 def _cors_json(response):
     response["Access-Control-Allow-Origin"] = "*"
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response["Access-Control-Allow-Methods"] = "GET,POST,DELETE,OPTIONS"
     response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response["Pragma"] = "no-cache"
     response["Expires"] = "0"
@@ -31,7 +31,13 @@ def _unauthorized():
 
 def _post_to_dict(post, viewer=None):
     data = post.to_dict()
-    row_comments = list(post.comment_rows.select_related("user").prefetch_related("comment_likes").all())
+    row_comments = list(
+        post.comment_rows
+        .filter(parent__isnull=True)
+        .select_related("user")
+        .prefetch_related("comment_likes", "replies__user", "replies__comment_likes")
+        .all()
+    )
     if row_comments:
         data["comments"] = [comment.to_dict(viewer=viewer) for comment in row_comments]
     data["likes"] = post.like_rows.count() or post.likes
@@ -201,12 +207,37 @@ def post_comment(request, post_id):
     except Exception:
         return _cors_json(JsonResponse({"error": "Invalid JSON"}, status=400))
 
-    text = (body.get("text") or body.get("comment") or "").strip()
-    if not text:
-        return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+    if request.method == "DELETE":
+        comment_id = body.get("commentId") or body.get("id")
+        if not comment_id:
+            return _cors_json(JsonResponse({"error": "commentId required"}, status=400))
+        try:
+            comment = PostComment.objects.get(pk=int(comment_id), post=post)
+        except (PostComment.DoesNotExist, ValueError):
+            return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
+        if comment.user_id != user.id:
+            return _cors_json(JsonResponse({"error": "Cannot delete other user's comment"}, status=403))
+        comment.delete()
+        return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
-    PostComment.objects.create(post=post, user=user, text=text)
-    _notify(post.user, user, 'commented on your post', post)
+    # POST
+    text = (body.get("text") or body.get("comment") or "").strip()
+    image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
+    parent_id = body.get("parentId")
+
+    if not text and not image_url:
+        return _cors_json(JsonResponse({"error": "Missing text or image"}, status=400))
+
+    parent = None
+    if parent_id is not None:
+        try:
+            parent = PostComment.objects.get(pk=int(parent_id), post=post)
+        except (PostComment.DoesNotExist, ValueError):
+            return _cors_json(JsonResponse({"error": "Parent comment not found"}, status=404))
+
+    PostComment.objects.create(post=post, user=user, text=text, image_url=image_url, parent=parent)
+    if parent is None:
+        _notify(post.user, user, 'commented on your post', post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
 

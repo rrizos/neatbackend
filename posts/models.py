@@ -69,7 +69,9 @@ class PostSave(models.Model):
 class PostComment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comment_rows')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='post_comments')
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
     text = models.TextField()
+    image_url = models.TextField(blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -79,14 +81,21 @@ class PostComment(models.Model):
         liked = False
         if viewer and viewer.is_authenticated:
             liked = self.comment_likes.filter(user=viewer).exists()
+        replies = []
+        if not self.parent_id:
+            for r in self.replies.select_related('user').prefetch_related('comment_likes').order_by('created'):
+                replies.append(r.to_dict(viewer=viewer))
         return {
             'id': self.id,
             'author': self.user.username,
             'text': self.text,
+            'imageUrl': self.image_url,
+            'parentId': self.parent_id,
             'created': self.created.isoformat(),
             'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
             'likes': self.comment_likes.count(),
             'liked': liked,
+            'replies': replies,
         }
 
 
