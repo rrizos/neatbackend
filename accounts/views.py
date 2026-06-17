@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
-from .models import AuthToken, Follow, Notification
+from .models import AuthToken, Follow, Notification, SearchHistory
 from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
@@ -423,3 +423,45 @@ def notifications(request):
         return _cors_json(JsonResponse({'notifications': data, 'unread': unread}))
     except Exception as exc:
         return _handle_exception('notifications', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'DELETE', 'OPTIONS'])
+def search_history(request, query=None):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        if request.method == 'DELETE':
+            if query:
+                SearchHistory.objects.filter(user=viewer, query=query).delete()
+            else:
+                SearchHistory.objects.filter(user=viewer).delete()
+            return _cors_json(JsonResponse({'ok': True}))
+
+        if request.method == 'POST':
+            body = _json_body(request) or {}
+            q = (body.get('query') or '').strip()
+            if not q:
+                return _bad_request('query is required')
+            # upsert: delete old entry so the new one sorts to top
+            SearchHistory.objects.filter(user=viewer, query=q).delete()
+            SearchHistory.objects.create(user=viewer, query=q)
+            # keep at most 8 entries per user
+            old_ids = list(
+                SearchHistory.objects.filter(user=viewer)
+                .values_list('id', flat=True)[8:]
+            )
+            if old_ids:
+                SearchHistory.objects.filter(id__in=old_ids).delete()
+            return _cors_json(JsonResponse({'ok': True}))
+
+        # GET
+        qs = SearchHistory.objects.filter(user=viewer)[:8]
+        return _cors_json(JsonResponse({'queries': [h.query for h in qs]}))
+    except Exception as exc:
+        return _handle_exception('search_history', exc)

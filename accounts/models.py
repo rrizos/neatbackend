@@ -48,6 +48,23 @@ class AuthToken(models.Model):
         self.save(update_fields=['last_used'])
 
 
+class SearchHistory(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='search_history',
+    )
+    query = models.CharField(max_length=200)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created']
+        unique_together = [('user', 'query')]
+
+    def __str__(self):
+        return f'{self.user.username}: {self.query}'
+
+
 class Notification(models.Model):
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
