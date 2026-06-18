@@ -2,7 +2,7 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.db.models import Q
+
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -75,16 +75,22 @@ def _conversation_to_dict(conversation, viewer):
     other_members = [m.user for m in members if m.user_id != viewer.id]
     other = other_members[0] if other_members else viewer
     last_message = conversation.messages.select_related('sender').last()
-    unread = conversation.messages.exclude(sender=viewer)
     member = next((m for m in members if m.user_id == viewer.id), None)
+
+    unread_qs = conversation.messages.exclude(sender=viewer)
+    if member and member.last_read_at:
+        unread_qs = unread_qs.filter(created__gt=member.last_read_at)
+
+    other_profile = getattr(other, 'profile', None)
     return {
         'id': conversation.id,
         'otherUser': other.username,
-        'otherFullName': getattr(other.profile, 'full_name', '') if hasattr(other, 'profile') else '',
+        'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
+        'otherAvatarUrl': getattr(other_profile, 'avatar_url', '') if other_profile else '',
         'lastMessage': last_message.text if last_message else '',
         'lastSender': last_message.sender.username if last_message else '',
         'updated': conversation.updated.isoformat(),
-        'unreadCount': unread.count(),
+        'unreadCount': unread_qs.count(),
         'lastReadAt': member.last_read_at.isoformat() if member and member.last_read_at else '',
     }
 
