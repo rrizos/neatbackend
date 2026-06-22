@@ -108,3 +108,15 @@ class CommentLike(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['comment', 'user'], name='unique_comment_like'),
         ]
+
+
+class PostMedia(models.Model):
+    TYPES = [('image', 'Image'), ('video', 'Video')]
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='media_items')
+    media_type = models.CharField(max_length=10, choices=TYPES, default='image')
+    url = models.TextField()
+    duration = models.FloatField(null=True, blank=True)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']

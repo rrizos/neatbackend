@@ -6,7 +6,7 @@ from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification
 from accounts.serializers import user_to_dict
-from .models import Post, PostComment, PostLike, PostSave, CommentLike
+from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia
 
 
 def _cors_json(response):
@@ -61,6 +61,20 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None):
         data["likedByFollowing"] = [pl.user.username for pl in liked_by_following]
     else:
         data["following"] = post.user_id is not None
+
+    # Media items (prefetched when called from feed queries)
+    media_qs = list(post.media_items.all())
+    if media_qs:
+        data["media"] = [
+            {"type": m.media_type, "url": m.url, "duration": m.duration}
+            for m in media_qs
+        ]
+    elif data.get("imageUrl"):
+        # Backward-compat: old single-image posts surface as a one-item media array
+        data["media"] = [{"type": "image", "url": data["imageUrl"], "duration": None}]
+    else:
+        data["media"] = []
+
     return data
 
 
@@ -122,7 +136,7 @@ def posts_list(request):
         viewer_city = ""
         if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
             viewer_city = viewer.profile.city
-        posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows").all().order_by("-created")
+        posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
         requested_city = (request.GET.get("city") or "").strip()
         if requested_city:
             posts = posts.filter(city=requested_city)
@@ -154,15 +168,40 @@ def posts_list(request):
     text = body.get("text") or body.get("content")
     if not text:
         return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+
+    # Accept either a media array (new) or a single imageUrl (legacy)
+    media_list = body.get("media") or []
     image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
+    if not media_list and image_url:
+        media_list = [{"type": "image", "url": image_url}]
+
+    # Legacy field: keep first image url for old clients reading imageUrl directly
+    legacy_image_url = ""
+    for item in media_list:
+        if item.get("type") == "image" and item.get("url"):
+            legacy_image_url = item["url"]
+            break
 
     post = Post.objects.create(
         user=user,
         author=user.username,
         text=text,
         city=user_city,
-        image_url=image_url,
+        image_url=legacy_image_url,
     )
+
+    for i, item in enumerate(media_list[:4]):
+        url = (item.get("url") or "").strip()
+        media_type = item.get("type", "image")
+        if url and media_type in ("image", "video"):
+            PostMedia.objects.create(
+                post=post,
+                media_type=media_type,
+                url=url,
+                duration=item.get("duration"),
+                order=i,
+            )
+
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
 
 
@@ -301,7 +340,7 @@ def saved_posts(request):
         PostSave.objects
         .filter(user=user)
         .select_related('post__user')
-        .prefetch_related('post__comment_rows__user', 'post__like_rows')
+        .prefetch_related('post__comment_rows__user', 'post__like_rows', 'post__media_items')
         .order_by('-created')
     )
     viewer_following_ids = set(
