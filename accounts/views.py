@@ -197,6 +197,35 @@ def me(request):
         return _handle_exception('me', exc)
 
 
+def _mutuals_for(viewer, target):
+    """Return (preview_list, total_count) of users viewer follows who also follow target."""
+    if viewer is None or not viewer.is_authenticated or viewer == target:
+        return [], 0
+    viewer_following_ids = set(
+        Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+    )
+    target_follower_ids = set(
+        Follow.objects.filter(following=target).values_list('follower_id', flat=True)
+    )
+    mutual_ids = viewer_following_ids & target_follower_ids
+    total = len(mutual_ids)
+    preview_users = (
+        User.objects
+        .filter(id__in=mutual_ids)
+        .select_related('profile')
+        .order_by('username')[:3]
+    )
+    preview = []
+    for u in preview_users:
+        p = getattr(u, 'profile', None)
+        preview.append({
+            'username': u.username,
+            'fullName': getattr(p, 'full_name', '') if p else '',
+            'avatarUrl': getattr(p, 'avatar_url', '') if p else '',
+        })
+    return preview, total
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'OPTIONS'])
 def profile_detail(request, username):
@@ -213,7 +242,11 @@ def profile_detail(request, username):
         except User.DoesNotExist:
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
-        return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=viewer)}))
+        user_dict = user_to_dict(user, viewer=viewer)
+        mutuals_preview, mutuals_total = _mutuals_for(viewer, user)
+        user_dict['mutuals'] = mutuals_preview
+        user_dict['mutualsCount'] = mutuals_total
+        return _cors_json(JsonResponse({'user': user_dict}))
     except Exception as exc:
         return _handle_exception('profile_detail', exc)
 
