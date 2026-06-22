@@ -4,7 +4,8 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
-from accounts.models import Notification
+from accounts.models import Follow, Notification
+from accounts.serializers import user_to_dict
 from .models import Post, PostComment, PostLike, PostSave, CommentLike
 
 
@@ -29,7 +30,7 @@ def _unauthorized():
     return _cors_json(JsonResponse({"error": "Authentication required"}, status=401))
 
 
-def _post_to_dict(post, viewer=None):
+def _post_to_dict(post, viewer=None, viewer_following_ids=None):
     data = post.to_dict()
     row_comments = list(
         post.comment_rows
@@ -43,10 +44,21 @@ def _post_to_dict(post, viewer=None):
     data["likes"] = post.like_rows.count() or post.likes
     data["liked"] = False
     data["saved"] = False
+    data["likedByFollowing"] = []
     if viewer and viewer.is_authenticated:
         data["liked"] = PostLike.objects.filter(post=post, user=viewer).exists()
         data["saved"] = PostSave.objects.filter(post=post, user=viewer).exists()
         data["following"] = post.user_id == viewer.id or post.user_id is not None
+        if viewer_following_ids is None:
+            viewer_following_ids = set(
+                Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+            )
+        liked_by_following = list(
+            PostLike.objects.filter(post=post, user_id__in=viewer_following_ids)
+            .select_related('user')
+            .order_by('created')[:3]
+        )
+        data["likedByFollowing"] = [pl.user.username for pl in liked_by_following]
     else:
         data["following"] = post.user_id is not None
     return data
@@ -118,7 +130,12 @@ def posts_list(request):
                 viewer = None
         elif viewer_city:
             posts = posts.filter(city=viewer_city)
-        data = [_post_to_dict(p, viewer=viewer) for p in posts]
+        viewer_following_ids = None
+        if viewer and viewer.is_authenticated:
+            viewer_following_ids = set(
+                Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+            )
+        data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids) for p in posts]
         return _cors_json(JsonResponse(data, safe=False))
 
     # POST
@@ -287,7 +304,10 @@ def saved_posts(request):
         .prefetch_related('post__comment_rows__user', 'post__like_rows')
         .order_by('-created')
     )
-    posts = [_post_to_dict(s.post, viewer=user) for s in save_rows]
+    viewer_following_ids = set(
+        Follow.objects.filter(follower=user).values_list('following_id', flat=True)
+    )
+    posts = [_post_to_dict(s.post, viewer=user, viewer_following_ids=viewer_following_ids) for s in save_rows]
     return _cors_json(JsonResponse({"posts": posts}))
 
 
@@ -310,6 +330,47 @@ def post_delete(request, post_id):
 
     post.delete()
     return _cors_json(JsonResponse({"ok": True}))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def post_likers(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+
+    liker_ids = list(PostLike.objects.filter(post=post).values_list('user_id', flat=True))
+    likers = list(User.objects.filter(id__in=liker_ids).select_related('profile'))
+
+    following_ids = set(Follow.objects.filter(follower=user).values_list('following_id', flat=True))
+    follower_ids = set(Follow.objects.filter(following=user).values_list('follower_id', flat=True))
+
+    def _sort_key(liker):
+        lid = liker.id
+        if lid in following_ids and lid in follower_ids:
+            return 0  # mutual — know each other
+        if lid in following_ids:
+            return 1  # viewer follows them
+        if lid in follower_ids:
+            return 2  # they follow viewer
+        return 3       # no connection
+
+    likers.sort(key=_sort_key)
+
+    return _cors_json(JsonResponse({
+        'users': [user_to_dict(liker, viewer=user) for liker in likers]
+    }))
 
 
 @csrf_exempt
