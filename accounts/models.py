@@ -11,6 +11,7 @@ class Profile(models.Model):
     full_name = models.CharField(max_length=150, blank=True)
     bio = models.TextField(blank=True)
     avatar_url = models.TextField(blank=True, default='')
+    last_active = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

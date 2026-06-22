@@ -71,7 +71,7 @@ def _message_to_dict(message):
 
 
 def _conversation_to_dict(conversation, viewer):
-    members = list(conversation.members.select_related('user').all())
+    members = list(conversation.members.select_related('user__profile').all())
     other_members = [m.user for m in members if m.user_id != viewer.id]
     other = other_members[0] if other_members else viewer
     last_message = conversation.messages.select_related('sender').last()
@@ -82,11 +82,13 @@ def _conversation_to_dict(conversation, viewer):
         unread_qs = unread_qs.filter(created__gt=member.last_read_at)
 
     other_profile = getattr(other, 'profile', None)
+    other_last_active = getattr(other_profile, 'last_active', None) if other_profile else None
     return {
         'id': conversation.id,
         'otherUser': other.username,
         'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
         'otherAvatarUrl': getattr(other_profile, 'avatar_url', '') if other_profile else '',
+        'otherLastActive': other_last_active.isoformat() if other_last_active else '',
         'lastMessage': last_message.text if last_message else '',
         'lastSender': last_message.sender.username if last_message else '',
         'updated': conversation.updated.isoformat(),
@@ -180,6 +182,25 @@ def conversation_detail(request, conversation_id):
     message = Message.objects.create(conversation=conversation, sender=viewer, text=text)
     conversation.save(update_fields=['updated'])
     return _cors_json(JsonResponse(_message_to_dict(message), status=201))
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def update_presence(request):
+    """Heartbeat: updates the authenticated user's last_active timestamp."""
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    profile = getattr(viewer, 'profile', None)
+    if profile is not None:
+        profile.last_active = timezone.now()
+        profile.save(update_fields=['last_active'])
+
+    return _cors_json(JsonResponse({'ok': True}))
 
 
 @csrf_exempt
