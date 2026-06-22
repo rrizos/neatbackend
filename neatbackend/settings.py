@@ -144,3 +144,6 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Allow large JSON payloads for base64-encoded media uploads (4 images ≈ 20 MB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
