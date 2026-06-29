@@ -89,8 +89,21 @@ WSGI_APPLICATION = 'neatbackend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+_db_name = os.environ.get('DB_NAME', '').strip()
 _database_url = os.environ.get('DATABASE_URL', '').strip()
-if _database_url:
+
+if _db_name:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': _db_name,
+            'USER': os.environ.get('DB_USER', ''),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', ''),
+            'PORT': os.environ.get('DB_PORT', '3306'),
+        }
+    }
+elif _database_url:
     DATABASES = {
         'default': dj_database_url.parse(
             _database_url,
