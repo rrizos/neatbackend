@@ -28,6 +28,8 @@ def user_to_dict(user, viewer=None):
         'following': following,
         'isFollowing': is_following,
         'isMutual': is_mutual,
+        'isVerified': profile.is_verified,
+        'isAdmin': profile.is_admin,
     }
 
 

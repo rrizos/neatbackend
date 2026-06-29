@@ -12,6 +12,8 @@ class Profile(models.Model):
     bio = models.TextField(blank=True)
     avatar_url = models.TextField(blank=True, default='')
     last_active = models.DateTimeField(null=True, blank=True)
+    is_verified = models.BooleanField(default=False)
+    is_admin = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
