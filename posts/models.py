@@ -120,3 +120,38 @@ class PostMedia(models.Model):
 
     class Meta:
         ordering = ['order']
+
+
+class PostReport(models.Model):
+    REASONS = [
+        ('spam', 'Spam'),
+        ('nudity', 'Nudity or sexual activity'),
+        ('hate_speech', 'Hate speech or symbols'),
+        ('violence', 'Violence or dangerous organizations'),
+        ('illegal_goods', 'Sale of illegal or regulated goods'),
+        ('bullying', 'Bullying or harassment'),
+        ('intellectual_property', 'Intellectual property violation'),
+        ('self_injury', 'Suicide or self-injury'),
+        ('eating_disorders', 'Eating disorders'),
+        ('scam', 'Scam or fraud'),
+        ('false_information', 'False information'),
+        ('dislike', "I just don't like it"),
+        ('other', 'Something else'),
+    ]
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='reports')
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='post_reports',
+    )
+    reason = models.CharField(max_length=50, choices=REASONS)
+    sub_reason = models.CharField(max_length=200, blank=True, default='')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['post', 'reporter'], name='unique_post_report'),
+        ]
+
+    def __str__(self):
+        return f"{self.reporter.username} reported post {self.post_id}: {self.reason}"

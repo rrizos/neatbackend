@@ -6,7 +6,7 @@ from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification
 from accounts.serializers import user_to_dict
-from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia
+from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport
 
 
 def _cors_json(response):
@@ -466,3 +466,42 @@ def comment_like(request, comment_id):
         "likes": comment.comment_likes.count(),
         "liked": CommentLike.objects.filter(comment=comment, user=user).exists(),
     }))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def post_report(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    reason = body.get("reason", "").strip()
+    valid_reasons = {r[0] for r in PostReport.REASONS}
+    if reason not in valid_reasons:
+        return _cors_json(JsonResponse({"error": "Invalid reason"}, status=400))
+
+    sub_reason = body.get("sub_reason", "").strip()[:200]
+
+    _, created = PostReport.objects.get_or_create(
+        post=post,
+        reporter=user,
+        defaults={"reason": reason, "sub_reason": sub_reason},
+    )
+    if not created:
+        PostReport.objects.filter(post=post, reporter=user).update(
+            reason=reason, sub_reason=sub_reason
+        )
+
+    return _cors_json(JsonResponse({"ok": True}))
