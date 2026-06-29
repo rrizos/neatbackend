@@ -471,14 +471,28 @@ def forgot_password(request):
         if body is None:
             return _bad_request('Invalid JSON')
 
-        email = (body.get('email') or '').strip().lower()
-        if not email:
-            return _bad_request('Email is required')
+        identifier = (body.get('email') or '').strip()
+        if not identifier:
+            return _bad_request('Email or username is required')
 
-        try:
-            user = User.objects.get(email__iexact=email)
-        except User.DoesNotExist:
-            # Always respond ok — never reveal whether an email exists
+        user = None
+        if '@' in identifier:
+            try:
+                user = User.objects.get(email__iexact=identifier)
+            except User.DoesNotExist:
+                pass
+        else:
+            try:
+                user = User.objects.get(username__iexact=identifier)
+            except User.DoesNotExist:
+                pass
+
+        # Always respond ok — never reveal whether an email/username exists
+        if user is None:
+            return _cors_json(JsonResponse({'ok': True}))
+
+        email = (user.email or '').strip()
+        if not email:
             return _cors_json(JsonResponse({'ok': True}))
 
         code = f'{random.randint(0, 999999):06d}'
@@ -531,22 +545,35 @@ def reset_password(request):
         if body is None:
             return _bad_request('Invalid JSON')
 
-        email = (body.get('email') or '').strip().lower()
+        identifier = (body.get('email') or '').strip().lower()
         code = (body.get('code') or '').strip()
         new_password = body.get('newPassword') or ''
 
-        if not email or not code or not new_password:
+        if not identifier or not code or not new_password:
             return _bad_request('Email, code, and new password are required')
         if len(new_password) < 8:
             return _bad_request('Password must be at least 8 characters')
 
+        reset = None
         try:
             reset = PasswordResetCode.objects.filter(
-                email__iexact=email,
+                email__iexact=identifier,
                 code=code,
                 used=False,
             ).latest('created_at')
         except PasswordResetCode.DoesNotExist:
+            # Identifier might be a username — look up the user's email
+            try:
+                user_obj = User.objects.get(username__iexact=identifier)
+                reset = PasswordResetCode.objects.filter(
+                    user=user_obj,
+                    code=code,
+                    used=False,
+                ).latest('created_at')
+            except (User.DoesNotExist, PasswordResetCode.DoesNotExist):
+                pass
+
+        if reset is None:
             return _bad_request('Invalid or expired code')
 
         if reset.is_expired():
