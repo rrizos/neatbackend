@@ -62,6 +62,9 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None):
     else:
         data["following"] = post.user_id is not None
 
+    # Verified badge for the post author
+    data["authorVerified"] = getattr(getattr(post.user, 'profile', None), 'is_verified', False) if post.user_id else False
+
     # Media items (prefetched when called from feed queries)
     media_qs = list(post.media_items.all())
     if media_qs:
@@ -154,11 +157,12 @@ def posts_list(request):
             viewer_city = viewer.profile.city
         posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
         requested_city = (request.GET.get("city") or "").strip()
+        is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
             posts = posts.filter(city=requested_city)
             if viewer_city and requested_city != viewer_city:
                 viewer = None
-        elif viewer_city:
+        elif viewer_city and not is_admin_viewer:
             posts = posts.filter(city=viewer_city)
         viewer_following_ids = None
         if viewer and viewer.is_authenticated:
@@ -380,7 +384,8 @@ def post_delete(request, post_id):
     post = _get_post_or_404(post_id)
     if post is None:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
-    if post.user_id != user.id:
+    is_admin = getattr(getattr(user, 'profile', None), 'is_admin', False)
+    if post.user_id != user.id and not is_admin:
         return _cors_json(JsonResponse({"error": "You can only delete your own post"}, status=403))
 
     post.delete()

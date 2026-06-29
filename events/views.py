@@ -160,7 +160,8 @@ def event_delete(request, event_id):
         event = Event.objects.get(pk=event_id)
     except Event.DoesNotExist:
         return _cors_json(JsonResponse({'error': 'Event not found'}, status=404))
-    if event.creator_id != viewer.id:
+    is_admin = getattr(getattr(viewer, 'profile', None), 'is_admin', False)
+    if event.creator_id != viewer.id and not is_admin:
         return _cors_json(JsonResponse({'error': 'You can only delete your own event'}, status=403))
     event.delete()
     return _cors_json(JsonResponse({'ok': True}))
