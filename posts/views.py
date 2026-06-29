@@ -104,6 +104,22 @@ def _ensure_posts_table():
 
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
+def post_detail(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    viewer = get_authenticated_user(request)
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    data = _post_to_dict(post, viewer=viewer)
+    return _cors_json(JsonResponse(data))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
 def cities_list(request):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
