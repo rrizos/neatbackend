@@ -67,7 +67,10 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None):
         data["following"] = post.user_id is not None
 
     # Verified badge for the post author
-    data["authorVerified"] = getattr(getattr(post.user, 'profile', None), 'is_verified', False) if post.user_id else False
+    try:
+        data["authorVerified"] = bool(post.user_id and post.user and getattr(getattr(post.user, 'profile', None), 'is_verified', False))
+    except Exception:
+        data["authorVerified"] = False
 
     # Media items (prefetched when called from feed queries)
     media_qs = list(post.media_items.all())
@@ -159,7 +162,7 @@ def posts_list(request):
         viewer_city = ""
         if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
             viewer_city = viewer.profile.city
-        posts = Post.objects.select_related("user").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
+        posts = Post.objects.select_related("user", "user__profile").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
         requested_city = (request.GET.get("city") or "").strip()
         is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
