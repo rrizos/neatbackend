@@ -1,14 +1,16 @@
 import json
 import logging
+import random
 
 from django.contrib.auth import authenticate, get_user_model
+from django.core.mail import send_mail
 from django.db import IntegrityError
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
-from .models import AuthToken, Follow, Notification, SearchHistory
+from .models import AuthToken, Follow, Notification, PasswordResetCode, SearchHistory
 from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
@@ -456,6 +458,112 @@ def notifications(request):
         return _cors_json(JsonResponse({'notifications': data, 'unread': unread}))
     except Exception as exc:
         return _handle_exception('notifications', exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def forgot_password(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        body = _json_body(request)
+        if body is None:
+            return _bad_request('Invalid JSON')
+
+        email = (body.get('email') or '').strip().lower()
+        if not email:
+            return _bad_request('Email is required')
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            # Always respond ok — never reveal whether an email exists
+            return _cors_json(JsonResponse({'ok': True}))
+
+        code = f'{random.randint(0, 999999):06d}'
+        PasswordResetCode.objects.filter(user=user, used=False).delete()
+        PasswordResetCode.objects.create(user=user, email=email, code=code)
+
+        html = f'''
+        <div style="font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;background:#0a0a0a;padding:48px 24px;min-height:100vh">
+          <div style="max-width:400px;margin:0 auto">
+            <div style="text-align:center;margin-bottom:32px">
+              <div style="display:inline-block;width:56px;height:56px;background:#1e1e1e;border-radius:14px;line-height:56px;font-size:28px">🔑</div>
+            </div>
+            <h2 style="color:#fff;font-size:22px;font-weight:800;margin:0 0 8px;text-align:center">Reset your password</h2>
+            <p style="color:#a9a9a9;font-size:14px;margin:0 0 32px;text-align:center;line-height:1.5">Enter this code in the Neat app to continue</p>
+            <div style="background:#1e1e1e;border-radius:18px;padding:28px;text-align:center;margin-bottom:24px">
+              <div style="font-size:42px;font-weight:800;color:#fff;letter-spacing:14px;font-family:monospace">{code}</div>
+              <p style="color:#666;font-size:12px;margin:12px 0 0">Expires in 15 minutes</p>
+            </div>
+            <p style="color:#555;font-size:12px;text-align:center;line-height:1.6">If you didn't request a password reset, you can safely ignore this email. Your password won't change.</p>
+          </div>
+        </div>
+        '''
+
+        try:
+            send_mail(
+                subject='Your Neat verification code',
+                message=f'Your Neat password reset code is: {code}\n\nThis code expires in 15 minutes.',
+                from_email=None,
+                recipient_list=[email],
+                html_message=html,
+                fail_silently=False,
+            )
+        except Exception:
+            logger.exception('Failed to send reset email to %s', email)
+            return _server_error('Could not send email. Please check your address and try again.')
+
+        return _cors_json(JsonResponse({'ok': True}))
+    except Exception as exc:
+        return _handle_exception('forgot_password', exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def reset_password(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        body = _json_body(request)
+        if body is None:
+            return _bad_request('Invalid JSON')
+
+        email = (body.get('email') or '').strip().lower()
+        code = (body.get('code') or '').strip()
+        new_password = body.get('newPassword') or ''
+
+        if not email or not code or not new_password:
+            return _bad_request('Email, code, and new password are required')
+        if len(new_password) < 8:
+            return _bad_request('Password must be at least 8 characters')
+
+        try:
+            reset = PasswordResetCode.objects.filter(
+                email__iexact=email,
+                code=code,
+                used=False,
+            ).latest('created_at')
+        except PasswordResetCode.DoesNotExist:
+            return _bad_request('Invalid or expired code')
+
+        if reset.is_expired():
+            return _bad_request('Code has expired. Please request a new one.')
+
+        user = reset.user
+        user.set_password(new_password)
+        user.save()
+
+        reset.used = True
+        reset.save(update_fields=['used'])
+
+        ensure_profile(user)
+        token = AuthToken.create_for_user(user)
+        return _cors_json(JsonResponse(auth_payload(user, token)))
+    except Exception as exc:
+        return _handle_exception('reset_password', exc)
 
 
 @csrf_exempt

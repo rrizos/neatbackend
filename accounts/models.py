@@ -66,6 +66,24 @@ class SearchHistory(models.Model):
         return f'{self.user.username}: {self.query}'
 
 
+class PasswordResetCode(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='reset_codes',
+    )
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def is_expired(self):
+        return (timezone.now() - self.created_at).total_seconds() > 900
+
+
 class Notification(models.Model):
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,

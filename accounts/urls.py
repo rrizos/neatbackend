@@ -17,4 +17,6 @@ urlpatterns = [
     path('notifications/', views.notifications, name='notifications'),
     path('search-history/', views.search_history, name='search_history'),
     path('search-history/<str:query>/', views.search_history, name='search_history_item'),
+    path('forgot-password/', views.forgot_password, name='forgot_password'),
+    path('reset-password/', views.reset_password, name='reset_password'),
 ]
