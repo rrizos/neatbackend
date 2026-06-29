@@ -154,5 +154,5 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@neat.app')
 
-# Allow large JSON payloads for base64-encoded media uploads (4 images ≈ 20 MB)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
+MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = '/media/'

@@ -1,4 +1,8 @@
 import json
+import uuid
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import connection
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -180,22 +184,48 @@ def posts_list(request):
     if not user_city:
         return _cors_json(JsonResponse({"error": "Choose a city first"}, status=400))
 
-    try:
-        body = json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        return _cors_json(JsonResponse({"error": "Invalid JSON"}, status=400))
+    content_type = request.content_type or ""
+    if "multipart" in content_type:
+        # New path: multipart/form-data upload
+        text = (request.POST.get("text") or "").strip()
+        if not text:
+            return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+        try:
+            media_info = json.loads(request.POST.get("media", "[]"))
+        except Exception:
+            media_info = []
 
-    text = body.get("text") or body.get("content")
-    if not text:
-        return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+        media_list = []
+        for item in media_info[:4]:
+            if item.get("url"):
+                # External URL (e.g. Giphy) — store as-is
+                media_list.append({"type": item.get("type", "image"), "url": item["url"]})
+            else:
+                file_key = f"media_{item.get('file_index', len(media_list))}"
+                uploaded = request.FILES.get(file_key)
+                if uploaded:
+                    ext = "mp4" if item.get("type") == "video" else "jpg"
+                    filename = f"posts/{uuid.uuid4()}.{ext}"
+                    path = default_storage.save(filename, ContentFile(uploaded.read()))
+                    url = request.build_absolute_uri(default_storage.url(path))
+                    media_list.append({"type": item.get("type", "image"), "url": url})
+    else:
+        # Legacy path: JSON body with base64 data URLs
+        try:
+            body = json.loads(request.body.decode("utf-8") or "{}")
+        except Exception:
+            return _cors_json(JsonResponse({"error": "Invalid JSON"}, status=400))
 
-    # Accept either a media array (new) or a single imageUrl (legacy)
-    media_list = body.get("media") or []
-    image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
-    if not media_list and image_url:
-        media_list = [{"type": "image", "url": image_url}]
+        text = body.get("text") or body.get("content")
+        if not text:
+            return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
 
-    # Legacy field: keep first image url for old clients reading imageUrl directly
+        media_list = body.get("media") or []
+        image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
+        if not media_list and image_url:
+            media_list = [{"type": "image", "url": image_url}]
+
+    # Legacy field: keep first image URL for old clients reading imageUrl directly
     legacy_image_url = ""
     for item in media_list:
         if item.get("type") == "image" and item.get("url"):
