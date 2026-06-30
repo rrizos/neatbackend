@@ -53,10 +53,18 @@ class Message(models.Model):
 class MessageReport(models.Model):
     REASONS = [
         ('spam', 'Spam'),
-        ('harassment', 'Harassment or bullying'),
-        ('hate', 'Hate speech'),
-        ('inappropriate', 'Inappropriate content'),
-        ('other', 'Other'),
+        ('nudity', 'Nudity or sexual activity'),
+        ('hate_speech', 'Hate speech or symbols'),
+        ('violence', 'Violence or dangerous organizations'),
+        ('illegal_goods', 'Sale of illegal or regulated goods'),
+        ('bullying', 'Bullying or harassment'),
+        ('intellectual_property', 'Intellectual property violation'),
+        ('self_injury', 'Suicide or self-injury'),
+        ('eating_disorders', 'Eating disorders'),
+        ('scam', 'Scam or fraud'),
+        ('false_information', 'False information'),
+        ('dislike', "I just don't like it"),
+        ('other', 'Something else'),
     ]
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reports')
     reporter = models.ForeignKey(

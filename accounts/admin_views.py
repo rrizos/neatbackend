@@ -15,6 +15,19 @@ try:
 except Exception:
     _messages_available = False
 
+try:
+    from events.models import Event, EventReport
+    _events_available = True
+except Exception:
+    _events_available = False
+
+try:
+    from posts.models import CommentReport
+    from posts.models import PostComment
+    _comments_available = True
+except Exception:
+    _comments_available = False
+
 User = get_user_model()
 
 
@@ -85,12 +98,7 @@ def admin_reports(request):
     # Message reports
     if _messages_available:
         try:
-            msg_reports = (
-                MessageReport.objects
-                .select_related("message__conversation", "message__sender", "reporter")
-                .order_by("-created")
-            )
-            for r in msg_reports:
+            for r in MessageReport.objects.select_related("message__sender", "reporter").order_by("-created"):
                 msg = r.message
                 data.append({
                     "id": r.id,
@@ -98,15 +106,56 @@ def admin_reports(request):
                     "reason": r.reason,
                     "subReason": "",
                     "created": r.created.isoformat(),
-                    "reporter": {
-                        "id": r.reporter_id,
-                        "username": r.reporter.username,
-                    },
+                    "reporter": {"id": r.reporter_id, "username": r.reporter.username},
                     "content": {
                         "id": msg.id,
                         "conversationId": msg.conversation_id,
                         "author": msg.sender.username,
                         "text": msg.text,
+                    },
+                })
+        except Exception:
+            pass
+
+    # Event reports
+    if _events_available:
+        try:
+            for r in EventReport.objects.select_related("event", "event__creator", "reporter").order_by("-created"):
+                evt = r.event
+                data.append({
+                    "id": r.id,
+                    "type": "event",
+                    "reason": r.reason,
+                    "subReason": "",
+                    "created": r.created.isoformat(),
+                    "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+                    "content": {
+                        "id": evt.id,
+                        "conversationId": 0,
+                        "author": evt.creator.username if evt.creator_id else evt.organizer,
+                        "text": evt.title,
+                    },
+                })
+        except Exception:
+            pass
+
+    # Comment reports
+    if _comments_available:
+        try:
+            for r in CommentReport.objects.select_related("comment__post", "comment__user", "reporter").order_by("-created"):
+                c = r.comment
+                data.append({
+                    "id": r.id,
+                    "type": "comment",
+                    "reason": r.reason,
+                    "subReason": "",
+                    "created": r.created.isoformat(),
+                    "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+                    "content": {
+                        "id": c.id,
+                        "conversationId": 0,
+                        "author": c.user.username,
+                        "text": c.text,
                     },
                 })
         except Exception:
@@ -133,6 +182,16 @@ def admin_dismiss_report(request, report_id):
             report = MessageReport.objects.get(pk=report_id)
         except MessageReport.DoesNotExist:
             return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
+    elif report_type == "event" and _events_available:
+        try:
+            report = EventReport.objects.get(pk=report_id)
+        except EventReport.DoesNotExist:
+            return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
+    elif report_type == "comment" and _comments_available:
+        try:
+            report = CommentReport.objects.get(pk=report_id)
+        except CommentReport.DoesNotExist:
+            return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
     else:
         try:
             report = PostReport.objects.get(pk=report_id)
@@ -140,6 +199,28 @@ def admin_dismiss_report(request, report_id):
             return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
 
     report.delete()
+    return _cors_json(JsonResponse({"ok": True}))
+
+
+@csrf_exempt
+@require_http_methods(["DELETE", "OPTIONS"])
+def admin_delete_comment(request, comment_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    if not _comments_available:
+        return _cors_json(JsonResponse({"error": "Comments not available"}, status=404))
+
+    try:
+        comment = PostComment.objects.get(pk=comment_id)
+    except PostComment.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
+
+    comment.delete()
     return _cors_json(JsonResponse({"ok": True}))
 
 
