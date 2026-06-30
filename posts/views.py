@@ -241,7 +241,11 @@ def posts_list(request):
                     ext = "mp4" if is_video else "jpg"
                     raw = uploaded.read()
                     if is_video:
-                        raw = _transcode_to_h264(raw)
+                        try:
+                            raw = _transcode_to_h264(raw)
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).warning(f"ffmpeg transcode failed, using original: {e}")
                     filename = f"posts/{uuid.uuid4()}.{ext}"
                     path = default_storage.save(filename, ContentFile(raw))
                     url = default_storage.url(path)  # relative: /media/posts/uuid.jpg
