@@ -203,6 +203,39 @@ def admin_dismiss_report(request, report_id):
 
 
 @csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def admin_comments(request):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    if not _comments_available:
+        return _cors_json(JsonResponse({"comments": []}))
+
+    query = request.GET.get("q", "").strip()
+    qs = PostComment.objects.select_related("user", "post").order_by("-created")
+    if query:
+        from django.db.models import Q
+        qs = qs.filter(Q(text__icontains=query) | Q(user__username__icontains=query))
+
+    data = []
+    for c in qs[:100]:
+        data.append({
+            "id": c.id,
+            "author": c.user.username,
+            "text": c.text,
+            "postId": c.post_id,
+            "postText": (c.post.text[:120] if c.post else ""),
+            "created": c.created.isoformat(),
+        })
+
+    return _cors_json(JsonResponse({"comments": data}))
+
+
+@csrf_exempt
 @require_http_methods(["DELETE", "OPTIONS"])
 def admin_delete_comment(request, comment_id):
     if request.method == "OPTIONS":
