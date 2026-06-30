@@ -1,7 +1,8 @@
 import json
+import logging
 import os
 import subprocess
-import tempfile
+import threading
 import uuid
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -15,32 +16,37 @@ from accounts.models import Follow, Notification
 from accounts.serializers import user_to_dict
 from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport
 
+logger = logging.getLogger(__name__)
 
-def _transcode_to_h264(input_bytes):
-    """Transcode video to H.264/AAC so all Android devices can play it."""
-    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as src:
-        src.write(input_bytes)
-        src_path = src.name
-    dst_path = src_path + '_out.mp4'
-    try:
-        subprocess.run(
-            [
-                'ffmpeg', '-y', '-i', src_path,
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # ensure even dimensions
-                '-c:a', 'aac', '-b:a', '128k',
-                '-movflags', '+faststart',  # web-optimised: moov atom at front
-                dst_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
-        with open(dst_path, 'rb') as f:
-            return f.read()
-    finally:
-        os.unlink(src_path)
-        if os.path.exists(dst_path):
-            os.unlink(dst_path)
+
+def _transcode_file_in_background(full_path):
+    """
+    Transcodes the file at full_path from HEVC → H.264 in a background thread,
+    then atomically replaces the original. Upload response is not blocked.
+    """
+    def _run():
+        tmp_out = full_path + '.transcoding.mp4'
+        try:
+            subprocess.run(
+                [
+                    'ffmpeg', '-y', '-i', full_path,
+                    '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                    '-c:a', 'aac', '-b:a', '128k',
+                    '-movflags', '+faststart',
+                    tmp_out,
+                ],
+                check=True,
+                capture_output=True,
+            )
+            os.replace(tmp_out, full_path)
+            logger.info(f'Transcoded {full_path} to H.264')
+        except Exception as e:
+            logger.error(f'Transcoding failed for {full_path}: {e}')
+            if os.path.exists(tmp_out):
+                os.unlink(tmp_out)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _cors_json(response):
@@ -239,16 +245,12 @@ def posts_list(request):
                 if uploaded:
                     is_video = item.get("type") == "video"
                     ext = "mp4" if is_video else "jpg"
-                    raw = uploaded.read()
-                    if is_video:
-                        try:
-                            raw = _transcode_to_h264(raw)
-                        except Exception as e:
-                            import logging
-                            logging.getLogger(__name__).warning(f"ffmpeg transcode failed, using original: {e}")
                     filename = f"posts/{uuid.uuid4()}.{ext}"
-                    path = default_storage.save(filename, ContentFile(raw))
-                    url = default_storage.url(path)  # relative: /media/posts/uuid.jpg
+                    path = default_storage.save(filename, ContentFile(uploaded.read()))
+                    url = default_storage.url(path)
+                    if is_video:
+                        full_path = os.path.join(settings.MEDIA_ROOT, path)
+                        _transcode_file_in_background(full_path)
                     media_list.append({"type": item.get("type", "image"), "url": url})
     else:
         # Legacy path: JSON body with base64 data URLs
