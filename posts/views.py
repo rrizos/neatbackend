@@ -210,7 +210,7 @@ def posts_list(request):
                     ext = "mp4" if item.get("type") == "video" else "jpg"
                     filename = f"posts/{uuid.uuid4()}.{ext}"
                     path = default_storage.save(filename, ContentFile(uploaded.read()))
-                    url = request.build_absolute_uri(default_storage.url(path))
+                    url = default_storage.url(path)  # relative: /media/posts/uuid.jpg
                     media_list.append({"type": item.get("type", "image"), "url": url})
     else:
         # Legacy path: JSON body with base64 data URLs
