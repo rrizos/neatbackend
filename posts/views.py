@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import tempfile
 import uuid
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -11,6 +14,33 @@ from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification
 from accounts.serializers import user_to_dict
 from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport
+
+
+def _transcode_to_h264(input_bytes):
+    """Transcode video to H.264/AAC so all Android devices can play it."""
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as src:
+        src.write(input_bytes)
+        src_path = src.name
+    dst_path = src_path + '_out.mp4'
+    try:
+        subprocess.run(
+            [
+                'ffmpeg', '-y', '-i', src_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # ensure even dimensions
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',  # web-optimised: moov atom at front
+                dst_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        with open(dst_path, 'rb') as f:
+            return f.read()
+    finally:
+        os.unlink(src_path)
+        if os.path.exists(dst_path):
+            os.unlink(dst_path)
 
 
 def _cors_json(response):
@@ -207,9 +237,13 @@ def posts_list(request):
                 file_key = f"media_{item.get('file_index', len(media_list))}"
                 uploaded = request.FILES.get(file_key)
                 if uploaded:
-                    ext = "mp4" if item.get("type") == "video" else "jpg"
+                    is_video = item.get("type") == "video"
+                    ext = "mp4" if is_video else "jpg"
+                    raw = uploaded.read()
+                    if is_video:
+                        raw = _transcode_to_h264(raw)
                     filename = f"posts/{uuid.uuid4()}.{ext}"
-                    path = default_storage.save(filename, ContentFile(uploaded.read()))
+                    path = default_storage.save(filename, ContentFile(raw))
                     url = default_storage.url(path)  # relative: /media/posts/uuid.jpg
                     media_list.append({"type": item.get("type", "image"), "url": url})
     else:
