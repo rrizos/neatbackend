@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import subprocess
-import threading
 import uuid
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -19,34 +18,30 @@ from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedi
 logger = logging.getLogger(__name__)
 
 
-def _transcode_file_in_background(full_path):
+def _transcode_to_h264(full_path):
     """
-    Transcodes the file at full_path from HEVC → H.264 in a background thread,
-    then atomically replaces the original. Upload response is not blocked.
+    Transcode video at full_path to H.264/AAC in-place.
+    Raises on failure so the caller can decide how to handle it.
     """
-    def _run():
-        tmp_out = full_path + '.transcoding.mp4'
-        try:
-            subprocess.run(
-                [
-                    'ffmpeg', '-y', '-i', full_path,
-                    '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-                    '-c:a', 'aac', '-b:a', '128k',
-                    '-movflags', '+faststart',
-                    tmp_out,
-                ],
-                check=True,
-                capture_output=True,
-            )
-            os.replace(tmp_out, full_path)
-            logger.info(f'Transcoded {full_path} to H.264')
-        except Exception as e:
-            logger.error(f'Transcoding failed for {full_path}: {e}')
-            if os.path.exists(tmp_out):
-                os.unlink(tmp_out)
-
-    threading.Thread(target=_run, daemon=True).start()
+    tmp_out = full_path + '.tmp.mp4'
+    try:
+        subprocess.run(
+            [
+                'ffmpeg', '-y', '-i', full_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',
+                tmp_out,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        os.replace(tmp_out, full_path)
+    except Exception:
+        if os.path.exists(tmp_out):
+            os.unlink(tmp_out)
+        raise
 
 
 def _cors_json(response):
@@ -250,7 +245,10 @@ def posts_list(request):
                     url = default_storage.url(path)
                     if is_video:
                         full_path = os.path.join(settings.MEDIA_ROOT, path)
-                        _transcode_file_in_background(full_path)
+                        try:
+                            _transcode_to_h264(full_path)
+                        except Exception as e:
+                            logger.error(f'Transcoding failed for {full_path}: {e}')
                     media_list.append({"type": item.get("type", "image"), "url": url})
     else:
         # Legacy path: JSON body with base64 data URLs
