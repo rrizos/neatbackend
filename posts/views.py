@@ -324,7 +324,8 @@ def post_comment(request, post_id):
             comment = PostComment.objects.get(pk=int(comment_id), post=post)
         except (PostComment.DoesNotExist, ValueError):
             return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
-        if comment.user_id != user.id:
+        is_admin = getattr(getattr(user, 'profile', None), 'is_admin', False)
+        if comment.user_id != user.id and not is_admin:
             return _cors_json(JsonResponse({"error": "Cannot delete other user's comment"}, status=403))
         comment.delete()
         return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
