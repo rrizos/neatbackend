@@ -29,7 +29,12 @@ def _transcode_to_h264(full_path):
             [
                 'ffmpeg', '-y', '-i', full_path,
                 '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                # Scale down to fit within 1280x1280, maintain AR, round to even dims.
+                # This keeps the output at H.264 Level ≤ 4.0 which all Android 7+
+                # hardware decoders support reliably (Level 5.0 causes runtime crashes
+                # even when reported as format_supported=YES).
+                '-vf', 'scale=1280:1280:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-profile:v', 'high', '-level', '4.0',
                 '-c:a', 'aac', '-b:a', '128k',
                 '-movflags', '+faststart',
                 tmp_out,
@@ -249,6 +254,11 @@ def posts_list(request):
                             _transcode_to_h264(full_path)
                         except Exception as e:
                             logger.error(f'Transcoding failed for {full_path}: {e}')
+                            default_storage.delete(path)
+                            return _cors_json(JsonResponse(
+                                {'error': 'Video processing failed. Please try again.'},
+                                status=500,
+                            ))
                     media_list.append({"type": item.get("type", "image"), "url": url})
     else:
         # Legacy path: JSON body with base64 data URLs
