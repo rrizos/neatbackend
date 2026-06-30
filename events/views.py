@@ -8,13 +8,13 @@ from django.views.decorators.http import require_http_methods
 from accounts.auth import require_authenticated_user
 from accounts.models import Notification
 
-from .models import Event, EventAttendance, EventComment
+from .models import Event, EventAttendance, EventComment, EventReport
 
 
 def _cors_json(response):
     response['Access-Control-Allow-Origin'] = '*'
     response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    response['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    response['Access-Control-Allow-Methods'] = 'GET,POST,DELETE,OPTIONS'
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
@@ -41,12 +41,9 @@ def _ensure_tables():
     with connection.cursor() as cursor:
         table_names = set(connection.introspection.table_names(cursor))
     models_to_create = []
-    if Event._meta.db_table not in table_names:
-        models_to_create.append(Event)
-    if EventAttendance._meta.db_table not in table_names:
-        models_to_create.append(EventAttendance)
-    if EventComment._meta.db_table not in table_names:
-        models_to_create.append(EventComment)
+    for model in [Event, EventAttendance, EventComment, EventReport]:
+        if model._meta.db_table not in table_names:
+            models_to_create.append(model)
     if not models_to_create:
         return
     with connection.schema_editor() as schema_editor:
@@ -196,3 +193,33 @@ def event_comments(request, event_id):
     comment = EventComment.objects.create(event=event, user=viewer, text=text)
     _notify(event.creator or viewer, viewer, 'commented on your event', 'event', event.id, event.title)
     return _cors_json(JsonResponse({'comment': comment.to_dict()}, status=201))
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def event_report(request, event_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    _ensure_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+    try:
+        event = Event.objects.get(pk=event_id)
+    except Event.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Event not found'}, status=404))
+    if event.creator_id == viewer.id:
+        return _bad_request('You cannot report your own event')
+
+    body = _json_body(request) or {}
+    reason = (body.get('reason') or 'other').strip()
+    valid_reasons = {r[0] for r in EventReport.REASONS}
+    if reason not in valid_reasons:
+        reason = 'other'
+
+    EventReport.objects.get_or_create(
+        event=event,
+        reporter=viewer,
+        defaults={'reason': reason},
+    )
+    return _cors_json(JsonResponse({'ok': True}))

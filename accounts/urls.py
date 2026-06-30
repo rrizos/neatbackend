@@ -26,4 +26,5 @@ urlpatterns = [
     path('admin/users/', admin_views.admin_users, name='admin_users'),
     path('admin/users/<str:username>/verify/', admin_views.admin_verify_user, name='admin_verify_user'),
     path('admin/users/<str:username>/delete/', admin_views.admin_delete_user, name='admin_delete_user'),
+    path('admin/messages/<int:message_id>/', admin_views.admin_delete_message, name='admin_delete_message'),
 ]

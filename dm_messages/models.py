@@ -49,3 +49,32 @@ class Message(models.Model):
     class Meta:
         ordering = ['created']
 
+
+class MessageReport(models.Model):
+    REASONS = [
+        ('spam', 'Spam'),
+        ('harassment', 'Harassment or bullying'),
+        ('hate', 'Hate speech'),
+        ('inappropriate', 'Inappropriate content'),
+        ('other', 'Other'),
+    ]
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reports')
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='message_reports',
+    )
+    reason = models.CharField(max_length=50, choices=REASONS, default='other')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['message', 'reporter'],
+                name='unique_message_report',
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.reporter.username} reported message {self.message_id}: {self.reason}"
+

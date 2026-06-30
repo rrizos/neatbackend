@@ -10,7 +10,7 @@ from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
 
-from .models import Conversation, ConversationMember, Message
+from .models import Conversation, ConversationMember, Message, MessageReport
 
 User = get_user_model()
 
@@ -18,7 +18,7 @@ User = get_user_model()
 def _cors_json(response):
     response['Access-Control-Allow-Origin'] = '*'
     response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    response['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    response['Access-Control-Allow-Methods'] = 'GET,POST,DELETE,OPTIONS'
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
@@ -41,17 +41,13 @@ def _json_body(request):
 
 
 def _ensure_messages_tables():
-    table_names = set()
     with connection.cursor() as cursor:
         table_names = set(connection.introspection.table_names(cursor))
 
     models_to_create = []
-    if Conversation._meta.db_table not in table_names:
-        models_to_create.append(Conversation)
-    if ConversationMember._meta.db_table not in table_names:
-        models_to_create.append(ConversationMember)
-    if Message._meta.db_table not in table_names:
-        models_to_create.append(Message)
+    for model in [Conversation, ConversationMember, Message, MessageReport]:
+        if model._meta.db_table not in table_names:
+            models_to_create.append(model)
 
     if not models_to_create:
         return
@@ -241,3 +237,66 @@ def start_conversation(request):
             status=201,
         )
     )
+
+
+@csrf_exempt
+@require_http_methods(['DELETE', 'OPTIONS'])
+def message_delete(request, conversation_id, message_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    try:
+        conversation = Conversation.objects.get(pk=conversation_id, members__user=viewer)
+    except Conversation.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation, sender=viewer)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    message.delete()
+    return _cors_json(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def message_report(request, conversation_id, message_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    try:
+        conversation = Conversation.objects.get(pk=conversation_id, members__user=viewer)
+    except Conversation.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    if message.sender == viewer:
+        return _bad_request('You cannot report your own message')
+
+    body = _json_body(request) or {}
+    reason = body.get('reason', 'other').strip()
+    valid_reasons = {r[0] for r in MessageReport.REASONS}
+    if reason not in valid_reasons:
+        reason = 'other'
+
+    MessageReport.objects.get_or_create(
+        message=message,
+        reporter=viewer,
+        defaults={'reason': reason},
+    )
+    return _cors_json(JsonResponse({'ok': True}))

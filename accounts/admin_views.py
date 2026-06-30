@@ -9,6 +9,12 @@ from accounts.auth import require_authenticated_user
 from accounts.serializers import ensure_profile, user_to_dict
 from posts.models import Post, PostReport
 
+try:
+    from dm_messages.models import Message, MessageReport
+    _messages_available = True
+except Exception:
+    _messages_available = False
+
 User = get_user_model()
 
 
@@ -48,17 +54,19 @@ def admin_reports(request):
     if err:
         return err
 
-    reports = (
+    data = []
+
+    # Post reports
+    post_reports = (
         PostReport.objects
         .select_related("post", "post__user", "reporter")
         .order_by("-created")
     )
-
-    data = []
-    for r in reports:
+    for r in post_reports:
         post = r.post
         data.append({
             "id": r.id,
+            "type": "post",
             "reason": r.reason,
             "subReason": r.sub_reason,
             "created": r.created.isoformat(),
@@ -66,14 +74,45 @@ def admin_reports(request):
                 "id": r.reporter_id,
                 "username": r.reporter.username,
             },
-            "post": {
+            "content": {
                 "id": post.id,
+                "conversationId": 0,
                 "author": post.user.username if post.user_id else post.author,
                 "text": post.text,
-                "created": post.created.isoformat(),
             },
         })
 
+    # Message reports
+    if _messages_available:
+        try:
+            msg_reports = (
+                MessageReport.objects
+                .select_related("message__conversation", "message__sender", "reporter")
+                .order_by("-created")
+            )
+            for r in msg_reports:
+                msg = r.message
+                data.append({
+                    "id": r.id,
+                    "type": "message",
+                    "reason": r.reason,
+                    "subReason": "",
+                    "created": r.created.isoformat(),
+                    "reporter": {
+                        "id": r.reporter_id,
+                        "username": r.reporter.username,
+                    },
+                    "content": {
+                        "id": msg.id,
+                        "conversationId": msg.conversation_id,
+                        "author": msg.sender.username,
+                        "text": msg.text,
+                    },
+                })
+        except Exception:
+            pass
+
+    data.sort(key=lambda x: x["created"], reverse=True)
     return _cors_json(JsonResponse({"reports": data}))
 
 
@@ -87,12 +126,42 @@ def admin_dismiss_report(request, report_id):
     if err:
         return err
 
-    try:
-        report = PostReport.objects.get(pk=report_id)
-    except PostReport.DoesNotExist:
-        return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
+    report_type = request.GET.get("type", "post")
+
+    if report_type == "message" and _messages_available:
+        try:
+            report = MessageReport.objects.get(pk=report_id)
+        except MessageReport.DoesNotExist:
+            return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
+    else:
+        try:
+            report = PostReport.objects.get(pk=report_id)
+        except PostReport.DoesNotExist:
+            return _cors_json(JsonResponse({"error": "Report not found"}, status=404))
 
     report.delete()
+    return _cors_json(JsonResponse({"ok": True}))
+
+
+@csrf_exempt
+@require_http_methods(["DELETE", "OPTIONS"])
+def admin_delete_message(request, message_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    if not _messages_available:
+        return _cors_json(JsonResponse({"error": "Messages not available"}, status=404))
+
+    try:
+        message = Message.objects.get(pk=message_id)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Message not found"}, status=404))
+
+    message.delete()
     return _cors_json(JsonResponse({"ok": True}))
 
 

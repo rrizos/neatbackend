@@ -10,7 +10,7 @@ from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification
 from accounts.serializers import user_to_dict
-from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport
+from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport
 
 
 def _cors_json(response):
@@ -504,6 +504,50 @@ def comment_like(request, comment_id):
         "likes": comment.comment_likes.count(),
         "liked": CommentLike.objects.filter(comment=comment, user=user).exists(),
     }))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def comment_report(request, comment_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    try:
+        comment = PostComment.objects.get(pk=comment_id)
+    except PostComment.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
+
+    if comment.user_id == user.id:
+        return _cors_json(JsonResponse({"error": "You cannot report your own comment"}, status=400))
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    reason = body.get("reason", "other").strip()
+    valid_reasons = {r[0] for r in CommentReport.REASONS}
+    if reason not in valid_reasons:
+        reason = "other"
+
+    # Ensure CommentReport table exists
+    from django.db import connection as _conn
+    with _conn.cursor() as _cursor:
+        existing = set(_conn.introspection.table_names(_cursor))
+    if CommentReport._meta.db_table not in existing:
+        with _conn.schema_editor() as _editor:
+            _editor.create_model(CommentReport)
+
+    CommentReport.objects.get_or_create(
+        comment=comment,
+        reporter=user,
+        defaults={"reason": reason},
+    )
+    return _cors_json(JsonResponse({"ok": True}))
 
 
 @csrf_exempt

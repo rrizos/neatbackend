@@ -63,6 +63,32 @@ class EventAttendance(models.Model):
         ]
 
 
+class EventReport(models.Model):
+    REASONS = [
+        ('spam', 'Spam'),
+        ('harassment', 'Harassment or bullying'),
+        ('hate', 'Hate speech'),
+        ('inappropriate', 'Inappropriate content'),
+        ('other', 'Other'),
+    ]
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='reports')
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='event_reports',
+    )
+    reason = models.CharField(max_length=50, choices=REASONS, default='other')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['event', 'reporter'], name='unique_event_report'),
+        ]
+
+    def __str__(self):
+        return f"{self.reporter.username} reported event {self.event_id}: {self.reason}"
+
+
 class EventComment(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='comment_rows')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='event_comments')

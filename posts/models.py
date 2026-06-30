@@ -155,3 +155,29 @@ class PostReport(models.Model):
 
     def __str__(self):
         return f"{self.reporter.username} reported post {self.post_id}: {self.reason}"
+
+
+class CommentReport(models.Model):
+    REASONS = [
+        ('spam', 'Spam'),
+        ('harassment', 'Harassment or bullying'),
+        ('hate', 'Hate speech'),
+        ('inappropriate', 'Inappropriate content'),
+        ('other', 'Other'),
+    ]
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, related_name='reports')
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='comment_reports',
+    )
+    reason = models.CharField(max_length=50, choices=REASONS, default='other')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['comment', 'reporter'], name='unique_comment_report'),
+        ]
+
+    def __str__(self):
+        return f"{self.reporter.username} reported comment {self.comment_id}: {self.reason}"
