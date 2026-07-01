@@ -4,7 +4,6 @@ import os
 import subprocess
 import uuid
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import connection
 from django.http import JsonResponse, HttpResponse
@@ -17,6 +16,9 @@ from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedi
 
 logger = logging.getLogger(__name__)
 
+# Reject oversized video uploads before spending disk/CPU on them.
+_MAX_VIDEO_UPLOAD_BYTES = 150 * 1024 * 1024
+
 
 def _transcode_to_h264(full_path):
     """
@@ -28,19 +30,30 @@ def _transcode_to_h264(full_path):
         subprocess.run(
             [
                 'ffmpeg', '-y', '-i', full_path,
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                # Scale down to fit within 1280x1280, maintain AR, round to even dims.
-                # This keeps the output at H.264 Level ≤ 4.0 which all Android 7+
-                # hardware decoders support reliably (Level 5.0 causes runtime crashes
+                # veryfast trades a little compression efficiency for a large
+                # cut in encode CPU time — this box is CPU-constrained and
+                # every upload currently blocks a request while it runs.
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25',
+                # Scale down to fit within 960x960, maintain AR, round to even
+                # dims. Smaller than the previous 1280 cap: feed clips are
+                # viewed at phone-screen size, so this is still sharp there
+                # while cutting encode time and output size meaningfully.
+                # Keeps H.264 Level ≤ 4.0, which all Android 7+ hardware
+                # decoders support reliably (Level 5.0 causes runtime crashes
                 # even when reported as format_supported=YES).
-                '-vf', 'scale=1280:1280:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-vf', 'scale=960:960:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2',
                 '-profile:v', 'high', '-level', '4.0',
-                '-c:a', 'aac', '-b:a', '128k',
+                # Hard cap on bitrate so a busy/high-motion clip can't blow
+                # past what a feed video needs — bounds worst-case file size
+                # (and therefore serving bandwidth) regardless of content.
+                '-maxrate', '2000k', '-bufsize', '4000k',
+                '-c:a', 'aac', '-b:a', '96k',
                 '-movflags', '+faststart',
                 tmp_out,
             ],
             check=True,
             capture_output=True,
+            timeout=180,
         )
         os.replace(tmp_out, full_path)
     except Exception:
@@ -244,9 +257,17 @@ def posts_list(request):
                 uploaded = request.FILES.get(file_key)
                 if uploaded:
                     is_video = item.get("type") == "video"
+                    if is_video and uploaded.size > _MAX_VIDEO_UPLOAD_BYTES:
+                        return _cors_json(JsonResponse(
+                            {"error": "Video is too large (max 150MB)."},
+                            status=400,
+                        ))
                     ext = "mp4" if is_video else "jpg"
                     filename = f"posts/{uuid.uuid4()}.{ext}"
-                    path = default_storage.save(filename, ContentFile(uploaded.read()))
+                    # Save the UploadedFile directly (it streams via .chunks()
+                    # internally) instead of buffering the whole file into a
+                    # Python bytes object first via ContentFile(uploaded.read()).
+                    path = default_storage.save(filename, uploaded)
                     url = default_storage.url(path)
                     if is_video:
                         full_path = os.path.join(settings.MEDIA_ROOT, path)
