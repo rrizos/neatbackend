@@ -36,6 +36,39 @@ class Follow(models.Model):
         return f'{self.follower} follows {self.following}'
 
 
+class Block(models.Model):
+    blocker = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocking')
+    blocked = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocked_by')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['blocker', 'blocked'], name='unique_block_relationship'),
+            models.CheckConstraint(condition=~models.Q(blocker=models.F('blocked')), name='prevent_self_block'),
+        ]
+
+    def __str__(self):
+        return f'{self.blocker} blocked {self.blocked}'
+
+
+def is_blocked(user_a, user_b):
+    """True if either user has blocked the other."""
+    if user_a is None or user_b is None or user_a == user_b:
+        return False
+    return Block.objects.filter(
+        models.Q(blocker=user_a, blocked=user_b) | models.Q(blocker=user_b, blocked=user_a)
+    ).exists()
+
+
+def blocked_user_ids(user):
+    """IDs of users `user` has blocked, or that have blocked `user`."""
+    if user is None or not user.is_authenticated:
+        return set()
+    blocked_by_me = set(Block.objects.filter(blocker=user).values_list('blocked_id', flat=True))
+    blocking_me = set(Block.objects.filter(blocked=user).values_list('blocker_id', flat=True))
+    return blocked_by_me | blocking_me
+
+
 class AuthToken(models.Model):
     key = models.CharField(max_length=64, primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='auth_tokens')

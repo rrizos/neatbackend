@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
-from .models import AuthToken, Follow, Notification, PasswordResetCode, SearchHistory
+from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
 from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
@@ -164,7 +164,7 @@ def logout(request):
 
 
 @csrf_exempt
-@require_http_methods(['GET', 'PATCH', 'OPTIONS'])
+@require_http_methods(['GET', 'PATCH', 'DELETE', 'OPTIONS'])
 def me(request):
     try:
         if request.method == 'OPTIONS':
@@ -173,6 +173,10 @@ def me(request):
         user = require_authenticated_user(request)
         if user is None:
             return _unauthorized()
+
+        if request.method == 'DELETE':
+            user.delete()
+            return _cors_json(JsonResponse({'ok': True}))
 
         profile = ensure_profile(user)
         if request.method == 'PATCH':
@@ -270,7 +274,8 @@ def followers_list(request, username):
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
         follower_ids = Follow.objects.filter(following=user).values_list('follower_id', flat=True)
-        users = User.objects.filter(id__in=follower_ids).order_by('username')
+        hidden_ids = blocked_user_ids(viewer)
+        users = User.objects.filter(id__in=follower_ids).exclude(id__in=hidden_ids).order_by('username')
         return _user_list_response(users, viewer)
     except Exception as exc:
         return _handle_exception('followers_list', exc)
@@ -293,7 +298,8 @@ def following_list(request, username):
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
         following_ids = Follow.objects.filter(follower=user).values_list('following_id', flat=True)
-        users = User.objects.filter(id__in=following_ids).order_by('username')
+        hidden_ids = blocked_user_ids(viewer)
+        users = User.objects.filter(id__in=following_ids).exclude(id__in=hidden_ids).order_by('username')
         return _user_list_response(users, viewer)
     except Exception as exc:
         return _handle_exception('following_list', exc)
@@ -312,16 +318,17 @@ def suggestions(request):
 
         viewer_city = ensure_profile(viewer).city
         following_ids = Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+        hidden_ids = blocked_user_ids(viewer)
         candidate_ids = [
             user
-            for user in User.objects.exclude(id=viewer.id).exclude(id__in=following_ids).order_by('username')
+            for user in User.objects.exclude(id=viewer.id).exclude(id__in=following_ids).exclude(id__in=hidden_ids).order_by('username')
             if ensure_profile(user).city == viewer_city
         ]
         users = candidate_ids[:10]
         if not users:
             users = [
                 user
-                for user in User.objects.exclude(id=viewer.id).order_by('username')
+                for user in User.objects.exclude(id=viewer.id).exclude(id__in=hidden_ids).order_by('username')
                 if ensure_profile(user).city == viewer_city
             ][:10]
         return _user_list_response(users, viewer)
@@ -342,35 +349,8 @@ def search_users(request):
 
         query = (request.GET.get('q') or '').strip().lower()
         viewer_city = ensure_profile(viewer).city
-        users = []
-        for user in User.objects.exclude(id=viewer.id).order_by('username'):
-            profile = ensure_profile(user)
-            if viewer_city and profile.city != viewer_city:
-                continue
-            if query and query not in user.username.lower() and query not in profile.full_name.lower() and query not in profile.bio.lower():
-                continue
-            users.append(user)
-            if len(users) >= 25:
-                break
-        return _user_list_response(users, viewer)
-    except Exception as exc:
-        return _handle_exception('search_users', exc)
-
-
-@csrf_exempt
-@require_http_methods(['GET', 'OPTIONS'])
-def search_users(request):
-    try:
-        if request.method == 'OPTIONS':
-            return _cors_json(HttpResponse())
-
-        viewer = require_authenticated_user(request)
-        if viewer is None:
-            return _unauthorized()
-
-        query = (request.GET.get('q') or '').strip().lower()
-        viewer_city = ensure_profile(viewer).city
-        users_qs = User.objects.exclude(id=viewer.id).order_by('username')
+        hidden_ids = blocked_user_ids(viewer)
+        users_qs = User.objects.exclude(id=viewer.id).exclude(id__in=hidden_ids).order_by('username')
         if viewer_city:
             users_qs = [
                 user for user in users_qs if ensure_profile(user).city == viewer_city
@@ -409,6 +389,8 @@ def follow_toggle(request, username):
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
         if target == viewer:
             return _bad_request('You cannot follow yourself')
+        if is_blocked(viewer, target):
+            return _bad_request('You cannot follow this user')
         if ensure_profile(target).city != ensure_profile(viewer).city:
             return _bad_request('You can only follow people in your city')
 
@@ -433,6 +415,46 @@ def follow_toggle(request, username):
         )
     except Exception as exc:
         return _handle_exception('follow_toggle', exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def block_toggle(request, username):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        try:
+            target = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
+        if target == viewer:
+            return _bad_request('You cannot block yourself')
+
+        existing = Block.objects.filter(blocker=viewer, blocked=target)
+        if existing.exists():
+            existing.delete()
+        else:
+            Block.objects.create(blocker=viewer, blocked=target)
+            # Blocking severs any existing follow relationship in both directions,
+            # matching Instagram's behavior.
+            Follow.objects.filter(follower=viewer, following=target).delete()
+            Follow.objects.filter(follower=target, following=viewer).delete()
+
+        return _cors_json(
+            JsonResponse(
+                {
+                    'user': user_to_dict(target, viewer=viewer),
+                    'viewer': user_to_dict(viewer, viewer=viewer),
+                }
+            )
+        )
+    except Exception as exc:
+        return _handle_exception('block_toggle', exc)
 
 
 @csrf_exempt

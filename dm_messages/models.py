@@ -50,6 +50,25 @@ class Message(models.Model):
         ordering = ['created']
 
 
+class MessageReaction(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='message_reactions',
+    )
+    emoji = models.CharField(max_length=16)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['message', 'user'],
+                name='unique_message_reaction_per_user',
+            )
+        ]
+
+
 class MessageReport(models.Model):
     REASONS = [
         ('spam', 'Spam'),

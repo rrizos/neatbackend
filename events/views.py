@@ -2,6 +2,7 @@ import json
 
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
+from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -63,6 +64,13 @@ def _boolish(value):
     return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _parse_date(value):
+    value = (value or '').strip()
+    if not value:
+        return None
+    return parse_date(value)
+
+
 def _notify(recipient, actor, verb, target_type='', target_id='', target_text=''):
     if recipient is None or recipient == actor:
         return
@@ -108,6 +116,8 @@ def events_list(request):
         description=(body.get('description') or '').strip(),
         location=(body.get('location') or '').strip(),
         image_url=(body.get('imageUrl') or '').strip(),
+        category=(body.get('category') or '').strip(),
+        date=_parse_date(body.get('date')),
         creator=viewer,
         organizer=(body.get('organizer') or viewer.username).strip(),
         has_tickets=_boolish(body.get('hasTickets')),

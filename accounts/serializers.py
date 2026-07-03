@@ -1,4 +1,4 @@
-from .models import Follow, Profile
+from .models import Block, Follow, Profile
 
 
 def ensure_profile(user):
@@ -12,9 +12,13 @@ def user_to_dict(user, viewer=None):
     following = Follow.objects.filter(follower=user).count()
     is_following = False
     is_mutual = False
+    is_blocked = False
+    has_blocked_viewer = False
     if viewer and viewer.is_authenticated and viewer != user:
         is_following = Follow.objects.filter(follower=viewer, following=user).exists()
         is_mutual = is_following and Follow.objects.filter(follower=user, following=viewer).exists()
+        is_blocked = Block.objects.filter(blocker=viewer, blocked=user).exists()
+        has_blocked_viewer = Block.objects.filter(blocker=user, blocked=viewer).exists()
 
     return {
         'id': user.id,
@@ -30,6 +34,8 @@ def user_to_dict(user, viewer=None):
         'isMutual': is_mutual,
         'isVerified': profile.is_verified,
         'isAdmin': profile.is_admin,
+        'isBlocked': is_blocked,
+        'hasBlockedYou': has_blocked_viewer,
     }
 
 

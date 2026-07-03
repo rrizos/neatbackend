@@ -17,6 +17,8 @@ class Event(models.Model):
     description = models.TextField(blank=True, default='')
     location = models.CharField(max_length=200, blank=True, default='')
     image_url = models.TextField(blank=True, default='')
+    category = models.CharField(max_length=50, blank=True, default='')
+    date = models.DateField(null=True, blank=True)
     creator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -43,6 +45,8 @@ class Event(models.Model):
             'description': self.description,
             'location': self.location,
             'imageUrl': self.image_url,
+            'category': self.category,
+            'date': self.date.isoformat() if self.date else '',
             'creator': self.creator.username if self.creator_id else '',
             'organizer': self.organizer,
             'hasTickets': self.has_tickets,

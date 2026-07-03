@@ -9,8 +9,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
+from accounts.models import Block, is_blocked
 
-from .models import Conversation, ConversationMember, Message, MessageReport
+from .models import Conversation, ConversationMember, Message, MessageReaction, MessageReport
 
 User = get_user_model()
 
@@ -45,7 +46,7 @@ def _ensure_messages_tables():
         table_names = set(connection.introspection.table_names(cursor))
 
     models_to_create = []
-    for model in [Conversation, ConversationMember, Message, MessageReport]:
+    for model in [Conversation, ConversationMember, Message, MessageReaction, MessageReport]:
         if model._meta.db_table not in table_names:
             models_to_create.append(model)
 
@@ -58,11 +59,15 @@ def _ensure_messages_tables():
 
 
 def _message_to_dict(message):
+    reactions = {}
+    for reaction in message.reactions.select_related('user').all():
+        reactions.setdefault(reaction.emoji, []).append(reaction.user.username)
     return {
         'id': message.id,
         'sender': message.sender.username,
         'text': message.text,
         'created': message.created.isoformat(),
+        'reactions': reactions,
     }
 
 
@@ -90,6 +95,8 @@ def _conversation_to_dict(conversation, viewer):
         'updated': conversation.updated.isoformat(),
         'unreadCount': unread_qs.count(),
         'lastReadAt': member.last_read_at.isoformat() if member and member.last_read_at else '',
+        'viewerBlockedOther': Block.objects.filter(blocker=viewer, blocked=other).exists() if other != viewer else False,
+        'otherBlockedViewer': Block.objects.filter(blocker=other, blocked=viewer).exists() if other != viewer else False,
     }
 
 
@@ -111,6 +118,32 @@ def _same_city(user_a, user_b):
     return bool(city_a) and city_a == city_b
 
 
+def _conversation_not_found():
+    return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+
+
+def _get_conversation_for_viewer(conversation_id, viewer):
+    """Returns (conversation, other_user, error_response). On failure, conversation is None
+    and error_response is set. If the OTHER member has blocked the viewer, the conversation is
+    hidden entirely (Instagram-style: the blocker's side vanishes for the blocked party). If the
+    viewer is the one who blocked the other member, the thread stays visible (read-only) so they
+    can still unblock — callers that send new messages must check that case separately."""
+    try:
+        conversation = Conversation.objects.prefetch_related('members__user', 'messages__sender').get(
+            pk=conversation_id,
+            members__user=viewer,
+        )
+    except Conversation.DoesNotExist:
+        return None, None, _conversation_not_found()
+
+    members = list(conversation.members.all())
+    other_members = [m.user for m in members if m.user_id != viewer.id]
+    other = other_members[0] if other_members else None
+    if other is not None and Block.objects.filter(blocker=other, blocked=viewer).exists():
+        return None, None, _conversation_not_found()
+    return conversation, other, None
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'OPTIONS'])
 def inbox(request):
@@ -127,7 +160,12 @@ def inbox(request):
         .prefetch_related('members__user', 'messages__sender')
         .order_by('-updated')
     )
-    data = [_conversation_to_dict(conversation, viewer) for conversation in conversations]
+    data = []
+    for conversation in conversations:
+        other_members = [m.user for m in conversation.members.all() if m.user_id != viewer.id]
+        if other_members and Block.objects.filter(blocker=other_members[0], blocked=viewer).exists():
+            continue
+        data.append(_conversation_to_dict(conversation, viewer))
     return _cors_json(JsonResponse({'conversations': data}))
 
 
@@ -142,13 +180,9 @@ def conversation_detail(request, conversation_id):
     if viewer is None:
         return _unauthorized()
 
-    try:
-        conversation = Conversation.objects.prefetch_related('members__user', 'messages__sender').get(
-            pk=conversation_id,
-            members__user=viewer,
-        )
-    except Conversation.DoesNotExist:
-        return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+    conversation, other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
 
     if request.method == 'GET':
         messages = conversation.messages.select_related('sender').all()
@@ -168,9 +202,9 @@ def conversation_detail(request, conversation_id):
     body = _json_body(request)
     if body is None:
         return _bad_request('Invalid JSON')
-    members = list(conversation.members.select_related('user').all())
-    other_members = [m.user for m in members if m.user_id != viewer.id]
-    if other_members and not _same_city(viewer, other_members[0]):
+    if other is not None and Block.objects.filter(blocker=viewer, blocked=other).exists():
+        return _bad_request('You have blocked this user')
+    if other is not None and not _same_city(viewer, other):
         return _bad_request('You can only message people in your city')
     text = (body.get('text') or '').strip()
     if not text:
@@ -225,6 +259,8 @@ def start_conversation(request):
 
     if other == viewer:
         return _bad_request('You cannot message yourself')
+    if is_blocked(viewer, other):
+        return _bad_request('You cannot message this user')
     if not _same_city(viewer, other):
         return _bad_request('You can only message people in your city')
 
@@ -250,10 +286,9 @@ def message_delete(request, conversation_id, message_id):
     if viewer is None:
         return _unauthorized()
 
-    try:
-        conversation = Conversation.objects.get(pk=conversation_id, members__user=viewer)
-    except Conversation.DoesNotExist:
-        return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
 
     try:
         message = Message.objects.get(pk=message_id, conversation=conversation, sender=viewer)
@@ -262,6 +297,45 @@ def message_delete(request, conversation_id, message_id):
 
     message.delete()
     return _cors_json(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def message_react(request, conversation_id, message_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    body = _json_body(request)
+    if body is None:
+        return _bad_request('Invalid JSON')
+    emoji = (body.get('emoji') or '').strip()
+    if not emoji:
+        return _bad_request('Emoji is required')
+
+    existing = MessageReaction.objects.filter(message=message, user=viewer).first()
+    if existing and existing.emoji == emoji:
+        existing.delete()
+    else:
+        MessageReaction.objects.update_or_create(
+            message=message,
+            user=viewer,
+            defaults={'emoji': emoji},
+        )
+    return _cors_json(JsonResponse({'message': _message_to_dict(message)}))
 
 
 @csrf_exempt
@@ -275,10 +349,9 @@ def message_report(request, conversation_id, message_id):
     if viewer is None:
         return _unauthorized()
 
-    try:
-        conversation = Conversation.objects.get(pk=conversation_id, members__user=viewer)
-    except Conversation.DoesNotExist:
-        return _cors_json(JsonResponse({'error': 'Conversation not found'}, status=404))
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
 
     try:
         message = Message.objects.get(pk=message_id, conversation=conversation)

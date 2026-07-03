@@ -10,7 +10,7 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
-from accounts.models import Follow, Notification
+from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport
 
@@ -172,6 +172,8 @@ def post_detail(request, post_id):
     post = _get_post_or_404(post_id)
     if post is None:
         return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+    if viewer and is_blocked(viewer, post.user):
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
 
     data = _post_to_dict(post, viewer=viewer)
     return _cors_json(JsonResponse(data))
@@ -222,6 +224,7 @@ def posts_list(request):
             posts = posts.filter(city=viewer_city)
         viewer_following_ids = None
         if viewer and viewer.is_authenticated:
+            posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
             viewer_following_ids = set(
                 Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
             )
@@ -341,6 +344,8 @@ def post_like(request, post_id):
     post = _get_post_or_404(post_id)
     if post is None:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if is_blocked(user, post.user):
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
     if getattr(getattr(user, "profile", None), "city", "") != post.city:
         return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
@@ -376,6 +381,8 @@ def post_comment(request, post_id):
 
     post = _get_post_or_404(post_id)
     if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if is_blocked(user, post.user):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
     if getattr(getattr(user, "profile", None), "city", "") != post.city:
         return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
@@ -433,6 +440,8 @@ def post_save(request, post_id):
 
     post = _get_post_or_404(post_id)
     if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if is_blocked(user, post.user):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
 
     try:
