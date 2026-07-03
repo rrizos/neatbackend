@@ -55,6 +55,32 @@ def _handle_exception(context, exc):
     return _server_error()
 
 
+def delete_user_and_content(user):
+    """Delete a user along with everything they created: posts, events, and
+    any DM conversation that would be left with fewer than 2 participants
+    once their membership cascades away. Shared by self-delete (me) and the
+    admin delete-user action so both behave identically."""
+    from django.db.models import Count
+
+    from posts.models import Post
+    from events.models import Event
+    from dm_messages.models import Conversation
+
+    Post.objects.filter(user=user).delete()
+    Event.objects.filter(creator=user).delete()
+
+    affected_conversation_ids = list(
+        Conversation.objects.filter(members__user=user).values_list('id', flat=True)
+    )
+
+    user.delete()
+
+    if affected_conversation_ids:
+        Conversation.objects.filter(id__in=affected_conversation_ids).annotate(
+            member_count=Count('members')
+        ).filter(member_count__lt=2).delete()
+
+
 def _user_list_response(users, viewer):
     return _cors_json(
         JsonResponse(
@@ -175,7 +201,7 @@ def me(request):
             return _unauthorized()
 
         if request.method == 'DELETE':
-            user.delete()
+            delete_user_and_content(user)
             return _cors_json(JsonResponse({'ok': True}))
 
         profile = ensure_profile(user)
@@ -455,6 +481,24 @@ def block_toggle(request, username):
         )
     except Exception as exc:
         return _handle_exception('block_toggle', exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def blocked_users(request):
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        viewer = require_authenticated_user(request)
+        if viewer is None:
+            return _unauthorized()
+
+        blocked_ids = Block.objects.filter(blocker=viewer).values_list('blocked_id', flat=True)
+        users = User.objects.filter(id__in=blocked_ids).order_by('username')
+        return _user_list_response(users, viewer)
+    except Exception as exc:
+        return _handle_exception('blocked_users', exc)
 
 
 @csrf_exempt

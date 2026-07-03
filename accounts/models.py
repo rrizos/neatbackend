@@ -141,6 +141,25 @@ class Notification(models.Model):
         ordering = ['-created']
 
     def to_dict(self):
+        image_url = ''
+        video_url = ''
+        if self.target_type == 'post' and self.target_id:
+            from posts.models import Post
+
+            try:
+                post = Post.objects.prefetch_related('media_items').get(pk=int(self.target_id))
+            except (Post.DoesNotExist, ValueError):
+                post = None
+            if post is not None:
+                first_media = post.media_items.first()
+                if first_media is not None:
+                    if first_media.media_type == 'video':
+                        video_url = first_media.url
+                    else:
+                        image_url = first_media.url
+                elif post.image_url:
+                    image_url = post.image_url
+
         return {
             'id': self.id,
             'recipientId': self.recipient_id,
@@ -151,4 +170,6 @@ class Notification(models.Model):
             'targetText': self.target_text,
             'isRead': self.is_read,
             'created': self.created.isoformat(),
+            'imageUrl': image_url,
+            'videoUrl': video_url,
         }

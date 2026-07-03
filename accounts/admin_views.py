@@ -7,6 +7,7 @@ from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
 from accounts.serializers import ensure_profile, user_to_dict
+from accounts.views import delete_user_and_content
 from posts.models import Post, PostReport
 
 try:
@@ -362,5 +363,5 @@ def admin_delete_user(request, username):
     if user.id == admin_user.id:
         return _cors_json(JsonResponse({"error": "Cannot delete your own account"}, status=400))
 
-    user.delete()
+    delete_user_and_content(user)
     return _cors_json(JsonResponse({"ok": True}))
