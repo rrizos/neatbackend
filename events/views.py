@@ -1,5 +1,6 @@
 import json
 
+from django.contrib.auth import get_user_model
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.utils.dateparse import parse_date
@@ -7,9 +8,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
-from accounts.models import Notification
+from accounts.models import Notification, blocked_user_ids
+from accounts.serializers import user_to_dict
 
 from .models import Event, EventAttendance, EventComment, EventReport
+
+User = get_user_model()
 
 
 def _cors_json(response):
@@ -152,6 +156,27 @@ def event_attend(request, event_id):
         _notify(event.creator or viewer, viewer, 'is attending your event', 'event', event.id, event.title)
     event.save(update_fields=['attendees', 'updated'])
     return _cors_json(JsonResponse({'event': event.to_dict()}))
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def event_attendees(request, event_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    _ensure_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+    try:
+        event = Event.objects.get(pk=event_id)
+    except Event.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Event not found'}, status=404))
+    attendee_ids = event.attendance_rows.values_list('user_id', flat=True)
+    hidden_ids = blocked_user_ids(viewer)
+    users = User.objects.filter(id__in=attendee_ids).exclude(id__in=hidden_ids).order_by('username')
+    return _cors_json(
+        JsonResponse({'attendees': [user_to_dict(user, viewer=viewer) for user in users]})
+    )
 
 
 @csrf_exempt
