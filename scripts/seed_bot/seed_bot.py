@@ -254,26 +254,32 @@ def run_once() -> None:
     seed_usernames = {c["username"] for c in CITIES}
 
     for city in CITIES:
-        account = ensure_account(state, city)
+        try:
+            account = ensure_account(state, city)
 
-        real_count = real_posts_last_24h(city, seed_usernames)
-        if real_count >= TAPER_THRESHOLD:
-            print(f"[{city['name']}] {real_count} real posts/24h — seeding paused")
+            real_count = real_posts_last_24h(city, seed_usernames)
+            if real_count >= TAPER_THRESHOLD:
+                print(f"[{city['name']}] {real_count} real posts/24h — seeding paused")
+                continue
+
+            if not should_post_now(account):
+                continue
+
+            examples = recent_real_examples(city, seed_usernames)
+            text = generate_post_text(city, examples)
+            create_post(account["token"], text)
+
+            account["post_count"] += 1
+            account["last_post_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            print(f"[{city['name']}] posted: {text}")
+
+            time.sleep(random.uniform(1, 4))  # small human-like gap between cities
+        except Exception as exc:
+            # One city's failure (e.g. a transient Gemini/network error) must
+            # not stop account creation or posting for the remaining cities.
+            print(f"[{city['name']}] ERROR: {exc}")
             continue
-
-        if not should_post_now(account):
-            continue
-
-        examples = recent_real_examples(city, seed_usernames)
-        text = generate_post_text(city, examples)
-        create_post(account["token"], text)
-
-        account["post_count"] += 1
-        account["last_post_at"] = datetime.now(timezone.utc).isoformat()
-        save_state(state)
-        print(f"[{city['name']}] posted: {text}")
-
-        time.sleep(random.uniform(1, 4))  # small human-like gap between cities
 
 
 if __name__ == "__main__":
