@@ -32,7 +32,7 @@ ATHENS_TZ = ZoneInfo("Europe/Athens")
 
 API_BASE = os.environ.get("NEAT_API_BASE", "http://63.181.201.175")
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
 STATE_FILE = Path(__file__).parent / "seed_state.json"
 
