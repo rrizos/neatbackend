@@ -243,10 +243,13 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
 
 
 def create_post(token: str, text: str) -> None:
+    # The backend only takes the multipart-upload code path when the request
+    # Content-Type actually says multipart/form-data — plain `data=` sends
+    # application/x-www-form-urlencoded instead, so force it via `files=`.
     resp = requests.post(
         f"{API_BASE}/api/posts/",
         headers={"Authorization": f"Token {token}"},
-        data={"text": text, "media": "[]"},
+        files={"text": (None, text), "media": (None, "[]")},
         timeout=30,
     )
     if resp.status_code >= 400:
