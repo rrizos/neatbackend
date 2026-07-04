@@ -223,7 +223,13 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
 """.strip()
 
     response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    return response.text.strip().strip('"')
+    text = (response.text or "").strip().strip('"')
+    if not text:
+        finish_reason = None
+        if response.candidates:
+            finish_reason = response.candidates[0].finish_reason
+        raise ValueError(f"Gemini returned empty text (finish_reason={finish_reason})")
+    return text
 
 
 def create_post(token: str, text: str) -> None:
@@ -233,7 +239,8 @@ def create_post(token: str, text: str) -> None:
         data={"text": text, "media": "[]"},
         timeout=30,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{resp.status_code} error creating post: {resp.text}")
 
 
 def should_post_now(account: dict) -> bool:
