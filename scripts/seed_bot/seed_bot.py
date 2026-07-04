@@ -34,6 +34,11 @@ API_BASE = os.environ.get("NEAT_API_BASE", "http://63.181.201.175")
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+# Set to a seed username (or substring, e.g. "athina") to force exactly one
+# post for that city right now, bypassing the taper check and the random
+# hourly gate. For manual end-to-end testing only — leave unset for cron.
+FORCE_CITY = os.environ.get("FORCE_CITY", "").strip().lower()
+
 STATE_FILE = Path(__file__).parent / "seed_state.json"
 
 # Target seed posts/day per city while a city is still "cold". Real
@@ -276,13 +281,14 @@ def run_once() -> None:
     for city in CITIES:
         try:
             account = ensure_account(state, city)
+            forced = bool(FORCE_CITY) and FORCE_CITY in city["username"].lower()
 
             real_count = real_posts_last_24h(city, seed_usernames)
-            if real_count >= TAPER_THRESHOLD:
+            if real_count >= TAPER_THRESHOLD and not forced:
                 print(f"[{city['name']}] {real_count} real posts/24h — seeding paused")
                 continue
 
-            if not should_post_now(account):
+            if not forced and not should_post_now(account):
                 continue
 
             examples = recent_real_examples(city, seed_usernames)
