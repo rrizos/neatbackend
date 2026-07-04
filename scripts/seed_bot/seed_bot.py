@@ -11,7 +11,7 @@ As real users start posting in a city, `real_posts_last_24h` rises and
 
 Setup:
   pip install -r requirements.txt
-  export GEMINI_API_KEY=...        # from https://aistudio.google.com/apikey
+  export GROQ_API_KEY=...          # from https://console.groq.com/keys
   python seed_bot.py               # creates the 10 seed accounts on first run
   # then add to crontab: 0 * * * * cd .../seed_bot && python seed_bot.py
 """
@@ -26,13 +26,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-from google import genai
+import groq
 
 ATHENS_TZ = ZoneInfo("Europe/Athens")
 
 API_BASE = os.environ.get("NEAT_API_BASE", "http://63.181.201.175")
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 STATE_FILE = Path(__file__).parent / "seed_state.json"
 
@@ -112,7 +112,7 @@ DEFAULT_STYLE_GUIDE = """
 - "Κανείς άλλος κολλημένος στην κίνηση στη Μητροπόλεως;"
 """.strip()
 
-_client = genai.Client(api_key=GEMINI_API_KEY)
+_client = groq.Groq(api_key=GROQ_API_KEY)
 
 
 def load_state() -> dict:
@@ -222,22 +222,23 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
 - Απάντησε ΜΟΝΟ με το κείμενο της ανάρτησης, τίποτα άλλο.
 """.strip()
 
-    response = None
+    completion = None
     for attempt in range(3):
         try:
-            response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+            completion = _client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
             break
-        except genai.errors.ServerError:
+        except (groq.RateLimitError, groq.InternalServerError):
             if attempt == 2:
                 raise
             time.sleep(5 * (attempt + 1))  # transient overload — brief backoff and retry
 
-    text = (response.text or "").strip().strip('"')
+    text = (completion.choices[0].message.content or "").strip().strip('"')
     if not text:
-        finish_reason = None
-        if response.candidates:
-            finish_reason = response.candidates[0].finish_reason
-        raise ValueError(f"Gemini returned empty text (finish_reason={finish_reason})")
+        finish_reason = completion.choices[0].finish_reason
+        raise ValueError(f"Groq returned empty text (finish_reason={finish_reason})")
     return text
 
 
@@ -292,7 +293,7 @@ def run_once() -> None:
 
             time.sleep(random.uniform(1, 4))  # small human-like gap between cities
         except Exception as exc:
-            # One city's failure (e.g. a transient Gemini/network error) must
+            # One city's failure (e.g. a transient Groq/network error) must
             # not stop account creation or posting for the remaining cities.
             print(f"[{city['name']}] ERROR: {exc}")
             continue
