@@ -222,7 +222,16 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
 - Απάντησε ΜΟΝΟ με το κείμενο της ανάρτησης, τίποτα άλλο.
 """.strip()
 
-    response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    response = None
+    for attempt in range(3):
+        try:
+            response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+            break
+        except genai.errors.ServerError:
+            if attempt == 2:
+                raise
+            time.sleep(5 * (attempt + 1))  # transient overload — brief backoff and retry
+
     text = (response.text or "").strip().strip('"')
     if not text:
         finish_reason = None
