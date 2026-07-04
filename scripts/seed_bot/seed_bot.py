@@ -26,7 +26,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-import google.generativeai as genai
+from google import genai
 
 ATHENS_TZ = ZoneInfo("Europe/Athens")
 
@@ -112,8 +112,7 @@ DEFAULT_STYLE_GUIDE = """
 - "Κανείς άλλος κολλημένος στην κίνηση στη Μητροπόλεως;"
 """.strip()
 
-genai.configure(api_key=GEMINI_API_KEY)
-_model = genai.GenerativeModel(GEMINI_MODEL)
+_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def load_state() -> dict:
@@ -223,7 +222,7 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
 - Απάντησε ΜΟΝΟ με το κείμενο της ανάρτησης, τίποτα άλλο.
 """.strip()
 
-    response = _model.generate_content(prompt)
+    response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     return response.text.strip().strip('"')
 
 
