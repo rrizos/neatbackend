@@ -34,6 +34,7 @@ def user_to_dict(user, viewer=None):
         'isMutual': is_mutual,
         'isVerified': profile.is_verified,
         'isAdmin': profile.is_admin,
+        'canCreateOfficialEvents': profile.can_create_official_events,
         'isBlocked': is_blocked,
         'hasBlockedYou': has_blocked_viewer,
     }

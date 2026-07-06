@@ -393,6 +393,22 @@ def search_users(request):
                 or query in ensure_profile(user).bio.lower()
             ]
 
+        # People the viewer already interacts with (mutual > following > follower)
+        # surface first — matches the "who to mention" ordering of the mention picker.
+        following_ids = set(Follow.objects.filter(follower=viewer).values_list('following_id', flat=True))
+        follower_ids = set(Follow.objects.filter(following=viewer).values_list('follower_id', flat=True))
+
+        def _sort_key(user):
+            if user.id in following_ids and user.id in follower_ids:
+                return 0
+            if user.id in following_ids:
+                return 1
+            if user.id in follower_ids:
+                return 2
+            return 3
+
+        users_qs.sort(key=_sort_key)
+
         return _user_list_response(users_qs[:25], viewer)
     except Exception as exc:
         return _handle_exception('search_users', exc)

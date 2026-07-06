@@ -27,6 +27,11 @@ urlpatterns = [
     path('admin/posts/<int:post_id>/', admin_views.admin_delete_post, name='admin_delete_post'),
     path('admin/users/', admin_views.admin_users, name='admin_users'),
     path('admin/users/<str:username>/verify/', admin_views.admin_verify_user, name='admin_verify_user'),
+    path(
+        'admin/users/<str:username>/official-eligibility/',
+        admin_views.admin_set_official_eligibility,
+        name='admin_set_official_eligibility',
+    ),
     path('admin/users/<str:username>/delete/', admin_views.admin_delete_user, name='admin_delete_user'),
     path('admin/messages/<int:message_id>/', admin_views.admin_delete_message, name='admin_delete_message'),
     path('admin/comments/', admin_views.admin_comments, name='admin_comments'),

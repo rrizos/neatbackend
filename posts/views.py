@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import subprocess
 import uuid
 from django.conf import settings
@@ -90,10 +91,10 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None):
         .filter(parent__isnull=True)
         .select_related("user")
         .prefetch_related("comment_likes", "replies__user", "replies__comment_likes")
-        .all()
+        .order_by("-pinned", "created")
     )
     if row_comments:
-        data["comments"] = [comment.to_dict(viewer=viewer) for comment in row_comments]
+        data["comments"] = [comment.to_dict(viewer=viewer, owner_id=post.user_id) for comment in row_comments]
     data["likes"] = post.like_rows.count() or post.likes
     data["liked"] = False
     data["saved"] = False
@@ -148,6 +149,32 @@ def _notify(recipient, actor, verb, post):
         target_id=str(post.id),
         target_text=post.text[:255],
     )
+
+
+_MENTION_RE = re.compile(r'@([\w.]+)')
+
+
+def _notify_mentions(text, actor, city, post, verb='mentioned you in a post'):
+    """Notify @mentioned users, restricted to people in the same city as the
+    post they're being tagged into — mentioning is a hyperlocal-only action.
+    """
+    usernames = set(_MENTION_RE.findall(text or ''))
+    if not usernames:
+        return
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    mentioned = User.objects.filter(username__in=usernames).select_related('profile').exclude(pk=actor.pk)
+    for user in mentioned:
+        if getattr(getattr(user, 'profile', None), 'city', '') != city:
+            continue
+        Notification.objects.create(
+            recipient=user,
+            actor=actor,
+            verb=verb,
+            target_type='post',
+            target_id=str(post.id),
+            target_text=text[:255],
+        )
 
 
 def _ensure_posts_table():
@@ -327,6 +354,7 @@ def posts_list(request):
                 order=i,
             )
 
+    _notify_mentions(post.text, user, post.city, post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
 
 
@@ -424,6 +452,9 @@ def post_comment(request, post_id):
     PostComment.objects.create(post=post, user=user, text=text, image_url=image_url, parent=parent)
     if parent is None:
         _notify(post.user, user, 'commented on your post', post)
+    else:
+        _notify(parent.user, user, 'replied to your comment', post)
+    _notify_mentions(text, user, post.city, post, verb='mentioned you in a comment')
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
 
@@ -575,7 +606,9 @@ def comment_like(request, comment_id):
         body = {}
 
     if body.get("liked", True):
-        CommentLike.objects.get_or_create(comment=comment, user=user)
+        _, created = CommentLike.objects.get_or_create(comment=comment, user=user)
+        if created:
+            _notify(comment.user, user, 'liked your comment', comment.post)
     else:
         CommentLike.objects.filter(comment=comment, user=user).delete()
 
@@ -627,6 +660,43 @@ def comment_report(request, comment_id):
         defaults={"reason": reason},
     )
     return _cors_json(JsonResponse({"ok": True}))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def comment_pin(request, comment_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    try:
+        comment = PostComment.objects.select_related('post').get(pk=comment_id)
+    except PostComment.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
+
+    post = comment.post
+    is_admin = getattr(getattr(user, 'profile', None), 'is_admin', False)
+    if post.user_id != user.id and not is_admin:
+        return _cors_json(JsonResponse({"error": "Only the post owner can pin comments"}, status=403))
+    if comment.parent_id is not None:
+        return _cors_json(JsonResponse({"error": "Only top-level comments can be pinned"}, status=400))
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    if body.get("pinned", True):
+        PostComment.objects.filter(post=post, pinned=True).exclude(pk=comment.pk).update(pinned=False)
+        comment.pinned = True
+    else:
+        comment.pinned = False
+    comment.save(update_fields=["pinned"])
+
+    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
 
 @csrf_exempt

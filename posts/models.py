@@ -72,19 +72,31 @@ class PostComment(models.Model):
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
     text = models.TextField()
     image_url = models.TextField(blank=True, default='')
+    pinned = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['created']
+        constraints = [
+            # Only one comment per post may be pinned at a time.
+            models.UniqueConstraint(
+                fields=['post'],
+                condition=models.Q(pinned=True),
+                name='unique_pinned_comment_per_post',
+            ),
+        ]
 
-    def to_dict(self, viewer=None):
+    def to_dict(self, viewer=None, owner_id=None):
+        if owner_id is None:
+            owner_id = self.post.user_id
         liked = False
         if viewer and viewer.is_authenticated:
             liked = self.comment_likes.filter(user=viewer).exists()
+        liked_by_owner = bool(owner_id) and self.comment_likes.filter(user_id=owner_id).exists()
         replies = []
         if not self.parent_id:
             for r in self.replies.select_related('user').prefetch_related('comment_likes').order_by('created'):
-                replies.append(r.to_dict(viewer=viewer))
+                replies.append(r.to_dict(viewer=viewer, owner_id=owner_id))
         return {
             'id': self.id,
             'author': self.user.username,
@@ -95,6 +107,8 @@ class PostComment(models.Model):
             'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
             'likes': self.comment_likes.count(),
             'liked': liked,
+            'likedByOwner': liked_by_owner,
+            'pinned': self.pinned,
             'replies': replies,
         }
 

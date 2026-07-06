@@ -346,6 +346,36 @@ def admin_verify_user(request, username):
 
 
 @csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def admin_set_official_eligibility(request, username):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    try:
+        user = User.objects.select_related("profile").get(username=username)
+    except User.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "User not found"}, status=404))
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    profile = ensure_profile(user)
+    profile.can_create_official_events = body.get("eligible", not profile.can_create_official_events)
+    profile.save(update_fields=["can_create_official_events"])
+
+    return _cors_json(JsonResponse({
+        "ok": True,
+        "canCreateOfficialEvents": profile.can_create_official_events,
+    }))
+
+
+@csrf_exempt
 @require_http_methods(["DELETE", "OPTIONS"])
 def admin_delete_user(request, username):
     if request.method == "OPTIONS":
