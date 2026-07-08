@@ -3,4 +3,4 @@ gunicorn
 django-cors-headers
 dj-database-url
 psycopg2-binary
-dj-database-url
+firebase-admin

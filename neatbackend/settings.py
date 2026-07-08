@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'posts',
     'dm_messages.apps.DmMessagesConfig',
     'events.apps.EventsConfig',
+    'push.apps.PushConfig',
 ]
 
 MIDDLEWARE = [
@@ -169,3 +170,8 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no
 
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
+
+# Firebase Cloud Messaging — path to the service-account JSON downloaded from
+# Firebase console (Project settings → Service accounts). Never commit this
+# file; set the env var to point at it on the server.
+FIREBASE_CREDENTIALS_PATH = os.environ.get('FIREBASE_CREDENTIALS_PATH', '')

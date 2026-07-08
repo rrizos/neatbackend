@@ -8,5 +8,6 @@ urlpatterns = [
     path('api/posts/', include('posts.urls')),
     path('api/messages/', include('dm_messages.urls')),
     path('api/events/', include('events.urls')),
+    path('api/push/', include('push.urls')),
     re_path(r'^media/(?P<path>.*)$', serve_media),
 ]
