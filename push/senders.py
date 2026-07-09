@@ -43,7 +43,9 @@ def _send_to_user(user, *, title, body, data, silent, image=None):
     from firebase_admin import messaging
 
     channel_id = 'messages_channel' if not silent else 'soft_channel'
-    android_notification_kwargs = {'channel_id': channel_id}
+    # Brand blue for the small-icon badge — without this Android shows it in
+    # a plain gray/white circle instead of a colored one.
+    android_notification_kwargs = {'channel_id': channel_id, 'color': '#1479FF'}
     apns_aps_kwargs = {}
     if silent:
         # Omitting the sound key on both platforms is what keeps these
@@ -113,7 +115,7 @@ def send_message_alert(user, *, sender_profile, sender_username, text, conversat
     """A DM push: full alert with default sound + the sender's avatar image,
     matching Instagram's message notification."""
     try:
-        title = (getattr(sender_profile, 'full_name', '') or sender_username).strip() or sender_username
+        title = f'@{sender_username}'
         body = message_preview_text(text)
         image = _usable_image_url(getattr(sender_profile, 'avatar_url', ''))
         _send_to_user(
