@@ -173,5 +173,8 @@ MEDIA_URL = '/media/'
 
 # Firebase Cloud Messaging — path to the service-account JSON downloaded from
 # Firebase console (Project settings → Service accounts). Never commit this
-# file; set the env var to point at it on the server.
-FIREBASE_CREDENTIALS_PATH = os.environ.get('FIREBASE_CREDENTIALS_PATH', '')
+# file; defaults to a gitignored path next to manage.py for local dev, and
+# should be set via the env var on the server.
+FIREBASE_CREDENTIALS_PATH = os.environ.get(
+    'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
+)
