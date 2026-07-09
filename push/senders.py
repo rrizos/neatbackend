@@ -115,7 +115,7 @@ def send_message_alert(user, *, sender_profile, sender_username, text, conversat
     """A DM push: full alert with default sound + the sender's avatar image,
     matching Instagram's message notification."""
     try:
-        title = f'@{sender_username}'
+        title = sender_username
         body = message_preview_text(text)
         image = _usable_image_url(getattr(sender_profile, 'avatar_url', ''))
         _send_to_user(

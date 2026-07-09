@@ -16,7 +16,7 @@ def notify_soft_push(sender, instance, created, **kwargs):
     # accounts/posts/events views.py.
     send_soft(
         instance.recipient,
-        title=f'@{instance.actor.username}',
+        title=instance.actor.username,
         body=instance.verb,
         data={
             'type': 'notification',
