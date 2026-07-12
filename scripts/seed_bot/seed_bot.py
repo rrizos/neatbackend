@@ -263,7 +263,12 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=1.05,
-                max_tokens=80,
+                max_tokens=200,
+                # gpt-oss is a reasoning model: "low" keeps it fast/cheap for a one-line
+                # post (no multi-step reasoning needed), and "hidden" keeps the chain-of-
+                # thought out of message.content so it can't leak into the actual post text.
+                reasoning_effort="low",
+                reasoning_format="hidden",
             )
             break
         except (groq.RateLimitError, groq.InternalServerError):
@@ -272,6 +277,10 @@ def generate_post_text(city: dict, examples: list[str]) -> str:
             time.sleep(5 * (attempt + 1))  # transient overload — brief backoff and retry
 
     text = (completion.choices[0].message.content or "").strip().strip('"')
+    # Defensive: some reasoning models occasionally leak <think>...</think> blocks into
+    # content even with reasoning_format="hidden" — strip them rather than post them.
+    if "<think>" in text and "</think>" in text:
+        text = (text.split("</think>", 1)[1]).strip().strip('"')
     if not text:
         finish_reason = completion.choices[0].finish_reason
         raise ValueError(f"Groq returned empty text (finish_reason={finish_reason})")
