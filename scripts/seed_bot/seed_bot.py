@@ -32,7 +32,7 @@ ATHENS_TZ = ZoneInfo("Europe/Athens")
 
 API_BASE = os.environ.get("NEAT_API_BASE", "http://63.181.201.175")
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Set to a seed username (or substring, e.g. "athina") to force exactly one
 # post for that city right now, bypassing the taper check and the random
