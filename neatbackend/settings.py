@@ -23,10 +23,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-su$035ic-$$sue1l*l!4#dzl&qh#!@-0^wq@ej8r3ofzyp@83+'
+# Set DJANGO_SECRET_KEY on the server — this fallback is only for local dev
+# and is not safe to rely on in production (it's committed to source).
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-su$035ic-$$sue1l*l!4#dzl&qh#!@-0^wq@ej8r3ofzyp@83+',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Defaults to off; set DJANGO_DEBUG=True in your local shell if you want it.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 _render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '').strip()
 _allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '').strip()
@@ -164,6 +170,25 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+# DB-backed so rate-limit counters (accounts/ratelimit.py) are shared
+# correctly across all gunicorn worker processes, not just per-process.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache_table',
+    }
+}
+
+# Security headers/cookie flags. The app is served over both HTTP (:80) and
+# HTTPS (:443) for now — the Netlify-hosted web build's server-side proxy
+# still targets the plain-HTTP port because it can't validate our self-signed
+# cert, so we can't force an HTTP->HTTPS redirect without breaking it. These
+# settings are the ones that don't depend on that.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
 
 # Email — set these env vars on the server for password reset emails
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')

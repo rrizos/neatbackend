@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
-from accounts.models import Notification, blocked_user_ids
+from accounts.models import Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
@@ -433,6 +433,9 @@ def event_comment_like(request, comment_id):
     try:
         comment = EventComment.objects.select_related('event').get(pk=comment_id)
     except EventComment.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Comment not found'}, status=404))
+
+    if comment.event.creator_id and is_blocked(viewer, comment.event.creator):
         return _cors_json(JsonResponse({'error': 'Comment not found'}, status=404))
 
     if comment.event.city != _viewer_city(viewer):

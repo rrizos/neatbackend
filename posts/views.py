@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import uuid
+from PIL import Image, UnidentifiedImageError
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import connection
@@ -17,8 +18,11 @@ from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedi
 
 logger = logging.getLogger(__name__)
 
-# Reject oversized video uploads before spending disk/CPU on them.
+# Reject oversized uploads before spending disk/CPU on them. The client's
+# declared "type" is what selects between these — it used to only apply the
+# cap when type=="video", leaving images completely unbounded.
 _MAX_VIDEO_UPLOAD_BYTES = 150 * 1024 * 1024
+_MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 def _transcode_to_h264(full_path):
@@ -287,11 +291,30 @@ def posts_list(request):
                 uploaded = request.FILES.get(file_key)
                 if uploaded:
                     is_video = item.get("type") == "video"
-                    if is_video and uploaded.size > _MAX_VIDEO_UPLOAD_BYTES:
-                        return _cors_json(JsonResponse(
-                            {"error": "Video is too large (max 150MB)."},
-                            status=400,
-                        ))
+                    if is_video:
+                        if uploaded.size > _MAX_VIDEO_UPLOAD_BYTES:
+                            return _cors_json(JsonResponse(
+                                {"error": "Video is too large (max 150MB)."},
+                                status=400,
+                            ))
+                    else:
+                        if uploaded.size > _MAX_IMAGE_UPLOAD_BYTES:
+                            return _cors_json(JsonResponse(
+                                {"error": "Image is too large (max 20MB)."},
+                                status=400,
+                            ))
+                        # Verify this is actually a decodable image rather than
+                        # trusting the client-supplied "type" — otherwise an
+                        # arbitrary file can be uploaded with a fake type and
+                        # get served back under a .jpg URL.
+                        try:
+                            Image.open(uploaded).verify()
+                        except (UnidentifiedImageError, OSError):
+                            return _cors_json(JsonResponse(
+                                {"error": "That doesn't look like a valid image."},
+                                status=400,
+                            ))
+                        uploaded.seek(0)
                     ext = "mp4" if is_video else "jpg"
                     filename = f"posts/{uuid.uuid4()}.{ext}"
                     # Save the UploadedFile directly (it streams via .chunks()
@@ -550,6 +573,9 @@ def post_likers(request, post_id):
     if post is None:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
 
+    if is_blocked(user, post.user):
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+
     from django.contrib.auth import get_user_model
     User = get_user_model()
 
@@ -589,6 +615,9 @@ def comment_like(request, comment_id):
     try:
         comment = PostComment.objects.select_related('post').get(pk=comment_id)
     except PostComment.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    if is_blocked(user, comment.post.user):
         return _cors_json(JsonResponse({"error": "Not found"}, status=404))
 
     # City restriction: viewer must be in the same city as the post

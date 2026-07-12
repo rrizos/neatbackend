@@ -338,8 +338,11 @@ def admin_verify_user(request, username):
     except Exception:
         body = {}
 
+    if "verified" not in body:
+        return _cors_json(JsonResponse({"error": "'verified' is required"}, status=400))
+
     profile = ensure_profile(user)
-    profile.is_verified = body.get("verified", not profile.is_verified)
+    profile.is_verified = bool(body.get("verified"))
     profile.save(update_fields=["is_verified"])
 
     return _cors_json(JsonResponse({"ok": True, "isVerified": profile.is_verified}))
@@ -365,8 +368,11 @@ def admin_set_official_eligibility(request, username):
     except Exception:
         body = {}
 
+    if "eligible" not in body:
+        return _cors_json(JsonResponse({"error": "'eligible' is required"}, status=400))
+
     profile = ensure_profile(user)
-    profile.can_create_official_events = body.get("eligible", not profile.can_create_official_events)
+    profile.can_create_official_events = bool(body.get("eligible"))
     profile.save(update_fields=["can_create_official_events"])
 
     return _cors_json(JsonResponse({

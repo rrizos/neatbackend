@@ -56,6 +56,11 @@ def serve_media(request, path):
         response['Cache-Control'] = 'public, max-age=31536000, immutable'
         response['Last-Modified'] = last_modified
         response['ETag'] = etag
+        # Uploaded file "type" (and therefore extension/content-type) is
+        # client-declared, not verified beyond images now being checked as
+        # decodable — nosniff stops a browser from ever re-interpreting a
+        # served file as something more dangerous than its declared type.
+        response['X-Content-Type-Options'] = 'nosniff'
         return response
 
     if_none_match = request.META.get('HTTP_IF_NONE_MATCH')

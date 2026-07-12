@@ -1,8 +1,10 @@
 import json
 import logging
-import random
+import secrets
 
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import IntegrityError
 from django.http import HttpResponse, JsonResponse
@@ -11,6 +13,7 @@ from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
 from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
+from .ratelimit import client_ip, rate_limited
 from .serializers import auth_payload, ensure_profile, user_to_dict
 
 
@@ -119,6 +122,9 @@ def signup(request):
         if request.method == 'OPTIONS':
             return _cors_json(HttpResponse())
 
+        if rate_limited(f'signup:{client_ip(request)}', limit=8, window_seconds=3600):
+            return _cors_json(JsonResponse({'error': 'Too many signups from this network. Please try again later.'}, status=429))
+
         body = _json_body(request)
         if body is None:
             return _bad_request('Invalid JSON')
@@ -131,8 +137,10 @@ def signup(request):
 
         if not username or not password:
             return _bad_request('Username and password are required')
-        if len(password) < 8:
-            return _bad_request('Password must be at least 8 characters')
+        try:
+            validate_password(password, User(username=username, email=email))
+        except ValidationError as exc:
+            return _bad_request(' '.join(exc.messages))
 
         try:
             user = User.objects.create_user(username=username, email=email, password=password)
@@ -157,12 +165,20 @@ def login(request):
         if request.method == 'OPTIONS':
             return _cors_json(HttpResponse())
 
+        ip = client_ip(request)
+        if rate_limited(f'login:ip:{ip}', limit=20, window_seconds=600):
+            return _cors_json(JsonResponse({'error': 'Too many attempts. Please try again later.'}, status=429))
+
         body = _json_body(request)
         if body is None:
             return _bad_request('Invalid JSON')
 
         username = (body.get('username') or body.get('email') or '').strip()
         password = body.get('password') or ''
+
+        if rate_limited(f'login:user:{username.lower()}', limit=10, window_seconds=600):
+            return _cors_json(JsonResponse({'error': 'Too many attempts. Please try again later.'}, status=429))
+
         user = authenticate(username=username, password=password)
         if user is None:
             return _bad_request('Invalid username or password')
@@ -274,6 +290,9 @@ def profile_detail(request, username):
         except User.DoesNotExist:
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
+        if is_blocked(viewer, user):
+            return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
+
         user_dict = user_to_dict(user, viewer=viewer)
         mutuals_preview, mutuals_total = _mutuals_for(viewer, user)
         user_dict['mutuals'] = mutuals_preview
@@ -372,6 +391,9 @@ def search_users(request):
         viewer = require_authenticated_user(request)
         if viewer is None:
             return _unauthorized()
+
+        if rate_limited(f'search:{viewer.id}', limit=60, window_seconds=60):
+            return _cors_json(JsonResponse({'error': 'Too many requests. Please slow down.'}, status=429))
 
         query = (request.GET.get('q') or '').strip().lower()
         viewer_city = ensure_profile(viewer).city
@@ -557,6 +579,11 @@ def forgot_password(request):
         if not identifier:
             return _bad_request('Email or username is required')
 
+        if rate_limited(f'forgot:ip:{client_ip(request)}', limit=20, window_seconds=3600):
+            return _cors_json(JsonResponse({'ok': True}))
+        if rate_limited(f'forgot:id:{identifier.lower()}', limit=5, window_seconds=3600):
+            return _cors_json(JsonResponse({'ok': True}))
+
         user = None
         if '@' in identifier:
             try:
@@ -577,7 +604,7 @@ def forgot_password(request):
         if not email:
             return _cors_json(JsonResponse({'ok': True}))
 
-        code = f'{random.randint(0, 999999):06d}'
+        code = f'{secrets.randbelow(1_000_000):06d}'
         PasswordResetCode.objects.filter(user=user, used=False).delete()
         PasswordResetCode.objects.create(user=user, email=email, code=code)
 
@@ -633,8 +660,13 @@ def reset_password(request):
 
         if not identifier or not code or not new_password:
             return _bad_request('Email, code, and new password are required')
-        if len(new_password) < 8:
-            return _bad_request('Password must be at least 8 characters')
+
+        # The 6-digit code only has 1M possible values — without this, it's
+        # brute-forceable well within its 15-minute validity window.
+        if rate_limited(f'reset:ip:{client_ip(request)}', limit=30, window_seconds=900):
+            return _bad_request('Too many attempts. Please request a new code.')
+        if rate_limited(f'reset:id:{identifier}', limit=8, window_seconds=900):
+            return _bad_request('Too many attempts. Please request a new code.')
 
         reset = None
         try:
@@ -662,11 +694,21 @@ def reset_password(request):
             return _bad_request('Code has expired. Please request a new one.')
 
         user = reset.user
+        try:
+            validate_password(new_password, user)
+        except ValidationError as exc:
+            return _bad_request(' '.join(exc.messages))
+
         user.set_password(new_password)
         user.save()
 
         reset.used = True
         reset.save(update_fields=['used'])
+
+        # A password reset is the account owner's declaration that they need
+        # to lock out anyone else with access — including whoever holds a
+        # previously-issued token (AuthToken never expires on its own).
+        AuthToken.objects.filter(user=user).delete()
 
         ensure_profile(user)
         token = AuthToken.create_for_user(user)
