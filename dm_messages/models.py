@@ -22,6 +22,7 @@ class ConversationMember(models.Model):
         related_name='conversation_memberships',
     )
     last_read_at = models.DateTimeField(null=True, blank=True)
+    typing_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

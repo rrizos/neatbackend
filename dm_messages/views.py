@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -14,6 +15,12 @@ from accounts.models import Block, is_blocked
 from .models import Conversation, ConversationMember, Message, MessageReaction, MessageReport
 
 User = get_user_model()
+
+# A "typing" signal is only re-sent by the client on the false->true transition (see
+# messages_page.dart _onComposerChanged), so it can legitimately stay true for as long as the
+# user keeps typing without a 4s pause. This TTL is purely a safety net against a stuck indicator
+# if the client never sends the "stopped typing" signal (app killed, network drop, etc).
+TYPING_TTL = timedelta(seconds=30)
 
 
 def _cors_json(response):
@@ -71,12 +78,16 @@ def _message_to_dict(message):
     }
 
 
+def _is_typing(member):
+    return bool(member and member.typing_at and timezone.now() - member.typing_at < TYPING_TTL)
+
+
 def _conversation_to_dict(conversation, viewer):
     members = list(conversation.members.select_related('user__profile').all())
-    other_members = [m.user for m in members if m.user_id != viewer.id]
-    other = other_members[0] if other_members else viewer
-    last_message = conversation.messages.select_related('sender').last()
     member = next((m for m in members if m.user_id == viewer.id), None)
+    other_member = next((m for m in members if m.user_id != viewer.id), None)
+    other = other_member.user if other_member else viewer
+    last_message = conversation.messages.select_related('sender').last()
 
     unread_qs = conversation.messages.exclude(sender=viewer)
     if member and member.last_read_at:
@@ -95,6 +106,8 @@ def _conversation_to_dict(conversation, viewer):
         'updated': conversation.updated.isoformat(),
         'unreadCount': unread_qs.count(),
         'lastReadAt': member.last_read_at.isoformat() if member and member.last_read_at else '',
+        'otherLastReadAt': other_member.last_read_at.isoformat() if other_member and other_member.last_read_at else '',
+        'otherIsTyping': _is_typing(other_member),
         'viewerBlockedOther': Block.objects.filter(blocker=viewer, blocked=other).exists() if other != viewer else False,
         'otherBlockedViewer': Block.objects.filter(blocker=other, blocked=viewer).exists() if other != viewer else False,
     }
@@ -231,6 +244,36 @@ def update_presence(request):
         profile.save(update_fields=['last_active'])
 
     return _cors_json(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'OPTIONS'])
+def conversation_typing(request, conversation_id):
+    """GET returns whether the other member of the conversation is currently typing.
+    POST sets/clears the authenticated user's own typing signal for this conversation."""
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    if request.method == 'POST':
+        body = _json_body(request)
+        if body is None:
+            return _bad_request('Invalid JSON')
+        member = ConversationMember.objects.filter(conversation=conversation, user=viewer).first()
+        if member:
+            member.typing_at = timezone.now() if body.get('typing') else None
+            member.save(update_fields=['typing_at'])
+        return _cors_json(JsonResponse({'ok': True}))
+
+    other_member = conversation.members.exclude(user=viewer).first()
+    return _cors_json(JsonResponse({'otherIsTyping': _is_typing(other_member)}))
 
 
 @csrf_exempt
