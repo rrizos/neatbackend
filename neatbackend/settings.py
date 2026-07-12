@@ -38,6 +38,12 @@ else:
 if _render_hostname and _render_hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(_render_hostname)
 
+# DM messages (photos/GIFs) are sent as base64 inside a raw JSON body, which is well over
+# Django's 2.5MB default. Requests over the limit fail request.body access entirely, which
+# dm_messages._json_body swallows as "Invalid JSON" -- the client then leaves an unconfirmed,
+# undeletable optimistic message stuck in the thread.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024
+
 
 # Application definition
 

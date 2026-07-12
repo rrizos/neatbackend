@@ -534,7 +534,7 @@ def notifications(request):
             Notification.objects.filter(recipient=viewer, id__in=ids).update(is_read=True)
             return _cors_json(JsonResponse({'ok': True}))
 
-        qs = Notification.objects.select_related('actor').filter(recipient=viewer)
+        qs = Notification.objects.select_related('actor', 'actor__profile').filter(recipient=viewer)
         data = [item.to_dict() for item in qs[:50]]
         unread = Notification.objects.filter(recipient=viewer, is_read=False).count()
         return _cors_json(JsonResponse({'notifications': data, 'unread': unread}))

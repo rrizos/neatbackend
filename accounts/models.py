@@ -161,10 +161,13 @@ class Notification(models.Model):
                 elif post.image_url:
                     image_url = post.image_url
 
+        actor_profile = getattr(self.actor, 'profile', None)
+
         return {
             'id': self.id,
             'recipientId': self.recipient_id,
             'actor': self.actor.username,
+            'actorAvatarUrl': getattr(actor_profile, 'avatar_url', '') if actor_profile else '',
             'verb': self.verb,
             'targetType': self.target_type,
             'targetId': self.target_id,
