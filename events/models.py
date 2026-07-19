@@ -36,7 +36,11 @@ class Event(models.Model):
     class Meta:
         ordering = ['-attendees', '-created']
 
-    def to_dict(self):
+    def to_dict(self, attending_event_ids=None):
+        """attending_event_ids, when given, is the set of event ids the
+        current viewer is attending (see attending_ids_for) — batched so
+        listing events never runs one attendance query per event.
+        """
         return {
             'id': self.id,
             'city': self.city,
@@ -52,8 +56,18 @@ class Event(models.Model):
             'hasTickets': self.has_tickets,
             'ticketsUrl': self.tickets_url,
             'attendees': self.attendees,
+            'isAttending': attending_event_ids is not None and self.id in attending_event_ids,
             'created': self.created.isoformat(),
         }
+
+    @staticmethod
+    def attending_ids_for(viewer, events):
+        """Single-query batch lookup of which of [events] the viewer attends."""
+        if viewer is None or not getattr(viewer, 'is_authenticated', False):
+            return set()
+        return set(
+            EventAttendance.objects.filter(user=viewer, event__in=events).values_list('event_id', flat=True)
+        )
 
 
 class EventAttendance(models.Model):

@@ -151,7 +151,11 @@ def events_list(request):
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:
         events = events.filter(event_type=event_type)
     if request.method == 'GET':
-        return _cors_json(JsonResponse({'events': [event.to_dict() for event in events]}))
+        events = list(events)
+        attending_ids = Event.attending_ids_for(viewer, events)
+        return _cors_json(JsonResponse({
+            'events': [event.to_dict(attending_event_ids=attending_ids) for event in events],
+        }))
 
     body = _json_body(request)
     if body is None:
@@ -204,12 +208,15 @@ def event_attend(request, event_id):
     if existing.exists():
         existing.delete()
         event.attendees = max(0, event.attendance_rows.count())
+        now_attending = False
     else:
         EventAttendance.objects.create(event=event, user=viewer)
         event.attendees = event.attendance_rows.count()
         _notify(event.creator or viewer, viewer, 'is attending your event', 'event', event.id, event.title)
+        now_attending = True
     event.save(update_fields=['attendees', 'updated'])
-    return _cors_json(JsonResponse({'event': event.to_dict()}))
+    attending_ids = {event.id} if now_attending else set()
+    return _cors_json(JsonResponse({'event': event.to_dict(attending_event_ids=attending_ids)}))
 
 
 @csrf_exempt
@@ -309,7 +316,8 @@ def event_update(request, event_id):
     if update_fields:
         event.save(update_fields=update_fields + ['updated'])
 
-    return _cors_json(JsonResponse({'event': event.to_dict()}))
+    attending_ids = Event.attending_ids_for(viewer, [event])
+    return _cors_json(JsonResponse({'event': event.to_dict(attending_event_ids=attending_ids)}))
 
 
 @csrf_exempt
