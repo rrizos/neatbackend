@@ -18,6 +18,7 @@ class Post(models.Model):
     image_url = models.TextField(blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     likes = models.IntegerField(default=0)
+    shares = models.IntegerField(default=0)
     comments = models.TextField(blank=True, default='[]')
 
     def __str__(self):
@@ -40,6 +41,7 @@ class Post(models.Model):
             'created': self.created.isoformat(),
             'minutesAgo': minutes_ago,
             'likes': self.likes,
+            'shares': self.shares,
             'comments': comments,
         }
 
@@ -203,3 +205,35 @@ class CommentReport(models.Model):
 
     def __str__(self):
         return f"{self.reporter.username} reported comment {self.comment_id}: {self.reason}"
+
+
+class Poll(models.Model):
+    post = models.OneToOneField(Post, on_delete=models.CASCADE, related_name='poll')
+    created = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Poll for post {self.post_id}"
+
+
+class PollOption(models.Model):
+    poll = models.ForeignKey(Poll, on_delete=models.CASCADE, related_name='options')
+    text = models.CharField(max_length=200)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return self.text
+
+
+class PollVote(models.Model):
+    poll = models.ForeignKey(Poll, on_delete=models.CASCADE, related_name='votes')
+    option = models.ForeignKey(PollOption, on_delete=models.CASCADE, related_name='votes_rows')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='poll_votes')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['poll', 'user'], name='unique_poll_vote'),
+        ]

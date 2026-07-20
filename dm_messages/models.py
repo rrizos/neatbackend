@@ -46,6 +46,7 @@ class Message(models.Model):
     )
     text = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
+    edited = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['created']

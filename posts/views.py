@@ -14,7 +14,11 @@ from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
-from .models import Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport
+from django.db.models import F
+from .models import (
+    Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
+    Poll, PollOption, PollVote,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +104,21 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None):
     if row_comments:
         data["comments"] = [comment.to_dict(viewer=viewer, owner_id=post.user_id) for comment in row_comments]
     data["likes"] = post.like_rows.count() or post.likes
+    data["shares"] = post.shares
+    poll = getattr(post, "poll", None)
+    if poll is not None:
+        voted_option_id = None
+        if viewer and viewer.is_authenticated:
+            vote = PollVote.objects.filter(poll=poll, user=viewer).first()
+            voted_option_id = vote.option_id if vote else None
+        data["poll"] = {
+            "id": poll.id,
+            "options": [
+                {"id": o.id, "text": o.text, "votes": o.votes_rows.count()}
+                for o in poll.options.all()
+            ],
+            "voted_option_id": voted_option_id,
+        }
     data["liked"] = False
     data["saved"] = False
     data["likedByFollowing"] = []
@@ -280,6 +299,10 @@ def posts_list(request):
             media_info = json.loads(request.POST.get("media", "[]"))
         except Exception:
             media_info = []
+        try:
+            poll_info = json.loads(request.POST.get("poll", "{}"))
+        except Exception:
+            poll_info = {}
 
         media_list = []
         for item in media_info[:4]:
@@ -349,6 +372,13 @@ def posts_list(request):
         image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
         if not media_list and image_url:
             media_list = [{"type": "image", "url": image_url}]
+        poll_info = body.get("poll") or {}
+
+    poll_options = [
+        opt.strip() for opt in (poll_info.get("options") or []) if opt and opt.strip()
+    ][:4]
+    if poll_options and len(poll_options) < 2:
+        return _cors_json(JsonResponse({"error": "A poll needs at least 2 options"}, status=400))
 
     # Legacy field: keep first image URL for old clients reading imageUrl directly
     legacy_image_url = ""
@@ -376,6 +406,11 @@ def posts_list(request):
                 duration=item.get("duration"),
                 order=i,
             )
+
+    if len(poll_options) >= 2:
+        poll = Poll.objects.create(post=post)
+        for i, option_text in enumerate(poll_options):
+            PollOption.objects.create(poll=poll, text=option_text, order=i)
 
     _notify_mentions(post.text, user, post.city, post)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
@@ -417,6 +452,69 @@ def post_like(request, post_id):
     post.likes = post.like_rows.count()
     post.save(update_fields=["likes"])
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def post_share(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if is_blocked(user, post.user):
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+
+    Post.objects.filter(pk=post.pk).update(shares=F("shares") + 1)
+    post.refresh_from_db(fields=["shares"])
+    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def post_poll_vote(request, post_id):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    post = _get_post_or_404(post_id)
+    if post is None:
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if is_blocked(user, post.user):
+        return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
+    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+        return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
+
+    poll = getattr(post, "poll", None)
+    if poll is None:
+        return _cors_json(JsonResponse({"error": "This post has no poll"}, status=404))
+
+    try:
+        body = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _cors_json(JsonResponse({"error": "Invalid JSON"}, status=400))
+
+    option_id = body.get("option_id") or body.get("optionId")
+    try:
+        option = poll.options.get(pk=int(option_id))
+    except (PollOption.DoesNotExist, TypeError, ValueError):
+        return _cors_json(JsonResponse({"error": "Invalid option"}, status=400))
+
+    if PollVote.objects.filter(poll=poll, user=user).exists():
+        return _cors_json(JsonResponse({"error": "You already voted on this poll"}, status=400))
+
+    PollVote.objects.create(poll=poll, option=option, user=user)
+    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
 
 
 @csrf_exempt

@@ -22,6 +22,16 @@ User = get_user_model()
 # if the client never sends the "stopped typing" signal (app killed, network drop, etc).
 TYPING_TTL = timedelta(seconds=30)
 
+# A message can only be edited within this window of being sent, mirroring
+# the client's "Edit" affordance — kept in sync with the 15-minute copy shown
+# in the app. The server is the source of truth since the client doesn't
+# currently gate the "Edit" menu item on message age itself.
+MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
+
+# Non-text payloads are encoded inline in Message.text with these prefixes
+# (see messages_page.dart). Editing only makes sense for plain text.
+_NON_TEXT_PREFIXES = ('__neat_post__:', '__neat_image__:', '__neat_voice__:', '__neat_reply__:')
+
 
 def _cors_json(response):
     response['Access-Control-Allow-Origin'] = '*'
@@ -75,6 +85,7 @@ def _message_to_dict(message):
         'text': message.text,
         'created': message.created.isoformat(),
         'reactions': reactions,
+        'edited': message.edited,
     }
 
 
@@ -340,6 +351,45 @@ def message_delete(request, conversation_id, message_id):
 
     message.delete()
     return _cors_json(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+@require_http_methods(['PATCH', 'OPTIONS'])
+def message_edit(request, conversation_id, message_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation, sender=viewer)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    if message.text.startswith(_NON_TEXT_PREFIXES):
+        return _bad_request('This message cannot be edited')
+
+    if timezone.now() - message.created > MESSAGE_EDIT_WINDOW:
+        return _cors_json(JsonResponse({'error': 'This message can no longer be edited'}, status=403))
+
+    body = _json_body(request)
+    if body is None:
+        return _bad_request('Invalid JSON')
+    text = (body.get('text') or '').strip()
+    if not text:
+        return _bad_request('Message text is required')
+
+    message.text = text
+    message.edited = True
+    message.save(update_fields=['text', 'edited'])
+    return _cors_json(JsonResponse({'message': _message_to_dict(message)}))
 
 
 @csrf_exempt
