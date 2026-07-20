@@ -186,7 +186,15 @@ def inbox(request):
     )
     data = []
     for conversation in conversations:
-        other_members = [m.user for m in conversation.members.all() if m.user_id != viewer.id]
+        members = list(conversation.members.all())
+        viewer_member = next((m for m in members if m.user_id == viewer.id), None)
+        # "Delete" hides the thread from just this viewer's inbox (their side
+        # only — the other participant keeps it). Any activity since the hide
+        # (a new incoming message bumps `conversation.updated`) surfaces it
+        # again automatically, matching WhatsApp/iMessage-style "delete for me".
+        if viewer_member and viewer_member.hidden_at and viewer_member.hidden_at >= conversation.updated:
+            continue
+        other_members = [m.user for m in members if m.user_id != viewer.id]
         if other_members and Block.objects.filter(blocker=other_members[0], blocked=viewer).exists():
             continue
         data.append(_conversation_to_dict(conversation, viewer))
@@ -327,6 +335,28 @@ def start_conversation(request):
             status=201,
         )
     )
+
+
+@csrf_exempt
+@require_http_methods(['DELETE', 'OPTIONS'])
+def conversation_delete(request, conversation_id):
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    member = ConversationMember.objects.filter(conversation=conversation, user=viewer).first()
+    if member:
+        member.hidden_at = timezone.now()
+        member.save(update_fields=['hidden_at'])
+    return _cors_json(JsonResponse({'ok': True}))
 
 
 @csrf_exempt

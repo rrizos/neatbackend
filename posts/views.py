@@ -510,11 +510,19 @@ def post_poll_vote(request, post_id):
     except (PollOption.DoesNotExist, TypeError, ValueError):
         return _cors_json(JsonResponse({"error": "Invalid option"}, status=400))
 
-    if PollVote.objects.filter(poll=poll, user=user).exists():
-        return _cors_json(JsonResponse({"error": "You already voted on this poll"}, status=400))
-
-    PollVote.objects.create(poll=poll, option=option, user=user)
-    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=201))
+    # Tap-to-toggle voting (matches the client, which calls this same endpoint
+    # for every tap regardless of prior vote state): tapping your current
+    # choice retracts it, tapping a different option switches to it, and
+    # having no prior vote just casts one.
+    existing = PollVote.objects.filter(poll=poll, user=user).first()
+    if existing and existing.option_id == option.id:
+        existing.delete()
+    elif existing:
+        existing.option = option
+        existing.save(update_fields=["option"])
+    else:
+        PollVote.objects.create(poll=poll, option=option, user=user)
+    return _cors_json(JsonResponse(_post_to_dict(post, viewer=user), status=200))
 
 
 @csrf_exempt
