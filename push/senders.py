@@ -128,3 +128,29 @@ def send_message_alert(user, *, sender_profile, sender_username, text, conversat
         )
     except Exception:
         logger.exception('send_message_alert failed for user %s', user.username)
+
+
+# The exact string the client sends for its heart quick-reaction (double-tap
+# and the quick-react bar) — see _kQuickEmojis in messages_page.dart.
+_HEART_EMOJI = '❤️'
+
+
+def send_reaction_alert(user, *, reactor_profile, reactor_username, emoji, conversation_id):
+    """A DM push for a message reaction: "liked your message" for the heart
+    emoji (matching Instagram's copy for a heart reaction), otherwise
+    "reacted to your message with <emoji>". Re-uses type: 'dm' so tapping it
+    opens the conversation via the same routing as a new-message push."""
+    try:
+        title = reactor_username
+        body = 'liked your message' if emoji == _HEART_EMOJI else f'reacted to your message with {emoji}'
+        image = _usable_image_url(getattr(reactor_profile, 'avatar_url', ''))
+        _send_to_user(
+            user,
+            title=title,
+            body=body,
+            data={'type': 'dm', 'conversationId': conversation_id},
+            silent=False,
+            image=image,
+        )
+    except Exception:
+        logger.exception('send_reaction_alert failed for user %s', user.username)
