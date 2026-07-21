@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
     'corsheaders',
     'accounts',
     'posts',
@@ -97,6 +98,26 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'neatbackend.wsgi.application'
+ASGI_APPLICATION = 'neatbackend.asgi.application'
+
+# Channel layer for the DM WebSocket (see dm_messages/consumers.py). Redis is
+# required in production — gunicorn runs multiple worker processes, and only
+# a shared (not in-memory) layer lets a message sent in one process reach a
+# socket connected to another. REDIS_URL unset falls back to the in-memory
+# layer purely so `manage.py runserver` works without installing Redis
+# locally; that fallback is never correct for the real multi-worker deploy.
+_redis_url = os.environ.get('REDIS_URL', '').strip()
+if _redis_url:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [_redis_url]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+    }
 
 
 # Database

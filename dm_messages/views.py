@@ -13,6 +13,7 @@ from accounts.auth import require_authenticated_user
 from accounts.models import Block, is_blocked
 
 from .models import Conversation, ConversationMember, Message, MessageReaction, MessageReport
+from .realtime import broadcast_to_conversation, push_to_user
 
 User = get_user_model()
 
@@ -243,7 +244,11 @@ def conversation_detail(request, conversation_id):
         return _bad_request('Message text is required')
     message = Message.objects.create(conversation=conversation, sender=viewer, text=text)
     conversation.save(update_fields=['updated'])
-    return _cors_json(JsonResponse(_message_to_dict(message), status=201))
+    message_dict = _message_to_dict(message)
+    broadcast_to_conversation(
+        conversation, 'message.new', {'conversation_id': conversation.id, 'message': message_dict}
+    )
+    return _cors_json(JsonResponse(message_dict, status=201))
 
 
 @csrf_exempt
@@ -327,6 +332,10 @@ def start_conversation(request):
         return _bad_request('You can only message people in your city')
 
     conversation = _get_or_create_direct_conversation(viewer, other)
+    # Let the recipient learn about a brand-new thread instantly instead of
+    # waiting for their next inbox poll. Built from `other`'s point of view
+    # (their "otherUser" is the viewer), not the viewer's own dict.
+    push_to_user(other.id, 'conversation.new', _conversation_to_dict(conversation, other))
     return _cors_json(
         JsonResponse(
             {
@@ -356,6 +365,8 @@ def conversation_delete(request, conversation_id):
     if member:
         member.hidden_at = timezone.now()
         member.save(update_fields=['hidden_at'])
+    # "Delete for me" — only the deleter's other devices need to know.
+    push_to_user(viewer.id, 'conversation.deleted', {'conversation_id': conversation.id})
     return _cors_json(JsonResponse({'ok': True}))
 
 
@@ -380,6 +391,9 @@ def message_delete(request, conversation_id, message_id):
         return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
 
     message.delete()
+    broadcast_to_conversation(
+        conversation, 'message.deleted', {'conversation_id': conversation.id, 'message_id': message_id}
+    )
     return _cors_json(JsonResponse({'ok': True}))
 
 
@@ -419,7 +433,11 @@ def message_edit(request, conversation_id, message_id):
     message.text = text
     message.edited = True
     message.save(update_fields=['text', 'edited'])
-    return _cors_json(JsonResponse({'message': _message_to_dict(message)}))
+    message_dict = _message_to_dict(message)
+    broadcast_to_conversation(
+        conversation, 'message.edited', {'conversation_id': conversation.id, 'message': message_dict}
+    )
+    return _cors_json(JsonResponse({'message': message_dict}))
 
 
 @csrf_exempt
@@ -458,7 +476,11 @@ def message_react(request, conversation_id, message_id):
             user=viewer,
             defaults={'emoji': emoji},
         )
-    return _cors_json(JsonResponse({'message': _message_to_dict(message)}))
+    message_dict = _message_to_dict(message)
+    broadcast_to_conversation(
+        conversation, 'message.reaction', {'conversation_id': conversation.id, 'message': message_dict}
+    )
+    return _cors_json(JsonResponse({'message': message_dict}))
 
 
 @csrf_exempt

@@ -15,6 +15,7 @@ from .auth import require_authenticated_user
 from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
 from .ratelimit import client_ip, rate_limited
 from .serializers import auth_payload, ensure_profile, user_to_dict
+from dm_messages.realtime import push_to_user
 
 
 User = get_user_model()
@@ -500,7 +501,8 @@ def block_toggle(request, username):
             return _bad_request('You cannot block yourself')
 
         existing = Block.objects.filter(blocker=viewer, blocked=target)
-        if existing.exists():
+        was_blocked = existing.exists()
+        if was_blocked:
             existing.delete()
         else:
             Block.objects.create(blocker=viewer, blocked=target)
@@ -508,6 +510,13 @@ def block_toggle(request, username):
             # matching Instagram's behavior.
             Follow.objects.filter(follower=viewer, following=target).delete()
             Follow.objects.filter(follower=target, following=viewer).delete()
+
+        # Let the DM screen react instantly if either side has it open.
+        push_to_user(
+            target.id,
+            'unblock' if was_blocked else 'block',
+            {'username': viewer.username},
+        )
 
         return _cors_json(
             JsonResponse(

@@ -5,3 +5,8 @@ dj-database-url
 psycopg2-binary
 firebase-admin
 Pillow
+channels
+channels_redis
+redis
+uvicorn[standard]
+uvicorn-worker
