@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import IntegrityError
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -399,22 +400,25 @@ def search_users(request):
         query = (request.GET.get('q') or '').strip().lower()
         viewer_city = ensure_profile(viewer).city
         hidden_ids = blocked_user_ids(viewer)
-        users_qs = User.objects.exclude(id=viewer.id).exclude(id__in=hidden_ids).order_by('username')
+        # Filtering at the SQL level (rather than looping in Python and
+        # calling ensure_profile() per user, which was a get_or_create query
+        # PER USER IN THE WHOLE APP on every keystroke) is what actually
+        # makes this fast — it used to scale with total user count instead
+        # of result count.
+        users_qs = (
+            User.objects.exclude(id=viewer.id)
+            .exclude(id__in=hidden_ids)
+            .select_related('profile')
+        )
         if viewer_city:
-            users_qs = [
-                user for user in users_qs if ensure_profile(user).city == viewer_city
-            ]
-        else:
-            users_qs = list(users_qs)
-
+            users_qs = users_qs.filter(profile__city=viewer_city)
         if query:
-            users_qs = [
-                user
-                for user in users_qs
-                if query in user.username.lower()
-                or query in ensure_profile(user).full_name.lower()
-                or query in ensure_profile(user).bio.lower()
-            ]
+            users_qs = users_qs.filter(
+                Q(username__icontains=query)
+                | Q(profile__full_name__icontains=query)
+                | Q(profile__bio__icontains=query)
+            )
+        users_qs = list(users_qs.order_by('username'))
 
         # People the viewer already interacts with (mutual > following > follower)
         # surface first — matches the "who to mention" ordering of the mention picker.
