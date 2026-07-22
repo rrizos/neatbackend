@@ -94,17 +94,30 @@ def _unauthorized():
     return _cors_json(JsonResponse({"error": "Authentication required"}, status=401))
 
 
-def _post_to_dict(post, viewer=None, viewer_following_ids=None):
+def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False):
     data = post.to_dict()
-    row_comments = list(
-        post.comment_rows
-        .filter(parent__isnull=True)
-        .select_related("user")
-        .prefetch_related("comment_likes", "replies__user", "replies__comment_likes")
-        .order_by("-pinned", "created")
-    )
-    if row_comments:
-        data["comments"] = [comment.to_dict(viewer=viewer, owner_id=post.user_id) for comment in row_comments]
+    # `light` mode (used by the viral/charts list) skips serializing the full
+    # comment threads -- the charts cards only render the comment *count*, and
+    # viral posts are the most-commented ones, so shipping every comment + reply
+    # is a huge wasted payload. The count is sent instead; the comment sheet
+    # lazy-loads the real thread from the post-detail endpoint when opened.
+    if light:
+        count = getattr(post, "comment_count", None)
+        if count is None:
+            count = post.comment_rows.count()
+        data["comment_count"] = count
+        data["comments"] = []
+    else:
+        row_comments = list(
+            post.comment_rows
+            .filter(parent__isnull=True)
+            .select_related("user")
+            .prefetch_related("comment_likes", "replies__user", "replies__comment_likes")
+            .order_by("-pinned", "created")
+        )
+        if row_comments:
+            data["comments"] = [comment.to_dict(viewer=viewer, owner_id=post.user_id) for comment in row_comments]
+        data["comment_count"] = len(row_comments)
     data["likes"] = post.like_rows.count() or post.likes
     data["shares"] = post.shares
     poll = getattr(post, "poll", None)
@@ -284,10 +297,19 @@ def viral_posts(request):
     period = (request.GET.get("period") or "weekly").strip().lower()
     if period not in ("daily", "weekly", "monthly"):
         period = "weekly"
+    # Opt-in lightweight payload: only clients that know how to read
+    # `comment_count` and lazy-load threads on demand send `light=1`. Older
+    # installed apps omit it and keep getting the full payload, so deploying
+    # this can't break their charts comments before they update.
+    light = (request.GET.get("light") or "").strip() in ("1", "true")
 
-    posts = Post.objects.select_related("user", "user__profile").prefetch_related(
-        "comment_rows__user", "like_rows", "media_items"
-    )
+    # In light mode the comment threads aren't serialized, so don't prefetch
+    # every comment + author just to discard them; the count comes from the
+    # SQL annotation below.
+    prefetch = ["like_rows", "media_items"]
+    if not light:
+        prefetch.insert(0, "comment_rows__user")
+    posts = Post.objects.select_related("user", "user__profile").prefetch_related(*prefetch)
     if city:
         posts = posts.filter(city=city)
     if viewer and viewer.is_authenticated:
@@ -310,7 +332,7 @@ def viral_posts(request):
         viewer_following_ids = set(
             Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
         )
-    data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids) for p in posts]
+    data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids, light=light) for p in posts]
     return _cors_json(JsonResponse(data, safe=False))
 
 
