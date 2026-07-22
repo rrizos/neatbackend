@@ -173,6 +173,12 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False):
     else:
         data["media"] = []
 
+    # In light mode (charts), the client renders from `media`, so a populated
+    # `imageUrl` is a redundant copy of the same (potentially large base64)
+    # image -- drop it to avoid shipping the picture twice.
+    if light and data["media"] and data.get("imageUrl"):
+        data["imageUrl"] = ""
+
     return data
 
 
