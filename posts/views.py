@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import os
@@ -9,12 +10,13 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import connection
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
-from django.db.models import F
+from django.db.models import Count, ExpressionWrapper, F, FloatField
 from .models import (
     Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
     Poll, PollOption, PollVote,
@@ -247,6 +249,69 @@ def cities_list(request):
     if viewer_city and viewer_city not in cities:
         cities.insert(0, viewer_city)
     return _cors_json(JsonResponse({"cities": cities}))
+
+
+def _viral_period_start(period):
+    """Calendar-aligned period start (today/this week's Monday/this month),
+    computed in the server's UTC clock. This can be a few hours off from a
+    viewer's local midnight, but that only fuzzes which borderline posts are
+    included right at the edge of the window -- it doesn't affect the
+    ranking of posts safely inside it, and this app has no per-user
+    timezone stored anywhere to do better than that."""
+    now = timezone.now()
+    if period == "daily":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "monthly":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    monday = now - datetime.timedelta(days=now.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def viral_posts(request):
+    """Top-10 "charts" ranking for the search page. Ranking (score = likes*0.45
+    + comment_count*0.55, scaled) and the period/city filtering all happen in
+    SQL here instead of the client downloading the whole city feed and
+    sorting it locally on every load -- that used to transfer and re-rank the
+    entire city's post history just to show the top 10."""
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    viewer = get_authenticated_user(request)
+    city = (request.GET.get("city") or "").strip()
+    period = (request.GET.get("period") or "weekly").strip().lower()
+    if period not in ("daily", "weekly", "monthly"):
+        period = "weekly"
+
+    posts = Post.objects.select_related("user", "user__profile").prefetch_related(
+        "comment_rows__user", "like_rows", "media_items"
+    )
+    if city:
+        posts = posts.filter(city=city)
+    if viewer and viewer.is_authenticated:
+        posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
+
+    posts = (
+        posts.filter(created__gte=_viral_period_start(period))
+        .annotate(comment_count=Count("comment_rows", distinct=True))
+        .annotate(
+            score=ExpressionWrapper(
+                (F("likes") * 0.45 + F("comment_count") * 0.55) * 100,
+                output_field=FloatField(),
+            )
+        )
+        .order_by("-score", "-created")[:10]
+    )
+
+    viewer_following_ids = None
+    if viewer and viewer.is_authenticated:
+        viewer_following_ids = set(
+            Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+        )
+    data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids) for p in posts]
+    return _cors_json(JsonResponse(data, safe=False))
 
 
 @csrf_exempt
