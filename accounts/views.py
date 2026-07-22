@@ -13,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import require_authenticated_user
+from .avatars import resize_avatar_data_url
 from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
 from .ratelimit import client_ip, rate_limited
 from .serializers import auth_payload, ensure_profile, user_to_dict
@@ -239,7 +240,10 @@ def me(request):
             profile.full_name = (body.get('fullName') or body.get('full_name') or profile.full_name).strip()
             profile.bio = (body.get('bio') if body.get('bio') is not None else profile.bio).strip()
             profile.city = (body.get('city') or profile.city).strip()
-            profile.avatar_url = (body.get('avatarUrl') or body.get('avatar_url') or profile.avatar_url).strip()
+            avatar_in = (body.get('avatarUrl') or body.get('avatar_url') or profile.avatar_url).strip()
+            # Downscale oversized base64 avatars before storing so a full-res
+            # photo isn't embedded inline in every feed/charts payload.
+            profile.avatar_url = resize_avatar_data_url(avatar_in)
             profile.save(update_fields=['full_name', 'bio', 'city', 'avatar_url'])
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
