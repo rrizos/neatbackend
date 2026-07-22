@@ -653,6 +653,27 @@ def notifications(request):
         return _handle_exception('notifications', exc)
 
 
+def _mask_email(email):
+    """j***n@g***l.com — enough for the owner to recognise their address,
+    not enough to hand a stranger a full address."""
+    try:
+        local, _, domain = (email or '').partition('@')
+        if not local or not domain:
+            return ''
+
+        def mask(part):
+            if len(part) <= 2:
+                return (part[0] + '*') if part else '*'
+            return part[0] + '*' * min(len(part) - 2, 6) + part[-1]
+
+        name, _, tld = domain.rpartition('.')
+        if name:
+            return f'{mask(local)}@{mask(name)}.{tld}'
+        return f'{mask(local)}@{mask(domain)}'
+    except Exception:
+        return ''
+
+
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def forgot_password(request):
@@ -685,13 +706,26 @@ def forgot_password(request):
             except User.DoesNotExist:
                 pass
 
-        # Always respond ok — never reveal whether an email/username exists
+        # The client shows the masked destination so someone resetting by
+        # username can confirm which address it went to, which means this
+        # endpoint does confirm whether an identifier exists. That is the
+        # deliberate trade for a usable username reset; the address itself
+        # stays masked and the existing per-IP/per-identifier rate limits are
+        # what keep it from being a bulk enumeration oracle.
         if user is None:
-            return _cors_json(JsonResponse({'ok': True}))
+            return _cors_json(JsonResponse(
+                {'ok': False, 'reason': 'not_found',
+                 'error': "We couldn't find an account with that email or username."},
+                status=404,
+            ))
 
         email = (user.email or '').strip()
         if not email:
-            return _cors_json(JsonResponse({'ok': True}))
+            return _cors_json(JsonResponse(
+                {'ok': False, 'reason': 'no_email',
+                 'error': 'That account has no email address on file, so a code cannot be sent.'},
+                status=400,
+            ))
 
         code = f'{secrets.randbelow(1_000_000):06d}'
         PasswordResetCode.objects.filter(user=user, used=False).delete()
@@ -727,7 +761,11 @@ def forgot_password(request):
             logger.exception('Failed to send reset email to %s', email)
             return _server_error('Could not send email. Please check your address and try again.')
 
-        return _cors_json(JsonResponse({'ok': True}))
+        return _cors_json(JsonResponse({
+            'ok': True,
+            'maskedEmail': _mask_email(email),
+            'username': user.username,
+        }))
     except Exception as exc:
         return _handle_exception('forgot_password', exc)
 
