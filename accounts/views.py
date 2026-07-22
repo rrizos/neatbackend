@@ -56,11 +56,15 @@ def _server_error(message='Internal server error'):
 
 
 def _handle_exception(context, exc):
+    """Log the real cause, return a generic message.
+
+    This used to echo str(exc) back to the client, which is how an internal ORM
+    error ("get() returned more than one User") ended up on a user's screen.
+    Exception text can carry table names, paths and query detail, so it stays in
+    the log where it belongs.
+    """
     logger.exception('%s failed', context)
-    detail = str(exc).strip()
-    if detail:
-        return _server_error(detail)
-    return _server_error()
+    return _server_error('Something went wrong on our side. Please try again.')
 
 
 def delete_user_and_content(user):
@@ -696,15 +700,23 @@ def forgot_password(request):
 
         user = None
         if '@' in identifier:
-            try:
-                user = User.objects.get(email__iexact=identifier)
-            except User.DoesNotExist:
-                pass
+            # Django does not make User.email unique, and in practice several
+            # accounts here share one address. get() raised MultipleObjectsReturned
+            # and surfaced as a 500, so those users could never reset by email.
+            # We can't know which account they mean, and sending a code that
+            # resets the wrong one is worse than asking — so point them at the
+            # username path, which is unambiguous.
+            matches = list(User.objects.filter(email__iexact=identifier).order_by('id')[:2])
+            if len(matches) > 1:
+                return _cors_json(JsonResponse(
+                    {'ok': False, 'reason': 'ambiguous_email',
+                     'error': 'Several accounts use this email address. '
+                              'Please enter your username instead.'},
+                    status=409,
+                ))
+            user = matches[0] if matches else None
         else:
-            try:
-                user = User.objects.get(username__iexact=identifier)
-            except User.DoesNotExist:
-                pass
+            user = User.objects.filter(username__iexact=identifier).first()
 
         # The client shows the masked destination so someone resetting by
         # username can confirm which address it went to, which means this
