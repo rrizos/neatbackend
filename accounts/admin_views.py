@@ -401,3 +401,227 @@ def admin_delete_user(request, username):
 
     delete_user_and_content(user)
     return _cors_json(JsonResponse({"ok": True}))
+
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+
+
+def _safe_count(queryset_fn):
+    """Counts never take the whole dashboard down: a model belonging to an app
+    that isn't installed (or a table that doesn't exist yet) reports as 0
+    instead of 500-ing the endpoint."""
+    try:
+        return queryset_fn()
+    except Exception:
+        return 0
+
+
+def _daily_series(model_cls, field, since, days):
+    """Dense per-day counts for the last `days` days (zero-filled), so the
+    client can chart it directly without gap handling."""
+    from django.db.models import Count
+    from django.db.models.functions import TruncDate
+    from django.utils import timezone
+    import datetime
+
+    try:
+        rows = (
+            model_cls.objects.filter(**{f"{field}__gte": since})
+            .annotate(d=TruncDate(field))
+            .values("d")
+            .annotate(c=Count("id"))
+        )
+        by_day = {}
+        for r in rows:
+            d = r["d"]
+            if d is not None:
+                by_day[d.isoformat() if hasattr(d, "isoformat") else str(d)] = r["c"]
+    except Exception:
+        by_day = {}
+
+    today = timezone.localdate()
+    out = []
+    for i in range(days - 1, -1, -1):
+        day = today - datetime.timedelta(days=i)
+        key = day.isoformat()
+        out.append({"date": key, "count": by_day.get(key, 0)})
+    return out
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def admin_analytics(request):
+    """Admin-only analytics: lifetime totals, growth, active users, engagement,
+    top cities, and 30-day daily series. Admin-gated by _require_admin, same as
+    every other endpoint in this module."""
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _admin, error = _require_admin(request)
+    if error:
+        return error
+
+    import datetime
+
+    from django.db.models import Count
+    from django.utils import timezone
+
+    from accounts.models import Block, Follow, Notification, Profile
+    from posts.models import (
+        Poll,
+        PollVote,
+        PostComment,
+        PostLike,
+        PostSave,
+    )
+
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_ago = now - datetime.timedelta(days=1)
+    week_ago = now - datetime.timedelta(days=7)
+    month_ago = now - datetime.timedelta(days=30)
+
+    total_users = _safe_count(lambda: User.objects.count())
+    total_posts = _safe_count(lambda: Post.objects.count())
+    total_comments = _safe_count(lambda: PostComment.objects.count())
+    total_likes = _safe_count(lambda: PostLike.objects.count())
+
+    totals = {
+        "users": total_users,
+        "verified_users": _safe_count(
+            lambda: Profile.objects.filter(is_verified=True).count()
+        ),
+        "admins": _safe_count(lambda: Profile.objects.filter(is_admin=True).count()),
+        "posts": total_posts,
+        "comments": total_comments,
+        "likes": total_likes,
+        "saves": _safe_count(lambda: PostSave.objects.count()),
+        "follows": _safe_count(lambda: Follow.objects.count()),
+        "blocks": _safe_count(lambda: Block.objects.count()),
+        "polls": _safe_count(lambda: Poll.objects.count()),
+        "poll_votes": _safe_count(lambda: PollVote.objects.count()),
+        "notifications": _safe_count(lambda: Notification.objects.count()),
+    }
+
+    if _events_available:
+        from events.models import EventAttendance
+
+        totals["events"] = _safe_count(lambda: Event.objects.count())
+        totals["event_attendances"] = _safe_count(
+            lambda: EventAttendance.objects.count()
+        )
+    if _messages_available:
+        from dm_messages.models import Conversation
+
+        totals["conversations"] = _safe_count(lambda: Conversation.objects.count())
+        totals["messages"] = _safe_count(lambda: Message.objects.count())
+    try:
+        from push.models import DeviceToken
+
+        totals["push_devices"] = _safe_count(lambda: DeviceToken.objects.count())
+    except Exception:
+        pass
+
+    # Open moderation queue — reports are deleted when dismissed, so whatever
+    # rows exist are still outstanding.
+    pending_reports = _safe_count(lambda: PostReport.objects.count())
+    if _comments_available:
+        pending_reports += _safe_count(lambda: CommentReport.objects.count())
+    if _messages_available:
+        pending_reports += _safe_count(lambda: MessageReport.objects.count())
+    if _events_available:
+        from events.models import EventReport
+
+        pending_reports += _safe_count(lambda: EventReport.objects.count())
+    totals["reports_pending"] = pending_reports
+
+    growth = {
+        "new_users_today": _safe_count(
+            lambda: User.objects.filter(date_joined__gte=today_start).count()
+        ),
+        "new_users_7d": _safe_count(
+            lambda: User.objects.filter(date_joined__gte=week_ago).count()
+        ),
+        "new_users_30d": _safe_count(
+            lambda: User.objects.filter(date_joined__gte=month_ago).count()
+        ),
+        "new_posts_today": _safe_count(
+            lambda: Post.objects.filter(created__gte=today_start).count()
+        ),
+        "new_posts_7d": _safe_count(
+            lambda: Post.objects.filter(created__gte=week_ago).count()
+        ),
+        "new_posts_30d": _safe_count(
+            lambda: Post.objects.filter(created__gte=month_ago).count()
+        ),
+        "new_comments_7d": _safe_count(
+            lambda: PostComment.objects.filter(created__gte=week_ago).count()
+        ),
+    }
+    if _messages_available:
+        growth["new_messages_7d"] = _safe_count(
+            lambda: Message.objects.filter(created__gte=week_ago).count()
+        )
+
+    # Active users from Profile.last_active (updated on app activity).
+    active = {
+        "dau": _safe_count(
+            lambda: Profile.objects.filter(last_active__gte=day_ago).count()
+        ),
+        "wau": _safe_count(
+            lambda: Profile.objects.filter(last_active__gte=week_ago).count()
+        ),
+        "mau": _safe_count(
+            lambda: Profile.objects.filter(last_active__gte=month_ago).count()
+        ),
+    }
+    active["stickiness"] = round(active["dau"] / active["mau"] * 100, 1) if active["mau"] else 0.0
+
+    engagement = {
+        "avg_likes_per_post": round(total_likes / total_posts, 2) if total_posts else 0.0,
+        "avg_comments_per_post": round(total_comments / total_posts, 2) if total_posts else 0.0,
+        "posts_per_user": round(total_posts / total_users, 2) if total_users else 0.0,
+    }
+
+    # Top cities by user count, with their post counts alongside.
+    try:
+        city_users = list(
+            Profile.objects.exclude(city="")
+            .values("city")
+            .annotate(users=Count("id"))
+            .order_by("-users")[:10]
+        )
+        posts_by_city = dict(
+            Post.objects.exclude(city="")
+            .values_list("city")
+            .annotate(c=Count("id"))
+        )
+        top_cities = [
+            {
+                "city": row["city"],
+                "users": row["users"],
+                "posts": posts_by_city.get(row["city"], 0),
+            }
+            for row in city_users
+        ]
+    except Exception:
+        top_cities = []
+
+    series = {
+        "signups": _daily_series(User, "date_joined", month_ago, 30),
+        "posts": _daily_series(Post, "created", month_ago, 30),
+    }
+
+    return _cors_json(
+        JsonResponse(
+            {
+                "generated_at": now.isoformat(),
+                "totals": totals,
+                "growth": growth,
+                "active": active,
+                "engagement": engagement,
+                "top_cities": top_cities,
+                "series": series,
+            }
+        )
+    )
