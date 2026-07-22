@@ -1,4 +1,5 @@
 import json
+import logging
 
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse, JsonResponse
@@ -31,6 +32,7 @@ except Exception:
     _comments_available = False
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _cors_json(response):
@@ -59,6 +61,34 @@ def _require_admin(request):
     return user, None
 
 
+def _reason_label(report):
+    """Human-readable reason ("Hate speech or symbols") rather than the raw
+    stored code ("hate_speech")."""
+    try:
+        return report.get_reason_display()
+    except Exception:
+        return (getattr(report, "reason", "") or "").replace("_", " ").title()
+
+
+def _post_media(post):
+    """First media item on a post so the reviewer can see what was reported,
+    not just its text."""
+    image_url = ""
+    video_url = ""
+    try:
+        first = next(iter(post.media_items.all()), None)
+        if first is not None:
+            if getattr(first, "media_type", "") == "video":
+                video_url = first.url or ""
+            else:
+                image_url = first.url or ""
+        elif getattr(post, "image_url", ""):
+            image_url = post.image_url
+    except Exception:
+        pass
+    return image_url, video_url
+
+
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def admin_reports(request):
@@ -69,102 +99,162 @@ def admin_reports(request):
     if err:
         return err
 
+    from django.db.models import Count
+
     data = []
 
-    # Post reports
+    def counts_for(model, field):
+        """How many separate reports target the same content — the main triage
+        signal, since one post reported ten times matters more than ten posts
+        reported once."""
+        try:
+            return {
+                row[field]: row["c"]
+                for row in model.objects.values(field).annotate(c=Count("id"))
+            }
+        except Exception:
+            return {}
+
+    # ── Post reports ────────────────────────────────────────────────────────
+    post_counts = counts_for(PostReport, "post_id")
     post_reports = (
         PostReport.objects
         .select_related("post", "post__user", "reporter")
+        .prefetch_related("post__media_items")
         .order_by("-created")
     )
     for r in post_reports:
         post = r.post
+        image_url, video_url = _post_media(post)
+        author = post.user.username if post.user_id else (post.author or "")
         data.append({
             "id": r.id,
             "type": "post",
             "reason": r.reason,
+            "reasonLabel": _reason_label(r),
             "subReason": r.sub_reason,
             "created": r.created.isoformat(),
-            "reporter": {
-                "id": r.reporter_id,
-                "username": r.reporter.username,
-            },
+            "reportCount": post_counts.get(post.id, 1),
+            "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+            "reported": {"id": post.user_id, "username": author},
             "content": {
                 "id": post.id,
                 "conversationId": 0,
-                "author": post.user.username if post.user_id else post.author,
-                "text": post.text,
+                "author": author,
+                "text": post.text or "",
+                "imageUrl": image_url,
+                "videoUrl": video_url,
+                "city": getattr(post, "city", "") or "",
+                "context": "",
             },
         })
 
-    # Message reports
+    # ── Message reports ─────────────────────────────────────────────────────
     if _messages_available:
         try:
-            for r in MessageReport.objects.select_related("message__sender", "reporter").order_by("-created"):
+            msg_counts = counts_for(MessageReport, "message_id")
+            for r in MessageReport.objects.select_related(
+                "message__sender", "reporter"
+            ).order_by("-created"):
                 msg = r.message
                 data.append({
                     "id": r.id,
                     "type": "message",
                     "reason": r.reason,
+                    "reasonLabel": _reason_label(r),
                     "subReason": "",
                     "created": r.created.isoformat(),
+                    "reportCount": msg_counts.get(msg.id, 1),
                     "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+                    "reported": {"id": msg.sender_id, "username": msg.sender.username},
                     "content": {
                         "id": msg.id,
                         "conversationId": msg.conversation_id,
                         "author": msg.sender.username,
-                        "text": msg.text,
+                        "text": msg.text or "",
+                        "imageUrl": "",
+                        "videoUrl": "",
+                        "city": "",
+                        "context": f"Direct message in conversation #{msg.conversation_id}",
                     },
                 })
         except Exception:
-            pass
+            logger.exception("admin_reports: message reports failed")
 
-    # Event reports
+    # ── Event reports ───────────────────────────────────────────────────────
     if _events_available:
         try:
-            for r in EventReport.objects.select_related("event", "event__creator", "reporter").order_by("-created"):
+            evt_counts = counts_for(EventReport, "event_id")
+            for r in EventReport.objects.select_related(
+                "event", "event__creator", "reporter"
+            ).order_by("-created"):
                 evt = r.event
+                creator = evt.creator.username if evt.creator_id else (evt.organizer or "")
                 data.append({
                     "id": r.id,
                     "type": "event",
                     "reason": r.reason,
+                    "reasonLabel": _reason_label(r),
                     "subReason": "",
                     "created": r.created.isoformat(),
+                    "reportCount": evt_counts.get(evt.id, 1),
                     "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+                    "reported": {"id": evt.creator_id, "username": creator},
                     "content": {
                         "id": evt.id,
                         "conversationId": 0,
-                        "author": evt.creator.username if evt.creator_id else evt.organizer,
-                        "text": evt.title,
+                        "author": creator,
+                        "text": evt.title or "",
+                        "imageUrl": getattr(evt, "image_url", "") or "",
+                        "videoUrl": "",
+                        "city": getattr(evt, "city", "") or "",
+                        "context": (getattr(evt, "description", "") or "")[:200],
                     },
                 })
         except Exception:
-            pass
+            logger.exception("admin_reports: event reports failed")
 
-    # Comment reports
+    # ── Comment reports ─────────────────────────────────────────────────────
     if _comments_available:
         try:
-            for r in CommentReport.objects.select_related("comment__post", "comment__user", "reporter").order_by("-created"):
+            cmt_counts = counts_for(CommentReport, "comment_id")
+            for r in CommentReport.objects.select_related(
+                "comment__post", "comment__user", "reporter"
+            ).order_by("-created"):
                 c = r.comment
+                parent = c.post
                 data.append({
                     "id": r.id,
                     "type": "comment",
                     "reason": r.reason,
+                    "reasonLabel": _reason_label(r),
                     "subReason": "",
                     "created": r.created.isoformat(),
+                    "reportCount": cmt_counts.get(c.id, 1),
                     "reporter": {"id": r.reporter_id, "username": r.reporter.username},
+                    "reported": {"id": c.user_id, "username": c.user.username},
                     "content": {
                         "id": c.id,
                         "conversationId": 0,
                         "author": c.user.username,
-                        "text": c.text,
+                        "text": c.text or "",
+                        "imageUrl": "",
+                        "videoUrl": "",
+                        "city": "",
+                        # The comment alone is rarely enough to judge — carry
+                        # the post it sits under.
+                        "context": (
+                            f"On post #{parent.id}: {(parent.text or '')[:160]}"
+                            if parent is not None else ""
+                        ),
+                        "postId": parent.id if parent is not None else 0,
                     },
                 })
         except Exception:
-            pass
+            logger.exception("admin_reports: comment reports failed")
 
     data.sort(key=lambda x: x["created"], reverse=True)
-    return _cors_json(JsonResponse({"reports": data}))
+    return _cors_json(JsonResponse({"reports": data, "total": len(data)}))
 
 
 @csrf_exempt
