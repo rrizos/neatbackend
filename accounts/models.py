@@ -134,6 +134,10 @@ class Notification(models.Model):
     verb = models.CharField(max_length=32)
     target_type = models.CharField(max_length=32, blank=True, default='')
     target_id = models.CharField(max_length=64, blank=True, default='')
+    # For comment-related notifications: the specific comment/reply the
+    # interaction concerns, so the client can scroll the comment panel to the
+    # exact position instead of guessing by author.
+    target_comment_id = models.CharField(max_length=64, blank=True, default='')
     target_text = models.CharField(max_length=255, blank=True, default='')
     is_read = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -171,6 +175,7 @@ class Notification(models.Model):
             'verb': self.verb,
             'targetType': self.target_type,
             'targetId': self.target_id,
+            'targetCommentId': self.target_comment_id,
             'targetText': self.target_text,
             'isRead': self.is_read,
             'created': self.created.isoformat(),

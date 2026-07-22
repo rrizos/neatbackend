@@ -18,11 +18,17 @@ def notify_soft_push(sender, instance, created, **kwargs):
         instance.recipient,
         title=instance.actor.username,
         body=instance.verb,
+        # Carry the same routing fields the in-app notification list uses, so a
+        # tapped push navigates identically (scroll to the post, open the
+        # comment panel at the exact comment) instead of just opening the bell.
         data={
             'type': 'notification',
             'notificationId': instance.id,
             'targetType': instance.target_type,
             'targetId': instance.target_id,
+            'targetCommentId': instance.target_comment_id,
+            'verb': instance.verb,
+            'actor': instance.actor.username,
         },
     )
 

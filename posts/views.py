@@ -182,7 +182,7 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False):
     return data
 
 
-def _notify(recipient, actor, verb, post):
+def _notify(recipient, actor, verb, post, comment=None):
     if recipient == actor or recipient is None:
         return
     Notification.objects.create(
@@ -191,6 +191,7 @@ def _notify(recipient, actor, verb, post):
         verb=verb,
         target_type='post',
         target_id=str(post.id),
+        target_comment_id=str(comment.id) if comment is not None else '',
         target_text=post.text[:255],
     )
 
@@ -198,7 +199,7 @@ def _notify(recipient, actor, verb, post):
 _MENTION_RE = re.compile(r'@([\w.]+)')
 
 
-def _notify_mentions(text, actor, city, post, verb='mentioned you in a post'):
+def _notify_mentions(text, actor, city, post, verb='mentioned you in a post', comment=None):
     """Notify @mentioned users, restricted to people in the same city as the
     post they're being tagged into — mentioning is a hyperlocal-only action.
     """
@@ -217,6 +218,7 @@ def _notify_mentions(text, actor, city, post, verb='mentioned you in a post'):
             verb=verb,
             target_type='post',
             target_id=str(post.id),
+            target_comment_id=str(comment.id) if comment is not None else '',
             target_text=text[:255],
         )
 
@@ -671,12 +673,12 @@ def post_comment(request, post_id):
         except (PostComment.DoesNotExist, ValueError):
             return _cors_json(JsonResponse({"error": "Parent comment not found"}, status=404))
 
-    PostComment.objects.create(post=post, user=user, text=text, image_url=image_url, parent=parent)
+    comment = PostComment.objects.create(post=post, user=user, text=text, image_url=image_url, parent=parent)
     if parent is None:
-        _notify(post.user, user, 'commented on your post', post)
+        _notify(post.user, user, 'commented on your post', post, comment=comment)
     else:
-        _notify(parent.user, user, 'replied to your comment', post)
-    _notify_mentions(text, user, post.city, post, verb='mentioned you in a comment')
+        _notify(parent.user, user, 'replied to your comment', post, comment=comment)
+    _notify_mentions(text, user, post.city, post, verb='mentioned you in a comment', comment=comment)
     return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
 
@@ -836,7 +838,7 @@ def comment_like(request, comment_id):
     if body.get("liked", True):
         _, created = CommentLike.objects.get_or_create(comment=comment, user=user)
         if created:
-            _notify(comment.user, user, 'liked your comment', comment.post)
+            _notify(comment.user, user, 'liked your comment', comment.post, comment=comment)
     else:
         CommentLike.objects.filter(comment=comment, user=user).delete()
 
