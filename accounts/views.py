@@ -757,9 +757,26 @@ def forgot_password(request):
                 html_message=html,
                 fail_silently=False,
             )
-        except Exception:
+        except Exception as send_exc:
+            # This is a *server-side* mail failure (bad SMTP credentials, provider
+            # refusing the sender, network). Telling the user to "check your
+            # address" blamed their input for our misconfiguration and sent
+            # people hunting for a typo that wasn't there. Keep the detail in the
+            # log and the audit trail; tell the user the truth.
             logger.exception('Failed to send reset email to %s', email)
-            return _server_error('Could not send email. Please check your address and try again.')
+            security_audit.record(
+                'system.email_failed',
+                severity='high',
+                actor=user,
+                request=request,
+                target_type='password_reset',
+                message='Password reset email could not be sent (mail transport error)',
+                metadata={'error': type(send_exc).__name__},
+            )
+            return _server_error(
+                "We couldn't send the email right now — this is a problem on our "
+                'side, not with what you entered. Please try again shortly.'
+            )
 
         return _cors_json(JsonResponse({
             'ok': True,
