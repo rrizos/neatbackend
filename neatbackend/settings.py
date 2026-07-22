@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'dm_messages.apps.DmMessagesConfig',
     'events.apps.EventsConfig',
     'push.apps.PushConfig',
+    'security.apps.SecurityConfig',
 ]
 
 MIDDLEWARE = [
@@ -78,6 +79,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Last: sees the final status code, and only records security-relevant
+    # events (probes, denials, volume) rather than all traffic.
+    'security.middleware.SecurityAuditMiddleware',
 ]
 
 ROOT_URLCONF = 'neatbackend.urls'

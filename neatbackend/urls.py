@@ -5,6 +5,7 @@ from media_serve import serve_media
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
+    path('api/auth/admin/security/', include('security.urls')),
     path('api/posts/', include('posts.urls')),
     path('api/messages/', include('dm_messages.urls')),
     path('api/events/', include('events.urls')),

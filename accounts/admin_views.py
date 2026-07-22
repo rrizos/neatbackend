@@ -9,6 +9,7 @@ from accounts.auth import require_authenticated_user
 from accounts.serializers import ensure_profile, user_to_dict
 from accounts.views import delete_user_and_content
 from posts.models import Post, PostReport
+from security import audit as security_audit
 
 try:
     from dm_messages.models import Message, MessageReport
@@ -242,7 +243,7 @@ def admin_delete_comment(request, comment_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
-    _, err = _require_admin(request)
+    admin_user, err = _require_admin(request)
     if err:
         return err
 
@@ -254,7 +255,18 @@ def admin_delete_comment(request, comment_id):
     except PostComment.DoesNotExist:
         return _cors_json(JsonResponse({"error": "Comment not found"}, status=404))
 
+    author = getattr(comment.user, "username", "")
     comment.delete()
+    security_audit.record(
+        "admin.comment_deleted",
+        severity="medium",
+        actor=admin_user,
+        target_type="comment",
+        target_id=str(comment_id),
+        request=request,
+        message=f"Admin deleted comment {comment_id} by {author}",
+        metadata={"author": author},
+    )
     return _cors_json(JsonResponse({"ok": True}))
 
 
@@ -264,7 +276,7 @@ def admin_delete_message(request, message_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
-    _, err = _require_admin(request)
+    admin_user, err = _require_admin(request)
     if err:
         return err
 
@@ -276,7 +288,18 @@ def admin_delete_message(request, message_id):
     except Message.DoesNotExist:
         return _cors_json(JsonResponse({"error": "Message not found"}, status=404))
 
+    sender = getattr(message.sender, "username", "")
     message.delete()
+    security_audit.record(
+        "admin.message_deleted",
+        severity="high",
+        actor=admin_user,
+        target_type="message",
+        target_id=str(message_id),
+        request=request,
+        message=f"Admin deleted direct message {message_id} from {sender}",
+        metadata={"sender": sender},
+    )
     return _cors_json(JsonResponse({"ok": True}))
 
 
@@ -286,7 +309,7 @@ def admin_delete_post(request, post_id):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
-    _, err = _require_admin(request)
+    admin_user, err = _require_admin(request)
     if err:
         return err
 
@@ -295,7 +318,18 @@ def admin_delete_post(request, post_id):
     except Post.DoesNotExist:
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
 
+    author = getattr(post.user, "username", "")
     post.delete()
+    security_audit.record(
+        "admin.post_deleted",
+        severity="medium",
+        actor=admin_user,
+        target_type="post",
+        target_id=str(post_id),
+        request=request,
+        message=f"Admin deleted post {post_id} by {author}",
+        metadata={"author": author},
+    )
     return _cors_json(JsonResponse({"ok": True}))
 
 
@@ -324,7 +358,7 @@ def admin_verify_user(request, username):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
-    _, err = _require_admin(request)
+    admin_user, err = _require_admin(request)
     if err:
         return err
 
@@ -344,6 +378,18 @@ def admin_verify_user(request, username):
     profile = ensure_profile(user)
     profile.is_verified = bool(body.get("verified"))
     profile.save(update_fields=["is_verified"])
+    security_audit.record(
+        "privilege.verified_changed",
+        severity="high",
+        actor=admin_user,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        message=(
+            f"Verified badge {'granted to' if profile.is_verified else 'revoked from'} {user.username}"
+        ),
+        metadata={"target": user.username, "isVerified": profile.is_verified},
+    )
 
     return _cors_json(JsonResponse({"ok": True, "isVerified": profile.is_verified}))
 
@@ -354,7 +400,7 @@ def admin_set_official_eligibility(request, username):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
 
-    _, err = _require_admin(request)
+    admin_user, err = _require_admin(request)
     if err:
         return err
 
@@ -374,6 +420,22 @@ def admin_set_official_eligibility(request, username):
     profile = ensure_profile(user)
     profile.can_create_official_events = bool(body.get("eligible"))
     profile.save(update_fields=["can_create_official_events"])
+    security_audit.record(
+        "privilege.official_events_changed",
+        severity="high",
+        actor=admin_user,
+        target_type="user",
+        target_id=str(user.id),
+        request=request,
+        message=(
+            f"Official-event rights "
+            f"{'granted to' if profile.can_create_official_events else 'revoked from'} {user.username}"
+        ),
+        metadata={
+            "target": user.username,
+            "canCreateOfficialEvents": profile.can_create_official_events,
+        },
+    )
 
     return _cors_json(JsonResponse({
         "ok": True,
@@ -399,7 +461,19 @@ def admin_delete_user(request, username):
     if user.id == admin_user.id:
         return _cors_json(JsonResponse({"error": "Cannot delete your own account"}, status=400))
 
+    target_username = user.username
+    target_id = str(user.id)
     delete_user_and_content(user)
+    security_audit.record(
+        "admin.user_deleted",
+        severity="critical",
+        actor=admin_user,
+        target_type="user",
+        target_id=target_id,
+        request=request,
+        message=f"Admin deleted account {target_username} and all of its content",
+        metadata={"target": target_username},
+    )
     return _cors_json(JsonResponse({"ok": True}))
 
 

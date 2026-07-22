@@ -16,6 +16,12 @@ def get_authenticated_user(request):
         return None
 
     token.mark_used()
+    # Stash the resolved user for the security middleware so it can attribute
+    # denials/volume without repeating this lookup on every request.
+    try:
+        request.audit_actor = token.user
+    except Exception:
+        pass
     return token.user
 
 

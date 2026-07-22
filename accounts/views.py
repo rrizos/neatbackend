@@ -12,12 +12,14 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .auth import require_authenticated_user
+from .auth import get_authenticated_user, require_authenticated_user
 from .avatars import resize_avatar_data_url
 from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
 from .ratelimit import client_ip, rate_limited
 from .serializers import auth_payload, ensure_profile, user_to_dict
 from dm_messages.realtime import push_to_user
+from security import audit as security_audit
+from security import detectors as security_detectors
 
 
 User = get_user_model()
@@ -156,6 +158,16 @@ def signup(request):
         profile.city = city
         profile.save(update_fields=['full_name', 'bio', 'city'])
         token = AuthToken.create_for_user(user)
+        security_audit.record(
+            'auth.signup',
+            severity='info',
+            actor=user,
+            request=request,
+            status_code=201,
+            session_id=security_audit.session_fingerprint(token.key),
+            message=f'New account created: {user.username}',
+            metadata={'city': city},
+        )
         return _cors_json(JsonResponse(auth_payload(user, token), status=201))
     except Exception as exc:
         return _handle_exception('signup', exc)
@@ -184,10 +196,61 @@ def login(request):
 
         user = authenticate(username=username, password=password)
         if user is None:
+            # authenticate() also returns None for a *locked* (inactive)
+            # account, which is worth distinguishing in the trail.
+            locked = User.objects.filter(username=username, is_active=False).exists()
+            fails = security_detectors.note_login_failure(ip, username.lower())
+            brute = fails >= security_detectors.LOGIN_FAIL_LIMIT
+            security_audit.record(
+                'auth.login_failed',
+                severity='high' if brute else ('medium' if locked else 'low'),
+                actor_username=username,
+                request=request,
+                status_code=400,
+                message=(
+                    'Login attempt on a locked account' if locked
+                    else f'Failed login ({fails} in {security_detectors.LOGIN_FAIL_WINDOW // 60}m)'
+                ),
+                metadata={'attempts': fails, 'locked': locked},
+            )
+            if brute:
+                security_audit.record(
+                    'threat.brute_force',
+                    severity='critical',
+                    actor_username=username,
+                    request=request,
+                    message=(
+                        f'{fails} failed logins for "{username}" from {ip} '
+                        f'within {security_detectors.LOGIN_FAIL_WINDOW // 60} minutes'
+                    ),
+                    metadata={'attempts': fails, 'username': username},
+                )
             return _bad_request('Invalid username or password')
 
         ensure_profile(user)
         token = AuthToken.create_for_user(user)
+        security_detectors.clear_login_failures(ip, username.lower())
+        previous_ip = security_detectors.note_ip_for_user(user.id, ip)
+        security_audit.record(
+            'auth.login_success',
+            severity='info',
+            actor=user,
+            request=request,
+            status_code=200,
+            session_id=security_audit.session_fingerprint(token.key),
+            # No MFA exists in this app yet; recorded explicitly rather than omitted.
+            mfa='none',
+            message=f'{user.username} signed in',
+        )
+        if previous_ip:
+            security_audit.record(
+                'threat.ip_shift',
+                severity='medium',
+                actor=user,
+                request=request,
+                message=f'{user.username} signed in from a new address ({previous_ip} -> {ip})',
+                metadata={'previous_ip': previous_ip, 'new_ip': ip},
+            )
         return _cors_json(JsonResponse(auth_payload(user, token)))
     except Exception as exc:
         return _handle_exception('login', exc)
@@ -201,8 +264,17 @@ def logout(request):
             return _cors_json(HttpResponse())
 
         header = request.headers.get('Authorization', '')
+        actor = get_authenticated_user(request)
         if header.startswith('Token '):
             AuthToken.objects.filter(key=header.removeprefix('Token ').strip()).delete()
+        security_audit.record(
+            'auth.logout',
+            severity='info',
+            actor=actor,
+            request=request,
+            status_code=200,
+            message=f'{getattr(actor, "username", "unknown")} signed out',
+        )
         return _cors_json(JsonResponse({'ok': True}))
     except Exception as exc:
         return _handle_exception('logout', exc)
