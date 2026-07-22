@@ -99,11 +99,22 @@ def _conversation_to_dict(conversation, viewer):
     member = next((m for m in members if m.user_id == viewer.id), None)
     other_member = next((m for m in members if m.user_id != viewer.id), None)
     other = other_member.user if other_member else viewer
-    last_message = conversation.messages.select_related('sender').last()
 
-    unread_qs = conversation.messages.exclude(sender=viewer)
-    if member and member.last_read_at:
-        unread_qs = unread_qs.filter(created__gt=member.last_read_at)
+    # "Delete for me" clears this viewer's own history up to that point --
+    # the other participant's ConversationMember row (and therefore their own
+    # view) is untouched, so only the deleter loses the old messages.
+    messages_qs = conversation.messages.all()
+    if member and member.hidden_at:
+        messages_qs = messages_qs.filter(created__gt=member.hidden_at)
+
+    last_message = messages_qs.select_related('sender').last()
+
+    unread_qs = messages_qs.exclude(sender=viewer)
+    read_floor = member.last_read_at if member else None
+    if member and member.hidden_at and (read_floor is None or member.hidden_at > read_floor):
+        read_floor = member.hidden_at
+    if read_floor:
+        unread_qs = unread_qs.filter(created__gt=read_floor)
 
     other_profile = getattr(other, 'profile', None)
     other_last_active = getattr(other_profile, 'last_active', None) if other_profile else None
@@ -218,8 +229,13 @@ def conversation_detail(request, conversation_id):
         return error
 
     if request.method == 'GET':
-        messages = conversation.messages.select_related('sender').all()
         member = ConversationMember.objects.filter(conversation=conversation, user=viewer).first()
+        messages = conversation.messages.select_related('sender').all()
+        if member and member.hidden_at:
+            # "Delete for me" — this viewer shouldn't see messages from
+            # before they cleared the chat, even though the other
+            # participant's copy of the conversation is untouched.
+            messages = messages.filter(created__gt=member.hidden_at)
         if member:
             member.last_read_at = timezone.now()
             member.save(update_fields=['last_read_at'])
