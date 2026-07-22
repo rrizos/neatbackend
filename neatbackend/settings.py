@@ -232,7 +232,14 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@neat.app')
+# Carry a display name, otherwise mail clients fall back to showing the mailbox
+# name ("neatgreece"). The address still has to be the authenticated Gmail
+# account — only the label in front of it is free.
+EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'Neat')
+_default_sender = (
+    f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>' if EMAIL_HOST_USER else 'noreply@neat.app'
+)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', _default_sender)
 
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'

@@ -37,7 +37,13 @@ def check_email_configured(app_configs, **kwargs):
 
     host = getattr(settings, 'EMAIL_HOST', '')
     sender = getattr(settings, 'DEFAULT_FROM_EMAIL', '')
-    if 'gmail' in host and sender and sender.lower() != user.lower():
+    # DEFAULT_FROM_EMAIL is usually "Neat <account@gmail.com>" — compare the
+    # address inside the angle brackets, not the whole display string.
+    import re
+
+    match = re.search(r'<([^>]+)>', sender or '')
+    sender_address = (match.group(1) if match else (sender or '')).strip()
+    if 'gmail' in host and sender_address and sender_address.lower() != user.lower():
         issues.append(
             CheckWarning(
                 f'DEFAULT_FROM_EMAIL ({sender}) differs from the authenticated Gmail '
