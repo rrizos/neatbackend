@@ -215,14 +215,24 @@ X_FRAME_OPTIONS = 'DENY'
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 
-# Email — set these env vars on the server for password reset emails
+# Email (Brevo SMTP relay) — password reset depends on these.
+#
+# Required env vars on the server:
+#   EMAIL_HOST_USER      Brevo SMTP *login* (looks like 8a1b2c001@smtp-brevo.com)
+#   EMAIL_HOST_PASSWORD  Brevo SMTP *key*   (not the Brevo account password)
+#   DEFAULT_FROM_EMAIL   a sender verified in Brevo, e.g. noreply@neatapp.gr
+#
+# DEFAULT_FROM_EMAIL deliberately does NOT fall back to EMAIL_HOST_USER: with
+# Gmail the From had to equal the account, but Brevo's SMTP login is not a
+# mailbox, so using it as the From address gets the message rejected as an
+# unverified sender. It must be an address (or domain) verified in Brevo.
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp-relay.brevo.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@neat.app')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@neatapp.gr')
 
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
