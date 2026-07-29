@@ -302,6 +302,10 @@ def viral_posts(request):
     _ensure_posts_table()
     viewer = get_authenticated_user(request)
     city = (request.GET.get("city") or "").strip()
+    # The charts scope is a choice of two: the viewer's own city, or everywhere
+    # else. "Everywhere else" is an exclusion rather than an empty city filter,
+    # which would otherwise fold the viewer's own city back into the results.
+    exclude_city = (request.GET.get("exclude_city") or "").strip()
     period = (request.GET.get("period") or "weekly").strip().lower()
     if period not in ("daily", "weekly", "monthly"):
         period = "weekly"
@@ -320,6 +324,8 @@ def viral_posts(request):
     posts = Post.objects.select_related("user", "user__profile").prefetch_related(*prefetch)
     if city:
         posts = posts.filter(city=city)
+    if exclude_city:
+        posts = posts.exclude(city=exclude_city)
     if viewer and viewer.is_authenticated:
         posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
 
