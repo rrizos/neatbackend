@@ -8,7 +8,13 @@ from django.utils import timezone
 from accounts.models import AuthToken
 
 from . import oembed
-from .fetcher import UnsafeUrl, fetch_preview, parse_metadata
+from .fetcher import (
+    UnsafeUrl,
+    _validate_url,
+    fetch_preview,
+    normalise_url,
+    parse_metadata,
+)
 from .models import LinkPreview, url_fingerprint
 
 SAMPLE = {
@@ -144,6 +150,38 @@ class RichContentParsingTests(TestCase):
         d = parse_metadata('https://www.tiktok.com/@zachking/video/123', html)
         self.assertEqual(d['author_handle'], 'zachking')
         self.assertEqual(d['kind'], 'video')
+
+
+class SchemelessUrlTests(TestCase):
+    """People type "www.in.gr", not "https://www.in.gr", and the client lifts
+    the link out of message text verbatim."""
+
+    def test_bare_host_gains_https(self):
+        self.assertEqual(normalise_url('www.in.gr'), 'https://www.in.gr')
+        self.assertEqual(normalise_url('in.gr/news'), 'https://in.gr/news')
+
+    def test_an_explicit_scheme_is_left_alone(self):
+        self.assertEqual(normalise_url('http://in.gr'), 'http://in.gr')
+        self.assertEqual(normalise_url('https://in.gr'), 'https://in.gr')
+
+    def test_protocol_relative_is_not_mangled(self):
+        self.assertEqual(normalise_url('//in.gr/x'), 'https://in.gr/x')
+
+    def test_a_colon_in_the_path_is_not_read_as_a_scheme(self):
+        self.assertEqual(normalise_url('in.gr/a:b'), 'https://in.gr/a:b')
+
+    def test_scheme_less_urls_pass_validation(self):
+        # The bug: these raised UnsafeUrl, so a typed website link showed no
+        # card at all while pasted social links (always https://) worked.
+        for raw in ('www.in.gr', 'in.gr/news', 'neatapp.gr/post/12'):
+            parts, port = _validate_url(raw)
+            self.assertEqual(parts.scheme, 'https')
+            self.assertEqual(port, 443)
+
+    def test_private_addresses_are_still_blocked_without_a_scheme(self):
+        for raw in ('127.0.0.1', '10.0.0.5', '169.254.169.254'):
+            with self.assertRaises(UnsafeUrl):
+                _validate_url(raw)
 
 
 class OembedTests(TestCase):

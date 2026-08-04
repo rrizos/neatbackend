@@ -110,9 +110,30 @@ def _resolve_and_validate(host, port):
     return chosen
 
 
+def normalise_url(raw):
+    """Give a scheme-less URL one, so "www.in.gr" is fetchable.
+
+    People type bare hosts far more often than they type schemes, and the
+    client extracts them verbatim from message text. urlsplit reads "www.in.gr"
+    as a *path* with no host at all, so everything downstream — the SSRF
+    checks, the oEmbed provider match, redirect joining — has to be given a
+    real absolute URL first.
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return raw
+    # "//host/path" is protocol-relative, not scheme-less; and a bare host must
+    # not be mistaken for a scheme by a colon later in the path ("in.gr/a:b").
+    if raw.startswith('//'):
+        return 'https:' + raw
+    if not urlsplit(raw).scheme:
+        return 'https://' + raw
+    return raw
+
+
 def _validate_url(raw):
     """Normalise [raw] and check the parts we can check without a socket."""
-    parts = urlsplit(raw)
+    parts = urlsplit(normalise_url(raw))
     if parts.scheme not in ('http', 'https'):
         raise UnsafeUrl('only http and https are supported')
     if not parts.hostname:
@@ -452,6 +473,7 @@ def fetch_preview(url):
     thumbnail its oEmbed omits. Taking the better of each is what makes a
     shared video look the same here as it does in Instagram.
     """
+    url = normalise_url(url)
     card = fetch_oembed(url)
 
     try:
