@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from accounts.auth import get_authenticated_user, require_authenticated_user
+from linkpreview import service as linkpreview_service
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 from django.db.models import Count, ExpressionWrapper, F, FloatField
@@ -94,8 +95,19 @@ def _unauthorized():
     return _cors_json(JsonResponse({"error": "Authentication required"}, status=401))
 
 
-def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False):
+def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
+                  with_link_preview=False):
     data = post.to_dict()
+    # Only the single-post endpoint asks for this. Resolving a link can mean an
+    # outbound fetch on a cold cache, which is fine once for a shared permalink
+    # but would be paid per row on a feed.
+    if with_link_preview:
+        try:
+            preview = linkpreview_service.preview_for_text(data.get("text") or "")
+        except Exception:
+            preview = None
+        if preview:
+            data["link_preview"] = preview
     # `light` mode (used by the viral/charts list) skips serializing the full
     # comment threads -- the charts cards only render the comment *count*, and
     # viral posts are the most-commented ones, so shipping every comment + reply
@@ -248,7 +260,7 @@ def post_detail(request, post_id):
     if viewer and is_blocked(viewer, post.user):
         return _cors_json(JsonResponse({"error": "Not found"}, status=404))
 
-    data = _post_to_dict(post, viewer=viewer)
+    data = _post_to_dict(post, viewer=viewer, with_link_preview=True)
     return _cors_json(JsonResponse(data))
 
 

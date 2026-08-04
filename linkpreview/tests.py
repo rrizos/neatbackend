@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from accounts.models import AuthToken
 
-from . import oembed
+from . import oembed, service
 from .fetcher import (
     UnsafeUrl,
     _validate_url,
@@ -46,7 +46,7 @@ class LinkPreviewViewTests(TestCase):
         self.assertEqual(res.status_code, 401)
 
     def test_returns_card_and_caches_it(self):
-        with patch('linkpreview.views.fetch_preview', return_value=SAMPLE) as m:
+        with patch('linkpreview.service.fetch_preview', return_value=SAMPLE) as m:
             res = self.get('https://in.gr/news/', **self.auth)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['preview']['title'], 'Τίτλος άρθρου')
@@ -54,13 +54,13 @@ class LinkPreviewViewTests(TestCase):
         self.assertTrue(LinkPreview.objects.filter(ok=True).exists())
 
     def test_second_request_is_served_from_cache(self):
-        with patch('linkpreview.views.fetch_preview', return_value=SAMPLE) as m:
+        with patch('linkpreview.service.fetch_preview', return_value=SAMPLE) as m:
             self.get('https://in.gr/news/', **self.auth)
             self.get('https://in.gr/news/', **self.auth)
         self.assertEqual(m.call_count, 1, 'the second hit must not refetch')
 
     def test_unsafe_url_yields_null_and_is_negative_cached(self):
-        with patch('linkpreview.views.fetch_preview',
+        with patch('linkpreview.service.fetch_preview',
                    side_effect=UnsafeUrl('nope')) as m:
             first = self.get('http://169.254.169.254/', **self.auth)
             self.get('http://169.254.169.254/', **self.auth)
@@ -72,7 +72,7 @@ class LinkPreviewViewTests(TestCase):
         self.assertFalse(row.ok)
 
     def test_timeout_is_swallowed_into_a_null_preview(self):
-        with patch('linkpreview.views.fetch_preview',
+        with patch('linkpreview.service.fetch_preview',
                    side_effect=TimeoutError('slow')):
             res = self.get('https://slow.example.com/', **self.auth)
         self.assertEqual(res.status_code, 200)
@@ -80,7 +80,7 @@ class LinkPreviewViewTests(TestCase):
 
     def test_page_with_no_metadata_gets_no_card(self):
         bare = {**SAMPLE, 'title': '', 'image_url': ''}
-        with patch('linkpreview.views.fetch_preview', return_value=bare):
+        with patch('linkpreview.service.fetch_preview', return_value=bare):
             res = self.get('https://boring.example.com/', **self.auth)
         self.assertIsNone(res.json()['preview'])
 
@@ -94,7 +94,7 @@ class LinkPreviewViewTests(TestCase):
             url='https://in.gr/news/', title='old', ok=True,
             fetched_at=timezone.now() - timezone.timedelta(days=30),
         )
-        with patch('linkpreview.views.fetch_preview', return_value=SAMPLE) as m:
+        with patch('linkpreview.service.fetch_preview', return_value=SAMPLE) as m:
             res = self.get('https://in.gr/news/', **self.auth)
         self.assertEqual(m.call_count, 1)
         self.assertEqual(res.json()['preview']['title'], 'Τίτλος άρθρου')
@@ -182,6 +182,53 @@ class SchemelessUrlTests(TestCase):
         for raw in ('127.0.0.1', '10.0.0.5', '169.254.169.254'):
             with self.assertRaises(UnsafeUrl):
                 _validate_url(raw)
+
+
+class ServiceTests(TestCase):
+    """Resolving the link inside post text, for the edge functions that build
+    the Open Graph tags and social image for /post/<id>."""
+
+    def test_first_url_matches_the_client_extractor(self):
+        self.assertEqual(
+            service.first_url('δες https://www.tiktok.com/@a/video/1 τώρα'),
+            'https://www.tiktok.com/@a/video/1')
+        self.assertEqual(service.first_url('www.in.gr είναι καλό'), 'www.in.gr')
+        self.assertEqual(service.first_url('δες in.gr/news.'), 'in.gr/news')
+
+    def test_an_email_is_not_a_link(self):
+        self.assertIsNone(service.first_url('γράψε στο someone@example.com'))
+
+    def test_text_without_a_link_needs_no_lookup(self):
+        with patch('linkpreview.service.fetch_preview') as m:
+            self.assertIsNone(service.preview_for_text('καλημέρα σε όλους'))
+        m.assert_not_called()
+
+    def test_resolves_and_caches_the_first_link_in_a_post(self):
+        with patch('linkpreview.service.fetch_preview', return_value=SAMPLE) as m:
+            first = service.preview_for_text('δες https://in.gr/news/')
+            second = service.preview_for_text('δες https://in.gr/news/')
+        self.assertEqual(first['title'], 'Τίτλος άρθρου')
+        self.assertEqual(second['title'], 'Τίτλος άρθρου')
+        self.assertEqual(m.call_count, 1, 'the second read must hit the cache')
+
+    def test_resolve_false_never_fetches(self):
+        with patch('linkpreview.service.fetch_preview') as m:
+            service.preview_for_text('https://in.gr/news/', resolve=False)
+        m.assert_not_called()
+
+    def test_a_failing_link_yields_none_and_is_not_retried(self):
+        with patch('linkpreview.service.fetch_preview',
+                   side_effect=TimeoutError('slow')) as m:
+            self.assertIsNone(service.preview_for_text('https://slow.example.com/'))
+            self.assertIsNone(service.preview_for_text('https://slow.example.com/'))
+        self.assertEqual(m.call_count, 1)
+
+    def test_scheme_less_link_in_post_text_still_resolves(self):
+        with patch('linkpreview.service.fetch_preview', return_value=SAMPLE) as m:
+            got = service.preview_for_text('δες www.in.gr σήμερα')
+        self.assertIsNotNone(got)
+        # The fetcher must be handed an absolute URL, not the bare host.
+        self.assertEqual(m.call_args[0][0], 'https://www.in.gr')
 
 
 class OembedTests(TestCase):
