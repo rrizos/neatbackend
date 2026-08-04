@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'events.apps.EventsConfig',
     'push.apps.PushConfig',
     'security.apps.SecurityConfig',
+    'linkpreview.apps.LinkPreviewConfig',
 ]
 
 MIDDLEWARE = [

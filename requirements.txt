@@ -5,6 +5,9 @@ dj-database-url
 psycopg2-binary
 firebase-admin
 Pillow
+# CA bundle for the link-preview fetcher (arrives with firebase-admin anyway,
+# pinned here because linkpreview/fetcher.py depends on it directly).
+certifi
 channels
 channels_redis
 redis
