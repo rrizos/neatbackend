@@ -231,6 +231,58 @@ class ServiceTests(TestCase):
         self.assertEqual(m.call_args[0][0], 'https://www.in.gr')
 
 
+class BatchPreviewTests(TestCase):
+    """What feeds and inboxes use: known cards ship with the list, and nothing
+    in a list is ever allowed to trigger an outbound fetch."""
+
+    def setUp(self):
+        LinkPreview.objects.create(
+            url_hash=url_fingerprint('https://in.gr/news/'),
+            url='https://in.gr/news/', title='Τίτλος', site_name='in.gr',
+            image_url='https://in.gr/og.jpg', ok=True,
+        )
+
+    def test_returns_the_card_for_a_known_link(self):
+        got = service.previews_for_texts(['δες https://in.gr/news/ τώρα'])
+        self.assertEqual(got['https://in.gr/news/']['title'], 'Τίτλος')
+
+    def test_matches_a_link_written_without_a_scheme(self):
+        got = service.previews_for_texts(['δες in.gr/news/ τώρα'])
+        self.assertIn('https://in.gr/news/', got)
+
+    def test_never_fetches(self):
+        with patch('linkpreview.service.fetch_preview') as m:
+            service.previews_for_texts(['https://unknown.example.com/'])
+        m.assert_not_called()
+
+    def test_unknown_links_are_simply_absent(self):
+        got = service.previews_for_texts(['https://unknown.example.com/'])
+        self.assertEqual(got, {})
+
+    def test_texts_without_links_cost_no_query(self):
+        with self.assertNumQueries(0):
+            self.assertEqual(service.previews_for_texts(['καλημέρα', '']), {})
+
+    def test_a_whole_page_costs_one_query(self):
+        texts = [f'post {i} https://in.gr/news/' for i in range(20)]
+        with self.assertNumQueries(1):
+            service.previews_for_texts(texts)
+
+    def test_failed_and_stale_rows_are_not_served(self):
+        LinkPreview.objects.create(
+            url_hash=url_fingerprint('https://dead.example.com/'),
+            url='https://dead.example.com/', ok=False,
+        )
+        LinkPreview.objects.create(
+            url_hash=url_fingerprint('https://old.example.com/'),
+            url='https://old.example.com/', title='old', ok=True,
+            fetched_at=timezone.now() - timezone.timedelta(days=30),
+        )
+        got = service.previews_for_texts(
+            ['https://dead.example.com/', 'https://old.example.com/'])
+        self.assertEqual(got, {})
+
+
 class OembedTests(TestCase):
     def test_endpoint_matches_provider_hosts(self):
         self.assertIn('tiktok.com/oembed',

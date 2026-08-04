@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
 from accounts.models import Block, is_blocked
+from linkpreview import service as linkpreview_service
 
 from .models import Conversation, ConversationMember, Message, MessageReaction, MessageReport
 from .realtime import broadcast_to_conversation, push_to_user
@@ -76,11 +77,11 @@ def _ensure_messages_tables():
             schema_editor.create_model(model)
 
 
-def _message_to_dict(message):
+def _message_to_dict(message, preview_map=None):
     reactions = {}
     for reaction in message.reactions.select_related('user').all():
         reactions.setdefault(reaction.emoji, []).append(reaction.user.username)
-    return {
+    data = {
         'id': message.id,
         'sender': message.sender.username,
         'text': message.text,
@@ -88,6 +89,28 @@ def _message_to_dict(message):
         'reactions': reactions,
         'edited': message.edited,
     }
+    # Cards the server already holds ride along with the thread, so a chat
+    # opens with its thumbnails rather than filling them in one request at a
+    # time. Absent for a link nobody has resolved yet — the client asks for
+    # that one itself.
+    if preview_map:
+        url = linkpreview_service.first_url(message.text or '')
+        if url:
+            preview = preview_map.get(linkpreview_service.normalise_url(url))
+            if preview:
+                data['link_preview'] = preview
+    return data
+
+
+def _preview_map_for_messages(messages):
+    """Already-resolved cards for a page of messages, in one query, no fetch."""
+    try:
+        return linkpreview_service.previews_for_texts(
+            [(m.text or '') for m in messages]
+        )
+    except Exception:
+        # Previews are decoration; a conversation must render without them.
+        return {}
 
 
 def _is_typing(member):
@@ -152,6 +175,7 @@ def _same_city(user_a, user_b):
     city_a = getattr(getattr(user_a, 'profile', None), 'city', '') or ''
     city_b = getattr(getattr(user_b, 'profile', None), 'city', '') or ''
     return bool(city_a) and city_a == city_b
+
 
 
 def _conversation_not_found():
@@ -239,11 +263,17 @@ def conversation_detail(request, conversation_id):
         if member:
             member.last_read_at = timezone.now()
             member.save(update_fields=['last_read_at'])
+        # Evaluated once for the whole thread, not per message.
+        messages = list(messages)
+        preview_map = _preview_map_for_messages(messages)
         return _cors_json(
             JsonResponse(
                 {
                     'conversation': _conversation_to_dict(conversation, viewer),
-                    'messages': [_message_to_dict(message) for message in messages],
+                    'messages': [
+                        _message_to_dict(message, preview_map=preview_map)
+                        for message in messages
+                    ],
                 }
             )
         )

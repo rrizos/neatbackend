@@ -12,7 +12,7 @@ import re
 
 from django.utils import timezone
 
-from .fetcher import fetch_preview, normalise_url
+from .fetcher import fetch_preview, normalise_url  # noqa: F401  (re-exported)
 from .models import LinkPreview, url_fingerprint
 
 # Mirrors the client-side regex in lib/src/core/link_preview.dart: an explicit
@@ -106,6 +106,29 @@ def resolve_and_store(url):
         },
     )
     return row
+
+
+def previews_for_texts(texts):
+    """Cached cards for the first link in each of [texts], keyed by URL.
+
+    One query, and never a fetch. This is what feeds and inboxes use: a list
+    must not wait on outbound requests, and a link nobody has resolved yet is
+    simply absent — the client asks for that one itself. Everything already
+    known arrives with the list instead of costing a round trip per row, which
+    is the difference between thumbnails being there on arrival and appearing
+    a minute later once the rate limiter has let them all through.
+    """
+    wanted = {}
+    for text in texts:
+        url = first_url(text or '')
+        if not url:
+            continue
+        url = normalise_url(url)
+        wanted[url_fingerprint(url)] = url
+    if not wanted:
+        return {}
+    rows = LinkPreview.objects.filter(url_hash__in=list(wanted), ok=True)
+    return {row.url: row.to_dict() for row in rows if not row.is_stale}
 
 
 def preview_for_text(text, resolve=True):

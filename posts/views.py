@@ -95,13 +95,37 @@ def _unauthorized():
     return _cors_json(JsonResponse({"error": "Authentication required"}, status=401))
 
 
+def _preview_map_for(posts):
+    """Already-resolved link cards for a page of posts, in one query.
+
+    Never fetches — a feed must not block on outbound requests. A link nobody
+    has resolved yet is simply missing here and the client asks for that one
+    itself; everything already known ships with the feed instead of costing a
+    round trip per row.
+    """
+    try:
+        return linkpreview_service.previews_for_texts(
+            [(p.text or "") for p in posts]
+        )
+    except Exception:
+        # Previews are decoration; a feed must render without them.
+        return {}
+
+
 def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
-                  with_link_preview=False):
+                  with_link_preview=False, preview_map=None):
     data = post.to_dict()
-    # Only the single-post endpoint asks for this. Resolving a link can mean an
-    # outbound fetch on a cold cache, which is fine once for a shared permalink
-    # but would be paid per row on a feed.
-    if with_link_preview:
+    # Two ways in. `preview_map` is the list path: already-known cards, looked
+    # up in one query for the whole page, never fetched. `with_link_preview` is
+    # the single-post path, where resolving on the spot is worth it because a
+    # shared permalink has to preview correctly the first time anyone opens it.
+    if preview_map is not None:
+        url = linkpreview_service.first_url(data.get("text") or "")
+        if url:
+            preview = preview_map.get(linkpreview_service.normalise_url(url))
+            if preview:
+                data["link_preview"] = preview
+    elif with_link_preview:
         try:
             preview = linkpreview_service.preview_for_text(data.get("text") or "")
         except Exception:
@@ -358,7 +382,9 @@ def viral_posts(request):
         viewer_following_ids = set(
             Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
         )
-    data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids, light=light) for p in posts]
+    preview_map = _preview_map_for(posts)
+    data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids,
+                          light=light, preview_map=preview_map) for p in posts]
     return _cors_json(JsonResponse(data, safe=False))
 
 
@@ -391,7 +417,9 @@ def posts_list(request):
             viewer_following_ids = set(
                 Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
             )
-        data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids) for p in posts]
+        preview_map = _preview_map_for(posts)
+        data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids,
+                              preview_map=preview_map) for p in posts]
         return _cors_json(JsonResponse(data, safe=False))
 
     # POST
