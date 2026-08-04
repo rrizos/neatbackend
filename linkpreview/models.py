@@ -25,7 +25,19 @@ class LinkPreview(models.Model):
     title = models.CharField(max_length=200, blank=True, default='')
     description = models.CharField(max_length=400, blank=True, default='')
     image_url = models.TextField(blank=True, default='')
+    # 0 when the source didn't say. Short-form video is portrait, so the card
+    # needs the real shape to avoid cropping a 9:16 frame into a letterbox.
+    image_width = models.IntegerField(default=0)
+    image_height = models.IntegerField(default=0)
     site_name = models.CharField(max_length=100, blank=True, default='')
+    # Who posted it, when the link points at one person's content rather than
+    # at a site. Empty for a plain article or homepage, which is what keeps a
+    # shared newspaper link looking like a newspaper link.
+    author_name = models.CharField(max_length=100, blank=True, default='')
+    author_handle = models.CharField(max_length=100, blank=True, default='')
+    author_url = models.CharField(max_length=500, blank=True, default='')
+    # '', 'video', 'article' or 'website'. Drives the play badge on the card.
+    kind = models.CharField(max_length=20, blank=True, default='')
     # False = the fetch failed; row exists purely so we stop retrying for BAD_TTL.
     ok = models.BooleanField(default=True)
     fetched_at = models.DateTimeField(default=timezone.now)
@@ -47,5 +59,11 @@ class LinkPreview(models.Model):
             'title': self.title,
             'description': self.description,
             'image_url': self.image_url,
+            'image_width': self.image_width,
+            'image_height': self.image_height,
             'site_name': self.site_name,
+            'author_name': self.author_name,
+            'author_handle': self.author_handle,
+            'author_url': self.author_url,
+            'kind': self.kind,
         }

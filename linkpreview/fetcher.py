@@ -16,26 +16,37 @@ The blocked ranges matter more than usual here: the API runs on EC2, where
 169.254.169.254 hands out IAM credentials to anything that asks.
 """
 
+import gzip
 import html
+import http.client
 import ipaddress
+import re
 import socket
 import ssl
+import zlib
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
+
+from . import oembed
 
 # Enough to cover <head> on any sane page; we stop reading once </head> shows up.
 MAX_BODY_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 6
 MAX_REDIRECTS = 3
 
-# Chrome UA: a bare urllib UA gets a 403 from a lot of sites, and several
-# (notably news sites) serve og: tags only to something that looks like a
-# browser. Not spoofing to evade anything — we want the same HTML a user
-# tapping the link would get.
-USER_AGENT = (
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
-    '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-)
+# Identify honestly as a link-preview bot rather than as Chrome.
+#
+# This is not cosmetic. Instagram serves a JS shell with no og: tags to
+# anything that looks like a browser, and the full crawler HTML — caption,
+# author, real thumbnail — to anything that doesn't. Verified: this UA gets
+# og:title from Instagram, in.gr, YouTube, Wikipedia, GitHub and the BBC,
+# while a Chrome UA gets nothing at all from Instagram.
+#
+# Deliberately our own name and not `facebookexternalhit`: the crawler HTML
+# is served to any non-browser agent, so there is nothing to gain from
+# impersonating someone else's crawler, and this leaves site owners a real
+# contact if they want to block us.
+USER_AGENT = 'Mozilla/5.0 (compatible; neatbot/1.0; +https://neatapp.gr)'
 
 
 class UnsafeUrl(Exception):
@@ -122,61 +133,71 @@ def _validate_url(raw):
     return parts, port
 
 
-def _read_capped(sock_file, limit):
-    """Read up to [limit] bytes, stopping early once </head> is in hand."""
-    chunks, total = [], 0
-    while total < limit:
-        chunk = sock_file.read(min(16384, limit - total))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        if b'</head>' in chunk or b'</HEAD>' in chunk:
-            break
-    return b''.join(chunks)
+class _PinnedConnection(http.client.HTTPConnection):
+    """An HTTP(S) connection that talks to a pre-validated address.
+
+    http.client is what parses the response — status line, headers, and
+    crucially chunked transfer-encoding, which almost every large site uses.
+    Only the socket setup is ours, so the connection still goes to the IP we
+    checked rather than re-resolving the hostname (which would reopen the DNS
+    rebinding window) while `self.host` keeps the Host header and SNI correct.
+    """
+
+    def __init__(self, hostname, port, family, sockaddr, ssl_context=None):
+        super().__init__(hostname, port, timeout=TIMEOUT_SECONDS)
+        self._family = family
+        self._sockaddr = sockaddr
+        self._ssl_context = ssl_context
+
+    def connect(self):
+        sock = socket.socket(self._family, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect(self._sockaddr)
+        if self._ssl_context is not None:
+            sock = self._ssl_context.wrap_socket(sock, server_hostname=self.host)
+        self.sock = sock
 
 
-def _fetch_once(url):
+def _decompress(body, encoding):
+    """Undo Content-Encoding. Servers send it even when we ask for identity."""
+    encoding = (encoding or '').lower().strip()
+    try:
+        if encoding == 'gzip':
+            return gzip.decompress(body)
+        if encoding == 'deflate':
+            try:
+                return zlib.decompress(body)
+            except zlib.error:
+                return zlib.decompress(body, -zlib.MAX_WBITS)
+    except Exception:
+        # A truncated body (we cap the read) can't always be inflated. Falling
+        # back to the raw bytes lets the parser salvage whatever is readable.
+        return body
+    return body
+
+
+def _fetch_once(url, accept='text/html,application/xhtml+xml'):
     """One hop. Returns (status, headers, body_bytes)."""
     parts, port = _validate_url(url)
     family, sockaddr, _ip = _resolve_and_validate(parts.hostname, port)
+    ctx = _ssl_context() if parts.scheme == 'https' else None
 
-    # Connect to the address we validated, not to the hostname — resolving
-    # again inside http.client would reopen the rebinding window.
-    sock = socket.socket(family, socket.SOCK_STREAM)
-    sock.settimeout(TIMEOUT_SECONDS)
+    conn = _PinnedConnection(parts.hostname, port, family, sockaddr, ctx)
     try:
-        sock.connect(sockaddr)
-        if parts.scheme == 'https':
-            sock = _ssl_context().wrap_socket(sock, server_hostname=parts.hostname)
-
-        path = urlunsplit(('', '', parts.path or '/', parts.query, ''))
-        request = (
-            f'GET {path} HTTP/1.1\r\n'
-            f'Host: {parts.netloc}\r\n'
-            f'User-Agent: {USER_AGENT}\r\n'
-            'Accept: text/html,application/xhtml+xml\r\n'
-            'Accept-Language: el,en;q=0.8\r\n'
-            'Connection: close\r\n\r\n'
-        )
-        sock.sendall(request.encode('latin-1', 'ignore'))
-
-        stream = sock.makefile('rb')
-        status_line = stream.readline(1024).decode('latin-1', 'replace').strip()
-        try:
-            status = int(status_line.split(' ')[1])
-        except (IndexError, ValueError):
-            raise UnsafeUrl('malformed response')
-
-        headers = {}
-        while True:
-            line = stream.readline(8192)
-            if not line or line in (b'\r\n', b'\n'):
-                break
-            decoded = line.decode('latin-1', 'replace')
-            if ':' in decoded:
-                key, _, value = decoded.partition(':')
-                headers[key.strip().lower()] = value.strip()
+        path = urlunsplit(('', '', parts.path or '/', parts.query, '')) or '/'
+        conn.request('GET', path, headers={
+            'Host': parts.netloc,
+            'User-Agent': USER_AGENT,
+            'Accept': accept,
+            'Accept-Language': 'el,en;q=0.8',
+            # We decompress gzip/deflate ourselves but can't do brotli from the
+            # stdlib, so don't advertise it.
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'close',
+        })
+        resp = conn.getresponse()
+        headers = {k.lower(): v for k, v in resp.getheaders()}
+        status = resp.status
 
         body = b''
         ctype = headers.get('content-type', '')
@@ -184,12 +205,13 @@ def _fetch_once(url):
         # shouldn't be pulled down just to find it has no og: tags.
         if 300 <= status < 400:
             pass
-        elif 'html' in ctype or not ctype:
-            body = _read_capped(stream, MAX_BODY_BYTES)
+        elif 'html' in ctype or 'json' in ctype or not ctype:
+            body = _decompress(resp.read(MAX_BODY_BYTES),
+                               headers.get('content-encoding'))
         return status, headers, body
     finally:
         try:
-            sock.close()
+            conn.close()
         except OSError:
             pass
 
@@ -263,6 +285,72 @@ def _clean(value, limit):
     return collapsed[:limit]
 
 
+# "NASA on Instagram: "caption…"" — Instagram packs the author into og:title
+# and the handle into og:url (/<handle>/reel/<id>/). Pulling them apart is what
+# turns a generic card into one that names who posted.
+#
+# The connecting word is localised ("on" in English, "στο" in Greek, and we ask
+# for Greek), so it is matched as "any one token" rather than spelled out. The
+# leading group is greedy so a multi-word display name ("Zach King on
+# Instagram:") keeps all of its words instead of stopping at the first.
+_IG_TITLE = re.compile(r'^(.+)\s+\S+\s+Instagram\s*[::]', re.DOTALL)
+_IG_PATH_HANDLE = re.compile(r'^/([A-Za-z0-9_.]+)/(?:p|reel|tv)/')
+
+
+def _author_from_page(final_url, meta, title):
+    """Best effort (name, handle, profile_url) for the person who posted this."""
+    # og:url is the canonical permalink and carries the handle even when the
+    # link that was pasted didn't (instagram.com/reel/<id>/ has no username in
+    # it, instagram.com/<user>/reel/<id>/ does).
+    canonical = (meta.get('og:url') or '').strip() or final_url
+    host = (urlsplit(canonical).hostname or '').lower().removeprefix('www.')
+    path = urlsplit(canonical).path
+
+    if host.endswith('instagram.com'):
+        handle = ''
+        match = _IG_PATH_HANDLE.match(path)
+        if match:
+            handle = match.group(1)
+        name = ''
+        title_match = _IG_TITLE.match(title or '')
+        if title_match:
+            name = title_match.group(1).strip()
+        if not handle and name:
+            handle = name
+        profile = f'https://www.instagram.com/{handle}/' if handle else ''
+        return name or handle, handle, profile
+
+    if host.endswith('tiktok.com'):
+        # /@handle/video/<id>
+        parts = [p for p in path.split('/') if p]
+        if parts and parts[0].startswith('@'):
+            handle = parts[0][1:]
+            return handle, handle, f'https://www.tiktok.com/@{handle}'
+
+    # The generic web: article bylines.
+    author = (meta.get('author') or meta.get('article:author') or '').strip()
+    if author.startswith('http'):
+        return '', '', author
+    return author, '', ''
+
+
+def _strip_author_prefix(title, host):
+    """Drop the "<author> on Instagram:" preamble so the card shows the caption.
+
+    The author gets its own line on the card, so repeating it inside the title
+    just costs two lines of a three-line clamp. Split on the "Instagram:"
+    marker rather than on the author's name, because the connecting word is
+    localised and the name may be styled differently in the two places.
+    """
+    if not title or not host.endswith('instagram.com'):
+        return title
+    marker = re.search(r'Instagram\s*[::]\s*', title)
+    if not marker:
+        return title
+    rest = title[marker.end():].strip().strip('"“”').strip()
+    return rest or title
+
+
 def parse_metadata(final_url, html_text):
     """Reduce a page's tags to the fields the preview card renders."""
     parser = _MetaParser()
@@ -284,6 +372,7 @@ def parse_metadata(final_url, html_text):
     description = pick('og:description', 'twitter:description', 'description')
     image = pick('og:image', 'og:image:url', 'og:image:secure_url', 'twitter:image')
     site_name = pick('og:site_name', 'application-name')
+    og_type = pick('og:type').lower()
 
     if image:
         image = urljoin(final_url, image.strip())
@@ -293,17 +382,122 @@ def parse_metadata(final_url, html_text):
         if scheme not in ('http', 'https'):
             image = ''
 
-    host = urlsplit(final_url).hostname or ''
+    host = (urlsplit(final_url).hostname or '').lower().removeprefix('www.')
+    canonical_path = urlsplit((m.get('og:url') or '').strip() or final_url).path
+
+    title = _clean(title, 300)
+    author_name, author_handle, author_url = _author_from_page(final_url, m, title)
+    title = _clean(_strip_author_prefix(title, host), 200)
+
+    # A page that declares a video, or carries og:video, is one the card should
+    # badge with a play button.
+    kind = ''
+    if og_type.startswith('video') or pick('og:video', 'og:video:url'):
+        kind = 'video'
+    # Instagram labels reels og:type=article, so the badge has to come from the
+    # permalink shape instead. Same for TikTok, whose crawler HTML says website.
+    elif host.endswith('instagram.com') and '/reel/' in canonical_path:
+        kind = 'video'
+    elif host.endswith('tiktok.com') and '/video/' in canonical_path:
+        kind = 'video'
+    elif og_type in ('article', 'website'):
+        kind = og_type
+
+    def dimension(*keys):
+        for key in keys:
+            raw = m.get(key)
+            if not raw:
+                continue
+            try:
+                return max(0, int(float(raw)))
+            except (TypeError, ValueError):
+                continue
+        return 0
+
     return {
         'url': final_url,
-        'title': _clean(title, 200),
+        'title': title,
         'description': _clean(description, 400),
         'image_url': image[:1000] if image else '',
-        'site_name': _clean(site_name, 100) or host.removeprefix('www.'),
+        'image_width': dimension('og:image:width', 'twitter:image:width'),
+        'image_height': dimension('og:image:height', 'twitter:image:height'),
+        'site_name': _clean(site_name, 100) or host,
+        'author_name': _clean(author_name, 100),
+        'author_handle': _clean(author_handle, 100),
+        'author_url': author_url[:500] if author_url else '',
+        'kind': kind,
     }
 
 
+def fetch_oembed(url):
+    """oEmbed for [url], or None when the provider has none or it fails."""
+    endpoint = oembed.endpoint_for(url)
+    if endpoint is None:
+        return None
+    try:
+        status, _headers, body = _fetch_once(endpoint, accept='application/json')
+    except Exception:
+        return None
+    if status != 200 or not body:
+        return None
+    return oembed.parse(body.decode('utf-8', 'replace'))
+
+
 def fetch_preview(url):
-    """Full pipeline. Raises UnsafeUrl on anything we won't or can't preview."""
-    final_url, html_text = fetch_head_html(url)
-    return parse_metadata(final_url, html_text)
+    """Full pipeline. Raises UnsafeUrl on anything we won't or can't preview.
+
+    oEmbed and Open Graph each know things the other doesn't, so both run and
+    the results are merged. TikTok's oEmbed has the caption, creator name and
+    handle its HTML omits; YouTube's page has a description and a larger
+    thumbnail its oEmbed omits. Taking the better of each is what makes a
+    shared video look the same here as it does in Instagram.
+    """
+    card = fetch_oembed(url)
+
+    try:
+        final_url, html_text = fetch_head_html(url)
+        page = parse_metadata(final_url, html_text)
+    except UnsafeUrl:
+        # No page, but oEmbed alone is still a perfectly good card.
+        if card is None:
+            raise
+        page = None
+
+    if page is None:
+        return {
+            'url': url,
+            'title': card['title'],
+            'description': '',
+            'image_url': card['thumbnail_url'],
+            'image_width': card['image_width'],
+            'image_height': card['image_height'],
+            'site_name': card['site_name'],
+            'author_name': card['author_name'] or card['author_handle'],
+            'author_handle': card['author_handle'],
+            'author_url': card['author_url'],
+            'kind': card['kind'],
+        }
+
+    if card is None:
+        return page
+
+    # Merge: oEmbed wins on the fields it is authoritative for (the caption and
+    # the creator), the page fills in everything else.
+    use_page_image = bool(page['image_url'])
+    return {
+        'url': page['url'],
+        'title': card['title'] or page['title'],
+        'description': page['description'],
+        'image_url': page['image_url'] or card['thumbnail_url'],
+        # Dimensions have to travel with whichever image won, or a portrait
+        # oEmbed thumbnail would be drawn at the page image's landscape ratio.
+        'image_width': page['image_width'] if use_page_image else card['image_width'],
+        'image_height': page['image_height'] if use_page_image else card['image_height'],
+        # The provider names itself better than our host-name fallback does
+        # ("TikTok", not "tiktok.com").
+        'site_name': card['site_name'] or page['site_name'],
+        'author_name': card['author_name'] or card['author_handle'] or page['author_name'],
+        'author_handle': card['author_handle'] or page['author_handle'],
+        'author_url': card['author_url'] or page['author_url'],
+        'kind': card['kind'] or page['kind'],
+    }

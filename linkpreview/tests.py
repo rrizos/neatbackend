@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -6,7 +7,8 @@ from django.utils import timezone
 
 from accounts.models import AuthToken
 
-from .fetcher import UnsafeUrl, parse_metadata
+from . import oembed
+from .fetcher import UnsafeUrl, fetch_preview, parse_metadata
 from .models import LinkPreview, url_fingerprint
 
 SAMPLE = {
@@ -15,6 +17,10 @@ SAMPLE = {
     'description': 'Μια περιγραφή.',
     'image_url': 'https://in.gr/og.jpg',
     'site_name': 'in.gr',
+    'author_name': '',
+    'author_handle': '',
+    'author_url': '',
+    'kind': 'article',
 }
 
 
@@ -86,6 +92,138 @@ class LinkPreviewViewTests(TestCase):
             res = self.get('https://in.gr/news/', **self.auth)
         self.assertEqual(m.call_count, 1)
         self.assertEqual(res.json()['preview']['title'], 'Τίτλος άρθρου')
+
+
+class RichContentParsingTests(TestCase):
+    """The cases that make a shared TikTok/Instagram look like it does in
+    Instagram: the creator's name, the caption, and a video badge."""
+
+    IG_HTML = '''<html><head>
+        <meta property="og:type" content="article">
+        <meta property="og:site_name" content="Instagram">
+        <meta property="og:url" content="https://www.instagram.com/nasa/reel/DbY_N/">
+        <meta property="og:title" content="NASA on Instagram: &quot;The Sun and Moon&quot;">
+        <meta property="og:image" content="https://scontent.cdninstagram.com/x.jpg">
+    </head></html>'''
+
+    def test_instagram_author_comes_from_the_permalink(self):
+        d = parse_metadata('https://www.instagram.com/reel/DbY_N/', self.IG_HTML)
+        self.assertEqual(d['author_handle'], 'nasa')
+        self.assertEqual(d['author_name'], 'NASA')
+        self.assertEqual(d['author_url'], 'https://www.instagram.com/nasa/')
+
+    def test_instagram_title_drops_the_author_preamble(self):
+        d = parse_metadata('https://www.instagram.com/reel/DbY_N/', self.IG_HTML)
+        self.assertEqual(d['title'], 'The Sun and Moon')
+
+    def test_instagram_preamble_is_stripped_in_greek_too(self):
+        # We send Accept-Language: el, so Instagram localises the connector.
+        html = self.IG_HTML.replace('NASA on Instagram:', 'NASA στο Instagram:')
+        d = parse_metadata('https://www.instagram.com/reel/DbY_N/', html)
+        self.assertEqual(d['title'], 'The Sun and Moon')
+        self.assertEqual(d['author_name'], 'NASA')
+
+    def test_multi_word_author_is_not_truncated(self):
+        html = self.IG_HTML.replace('NASA on Instagram:', 'Zach King on Instagram:')
+        d = parse_metadata('https://www.instagram.com/zachking/reel/X/', html)
+        self.assertEqual(d['author_name'], 'Zach King')
+
+    def test_instagram_reel_is_typed_as_video_despite_og_type_article(self):
+        d = parse_metadata('https://www.instagram.com/reel/DbY_N/', self.IG_HTML)
+        self.assertEqual(d['kind'], 'video')
+
+    def test_a_plain_site_gets_no_author(self):
+        html = ('<html><head><meta property="og:title" content="in.gr">'
+                '<meta property="og:type" content="website"></head></html>')
+        d = parse_metadata('https://www.in.gr/', html)
+        self.assertEqual(d['author_name'], '')
+        self.assertEqual(d['kind'], 'website')
+
+    def test_tiktok_author_comes_from_the_path(self):
+        html = '<html><head><title>TikTok</title></head></html>'
+        d = parse_metadata('https://www.tiktok.com/@zachking/video/123', html)
+        self.assertEqual(d['author_handle'], 'zachking')
+        self.assertEqual(d['kind'], 'video')
+
+
+class OembedTests(TestCase):
+    def test_endpoint_matches_provider_hosts(self):
+        self.assertIn('tiktok.com/oembed',
+                      oembed.endpoint_for('https://www.tiktok.com/@a/video/1'))
+        self.assertIn('youtube.com/oembed',
+                      oembed.endpoint_for('https://youtu.be/abc'))
+        self.assertIsNone(oembed.endpoint_for('https://www.in.gr/news/'))
+
+    def test_lookalike_domain_is_not_matched(self):
+        # notyoutube.com must not be treated as youtube.com.
+        self.assertIsNone(oembed.endpoint_for('https://notyoutube.com/watch?v=1'))
+
+    def test_parse_pulls_creator_and_thumbnail(self):
+        payload = json.dumps({
+            'type': 'video', 'title': 'caption here',
+            'author_name': 'Zach King', 'author_unique_id': 'zachking',
+            'author_url': 'https://www.tiktok.com/@zachking',
+            'thumbnail_url': 'https://cdn/thumb.jpg', 'provider_name': 'TikTok',
+        })
+        d = oembed.parse(payload)
+        self.assertEqual(d['author_name'], 'Zach King')
+        self.assertEqual(d['author_handle'], 'zachking')
+        self.assertEqual(d['kind'], 'video')
+        self.assertEqual(d['thumbnail_url'], 'https://cdn/thumb.jpg')
+
+    def test_empty_payload_yields_nothing_to_render(self):
+        self.assertIsNone(oembed.parse('{"type":"video"}'))
+        self.assertIsNone(oembed.parse('not json'))
+
+
+class MergeTests(TestCase):
+    """oEmbed and the page each win the fields they actually know better."""
+
+    PAGE = {
+        'url': 'https://www.tiktok.com/@zachking/video/1',
+        'title': 'TikTok', 'description': 'desc from page',
+        'image_url': '', 'image_width': 0, 'image_height': 0,
+        'site_name': 'tiktok.com',
+        'author_name': 'zachking', 'author_handle': 'zachking',
+        'author_url': '', 'kind': 'video',
+    }
+    CARD = {
+        'title': 'the real caption', 'thumbnail_url': 'https://cdn/t.jpg',
+        'image_width': 576, 'image_height': 1090,
+        'author_name': 'Zach King', 'author_handle': 'zachking',
+        'author_url': 'https://www.tiktok.com/@zachking',
+        'site_name': 'TikTok', 'kind': 'video',
+    }
+
+    def test_oembed_caption_and_creator_win(self):
+        with patch('linkpreview.fetcher.fetch_oembed', return_value=self.CARD), \
+             patch('linkpreview.fetcher.fetch_head_html', return_value=('u', '')), \
+             patch('linkpreview.fetcher.parse_metadata', return_value=self.PAGE):
+            d = fetch_preview('https://www.tiktok.com/@zachking/video/1')
+        self.assertEqual(d['title'], 'the real caption')
+        self.assertEqual(d['author_name'], 'Zach King')
+        self.assertEqual(d['site_name'], 'TikTok')
+        # The page still supplies what oEmbed lacks.
+        self.assertEqual(d['description'], 'desc from page')
+        self.assertEqual(d['image_url'], 'https://cdn/t.jpg')
+        # Dimensions must follow the image that won, or a portrait thumbnail
+        # gets drawn at the page image's landscape ratio.
+        self.assertEqual((d['image_width'], d['image_height']), (576, 1090))
+
+    def test_oembed_alone_still_makes_a_card_when_the_page_fails(self):
+        with patch('linkpreview.fetcher.fetch_oembed', return_value=self.CARD), \
+             patch('linkpreview.fetcher.fetch_head_html',
+                   side_effect=UnsafeUrl('blocked')):
+            d = fetch_preview('https://www.tiktok.com/@zachking/video/1')
+        self.assertEqual(d['title'], 'the real caption')
+        self.assertEqual(d['image_url'], 'https://cdn/t.jpg')
+
+    def test_page_alone_is_used_when_there_is_no_oembed_provider(self):
+        with patch('linkpreview.fetcher.fetch_oembed', return_value=None), \
+             patch('linkpreview.fetcher.fetch_head_html', return_value=('u', '')), \
+             patch('linkpreview.fetcher.parse_metadata', return_value=self.PAGE):
+            d = fetch_preview('https://www.in.gr/')
+        self.assertEqual(d['title'], 'TikTok')
 
 
 class MetadataParsingTests(TestCase):
