@@ -303,6 +303,21 @@ class MergeTests(TestCase):
         self.assertEqual(d['title'], 'the real caption')
         self.assertEqual(d['image_url'], 'https://cdn/t.jpg')
 
+    def test_a_captionless_video_gets_no_title_rather_than_the_app_shell(self):
+        # TikTok's page <title> is "TikTok - Make Your Day" whatever the video
+        # is. oEmbed is authoritative about the caption, so when it says there
+        # isn't one, captioning the video with TikTok's slogan is worse than
+        # showing none — the creator and thumbnail carry it instead.
+        card = {**self.CARD, 'title': ''}
+        page = {**self.PAGE, 'title': 'TikTok - Make Your Day'}
+        with patch('linkpreview.fetcher.fetch_oembed', return_value=card), \
+             patch('linkpreview.fetcher.fetch_head_html', return_value=('u', '')), \
+             patch('linkpreview.fetcher.parse_metadata', return_value=page):
+            d = fetch_preview('https://www.tiktok.com/@zachking/video/1')
+        self.assertEqual(d['title'], '')
+        self.assertEqual(d['author_name'], 'Zach King')
+        self.assertEqual(d['image_url'], 'https://cdn/t.jpg')
+
     def test_page_alone_is_used_when_there_is_no_oembed_provider(self):
         with patch('linkpreview.fetcher.fetch_oembed', return_value=None), \
              patch('linkpreview.fetcher.fetch_head_html', return_value=('u', '')), \

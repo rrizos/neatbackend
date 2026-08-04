@@ -506,9 +506,13 @@ def fetch_preview(url):
     # Merge: oEmbed wins on the fields it is authoritative for (the caption and
     # the creator), the page fills in everything else.
     use_page_image = bool(page['image_url'])
+    # For a provider with oEmbed, oEmbed is authoritative about the caption:
+    # if it says there isn't one, the page <title> is the app's own shell
+    # ("TikTok - Make Your Day"), never the post. Better to show no title and
+    # let the creator and thumbnail speak than to caption a video with an ad.
     return {
         'url': page['url'],
-        'title': card['title'] or page['title'],
+        'title': card['title'],
         'description': page['description'],
         'image_url': page['image_url'] or card['thumbnail_url'],
         # Dimensions have to travel with whichever image won, or a portrait
