@@ -9,9 +9,17 @@ from . import service
 from .fetcher import normalise_url
 
 MAX_URL_LENGTH = 2048
-# Per-viewer ceiling on *misses*. Cache hits are free and deliberately not
-# counted — scrolling a feed full of already-known links must never trip this.
-FETCH_LIMIT = 30
+# Per-IP ceiling on *misses*. Cache hits are free and deliberately not counted
+# — scrolling a feed full of already-known links must never trip this.
+#
+# Counted per IP rather than per account, and phone networks put whole cities
+# behind a handful of addresses, so this is a shared allowance rather than a
+# personal one. At 30 it was tripping on ordinary use: a feed of unseen links
+# would exhaust it, and the 429s that followed are what made thumbnails need
+# several refreshes to appear. Misses are the only thing that reaches here and
+# each one is cached afterwards, so the real ceiling is distinct new links per
+# minute, which no amount of normal scrolling approaches.
+FETCH_LIMIT = 120
 FETCH_WINDOW = 60
 
 
