@@ -1,5 +1,6 @@
 import logging
 
+from .badge import badge_count
 from .firebase import get_app
 from .models import DeviceToken
 
@@ -47,6 +48,15 @@ def _send_to_user(user, *, title, body, data, silent, image=None):
     # a plain gray/white circle instead of a colored one.
     android_notification_kwargs = {'channel_id': channel_id, 'color': '#1479FF'}
     apns_aps_kwargs = {}
+
+    # The red count on the iOS home-screen icon. Both signal receivers that
+    # reach here are post_save, so the row that triggered this push is already
+    # counted. Android has no equivalent key — its launchers derive their own
+    # badge from the notifications currently in the tray.
+    badge = badge_count(user)
+    if badge is not None:
+        apns_aps_kwargs['badge'] = badge
+
     if silent:
         # Omitting the sound key on both platforms is what keeps these
         # "soft" — they show in the tray but never ring or vibrate.
