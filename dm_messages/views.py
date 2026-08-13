@@ -3,6 +3,8 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import connection
+from django.db.models import Q
+from django.db.models.functions import Right, Substr
 
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -13,7 +15,14 @@ from accounts.auth import require_authenticated_user
 from accounts.models import Block, is_blocked
 from linkpreview import service as linkpreview_service
 
-from .models import Conversation, ConversationMember, Message, MessageReaction, MessageReport
+from .models import (
+    Conversation,
+    ConversationMember,
+    Message,
+    MessageOpen,
+    MessageReaction,
+    MessageReport,
+)
 from .realtime import broadcast_to_conversation, push_to_user
 
 User = get_user_model()
@@ -33,6 +42,132 @@ MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
 # Non-text payloads are encoded inline in Message.text with these prefixes
 # (see messages_page.dart). Editing only makes sense for plain text.
 _NON_TEXT_PREFIXES = ('__neat_post__:', '__neat_image__:', '__neat_voice__:', '__neat_reply__:')
+
+# How much of a message the inbox needs. The client turns anything prefixed
+# into a fixed line ("sent a photo"), so for those the prefix alone is the
+# whole preview -- and sending more meant every inbox refresh carried the
+# base64 of the newest photo in every conversation.
+_INBOX_PREVIEW_CHARS = 200
+
+# How many messages a thread request returns. Enough that most conversations
+# arrive whole and nobody notices the paging; small enough that the ones full
+# of photos open in one short request instead of one long one.
+_THREAD_PAGE_SIZE = 40
+_THREAD_PAGE_MAX = 200
+
+# Just enough of a message to recognise its prefix, and just enough of its end
+# to read a voice note's "|<seconds>" — so a thread can be listed without the
+# base64 in between ever leaving the database.
+_MEDIA_HEAD_CHARS = 24
+_VOICE_TAIL_CHARS = 8
+
+
+# Clients that know how to fetch a photo or voice note on demand say so with
+# this header. Everything without it is an older build that still expects the
+# base64 inline in `text`, and must keep getting it — a lean payload would
+# render as a broken bubble there.
+def _wants_lean_media(request):
+    try:
+        return int(request.headers.get('X-Neat-Client', '1')) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _strip_media(text):
+    """A media payload with its bytes removed but its shape intact.
+
+    The client keeps the prefix (so it still knows this is a photo, or a voice
+    note of a given length) and asks `message_media` for the rest, once, when
+    it actually needs to draw or play it.
+    """
+    if text.startswith('__neat_image__:'):
+        return '__neat_image__:'
+    if text.startswith('__neat_voice__:'):
+        # Duration lives after the final '|' and is what the bubble draws
+        # before anyone presses play, so it stays.
+        separator = text.rfind('|')
+        return '__neat_voice__:' + text[separator:] if separator >= 0 else '__neat_voice__:'
+    return text
+
+
+def _load_thread_window(queryset, limit, lean):
+    """The newest `limit` messages, and whether older ones exist.
+
+    For a client that fetches media on demand, the base64 never leaves the
+    database: `text` is deferred and only the head (enough to recognise a
+    prefix) and tail (a voice note's duration) come back, with the full column
+    fetched in one follow-up query for the plain messages that need it. The
+    database is on the other side of a network hop, so a thread of photos was
+    several megabytes crossing it on every open and every poll.
+    """
+    queryset = queryset.prefetch_related('opens_rows')
+    if not lean:
+        window = list(queryset.order_by('-created', '-id')[: limit + 1])
+        has_more = len(window) > limit
+        window = window[:limit]
+        window.reverse()
+        return window, has_more
+
+    window = list(
+        queryset.defer('text')
+        .annotate(head=Substr('text', 1, _MEDIA_HEAD_CHARS), tail=Right('text', _VOICE_TAIL_CHARS))
+        .order_by('-created', '-id')[: limit + 1]
+    )
+    has_more = len(window) > limit
+    window = window[:limit]
+    window.reverse()
+
+    plain = []
+    for message in window:
+        head = message.head or ''
+        if message.photo_mode:
+            # Withheld from every payload anyway; give it a value so nothing
+            # below triggers a fetch of the deferred column.
+            message.text = ''
+        elif head.startswith('__neat_image__:'):
+            message.text = '__neat_image__:'
+            message.media_withheld = True
+        elif head.startswith('__neat_voice__:'):
+            separator = (message.tail or '').rfind('|')
+            message.text = '__neat_voice__:' + (message.tail[separator:] if separator >= 0 else '')
+            message.media_withheld = True
+        else:
+            plain.append(message)
+
+    if plain:
+        texts = dict(
+            Message.objects.filter(id__in=[m.id for m in plain]).values_list('id', 'text')
+        )
+        for message in plain:
+            message.text = texts.get(message.id, '')
+
+    return window, has_more
+
+
+def _page_limit(request):
+    try:
+        limit = int(request.GET.get('limit', _THREAD_PAGE_SIZE))
+    except (TypeError, ValueError):
+        return _THREAD_PAGE_SIZE
+    return max(1, min(limit, _THREAD_PAGE_MAX))
+
+
+def _inbox_preview(message):
+    """The inbox line for a message, from its first few hundred characters.
+
+    Reads `preview_text` — the truncated copy the query annotates — and never
+    `message.text`, which is deferred: touching that would fetch the whole
+    column back from the database and undo the point of this.
+    """
+    if message is None:
+        return ''
+    if message.photo_mode:
+        return '__neat_image__:'
+    text = getattr(message, 'preview_text', '') or ''
+    for prefix in _NON_TEXT_PREFIXES:
+        if text.startswith(prefix):
+            return prefix
+    return text
 
 
 def _cors_json(response):
@@ -77,18 +212,43 @@ def _ensure_messages_tables():
             schema_editor.create_model(model)
 
 
-def _message_to_dict(message, preview_map=None):
+def _message_to_dict(message, preview_map=None, lean=False, viewer=None):
     reactions = {}
     for reaction in message.reactions.select_related('user').all():
         reactions.setdefault(reaction.emoji, []).append(reaction.user.username)
     data = {
         'id': message.id,
         'sender': message.sender.username,
-        'text': message.text,
+        # A temporary photo's bytes never ride along with the thread — not to
+        # the recipient, who would then hold a copy of a picture they have not
+        # opened yet, and not to the sender either, which is what makes "view
+        # once" mean anything at all. `message_open` is the only way to them,
+        # and it is also what spends the viewing.
+        'text': '' if message.photo_mode else (
+            _strip_media(message.text) if lean else message.text
+        ),
         'created': message.created.isoformat(),
         'reactions': reactions,
         'edited': message.edited,
     }
+    if message.photo_mode:
+        data['photo_mode'] = message.photo_mode
+        # Per person: how many viewings *you* have left, and whether anyone
+        # else has opened it (which is what the sender's "Opened" means).
+        # Without a viewer — a broadcast at send time, when nobody has opened
+        # anything — everyone still has the full budget, so that is the honest
+        # answer for both sides.
+        viewer_id = getattr(viewer, 'id', None)
+        data['opens_left'] = (
+            message.opens_left_for(viewer_id) if viewer_id else message.open_budget
+        )
+        data['opened_by_other'] = any(
+            row.count > 0 for row in message.opens_rows.all() if row.user_id != viewer_id
+        )
+    elif lean and (getattr(message, 'media_withheld', False) or data['text'] != message.text):
+        # Says "there are bytes behind this one" so the client can tell a
+        # withheld payload from an empty message.
+        data['media'] = True
     # Cards the server already holds ride along with the thread, so a chat
     # opens with its thumbnails rather than filling them in one request at a
     # time. Absent for a link nobody has resolved yet — the client asks for
@@ -100,6 +260,35 @@ def _message_to_dict(message, preview_map=None):
             if preview:
                 data['link_preview'] = preview
     return data
+
+
+def _push_message(conversation, event, message, members=None):
+    """Pushes a message update, per member when their views of it differ.
+
+    A temporary photo's payload says how many viewings *you* have left, so one
+    shared broadcast would hand each side the other's state — and a reaction
+    on a photo the recipient had already opened would quietly tell them their
+    viewing was back. Anything else is the same for everybody and goes out as
+    one broadcast.
+    """
+    if not message.photo_mode:
+        broadcast_to_conversation(
+            conversation,
+            event,
+            {'conversation_id': conversation.id, 'message': _message_to_dict(message)},
+        )
+        return
+    if members is None:
+        members = list(conversation.members.select_related('user').all())
+    for member in members:
+        push_to_user(
+            member.user_id,
+            event,
+            {
+                'conversation_id': conversation.id,
+                'message': _message_to_dict(message, viewer=member.user),
+            },
+        )
 
 
 def _preview_map_for_messages(messages):
@@ -130,7 +319,14 @@ def _conversation_to_dict(conversation, viewer):
     if member and member.hidden_at:
         messages_qs = messages_qs.filter(created__gt=member.hidden_at)
 
-    last_message = messages_qs.select_related('sender').last()
+    # `.only()` keeps the base64 in `text` out of the row entirely: the
+    # preview is computed from a truncated copy the database makes for us.
+    last_message = (
+        messages_qs.select_related('sender')
+        .defer('text')
+        .annotate(preview_text=Substr('text', 1, _INBOX_PREVIEW_CHARS))
+        .last()
+    )
 
     unread_qs = messages_qs.exclude(sender=viewer)
     read_floor = member.last_read_at if member else None
@@ -147,7 +343,9 @@ def _conversation_to_dict(conversation, viewer):
         'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
         'otherAvatarUrl': getattr(other_profile, 'avatar_url', '') if other_profile else '',
         'otherLastActive': other_last_active.isoformat() if other_last_active else '',
-        'lastMessage': last_message.text if last_message else '',
+        # Never the bytes: a photo reads as "sent a photo" here, and for a
+        # temporary one handing them over would skip the opening entirely.
+        'lastMessage': _inbox_preview(last_message),
         'lastSender': last_message.sender.username if last_message else '',
         'updated': conversation.updated.isoformat(),
         'unreadCount': unread_qs.count(),
@@ -189,7 +387,10 @@ def _get_conversation_for_viewer(conversation_id, viewer):
     viewer is the one who blocked the other member, the thread stays visible (read-only) so they
     can still unblock — callers that send new messages must check that case separately."""
     try:
-        conversation = Conversation.objects.prefetch_related('members__user', 'messages__sender').get(
+        # Members only. Prefetching 'messages__sender' here pulled every
+        # message of the thread — base64 photos and all — into memory before
+        # doing anything, on every send, react, delete and open.
+        conversation = Conversation.objects.prefetch_related('members__user').get(
             pk=conversation_id,
             members__user=viewer,
         )
@@ -217,7 +418,7 @@ def inbox(request):
 
     conversations = (
         Conversation.objects.filter(members__user=viewer)
-        .prefetch_related('members__user', 'messages__sender')
+        .prefetch_related('members__user')
         .order_by('-updated')
     )
     data = []
@@ -263,17 +464,46 @@ def conversation_detail(request, conversation_id):
         if member:
             member.last_read_at = timezone.now()
             member.save(update_fields=['last_read_at'])
-        # Evaluated once for the whole thread, not per message.
-        messages = list(messages)
-        preview_map = _preview_map_for_messages(messages)
+
+        # The newest page, not the whole history.
+        #
+        # Photos and voice notes live inline in `text` as base64, so a thread's
+        # size grows with its media rather than its message count: sending the
+        # lot meant opening a chat downloaded every picture ever exchanged in
+        # it before the first bubble could be drawn, and the safety-net poll
+        # did it again every 25 seconds. The client asks for older pages with
+        # `before` as you scroll back.
+        limit = _page_limit(request)
+        before = request.GET.get('before')
+        if before:
+            # Cursor on the sort key rather than the id: the two normally
+            # agree here, but a thread is ordered by `created` and paging by
+            # id would quietly overlap or skip if they ever diverged (as they
+            # do for imported posts — see posts/views.py).
+            try:
+                anchor = Message.objects.filter(pk=int(before)).values('created', 'id').first()
+            except (TypeError, ValueError):
+                return _bad_request('Invalid before')
+            if anchor:
+                messages = messages.filter(
+                    Q(created__lt=anchor['created'])
+                    | Q(created=anchor['created'], id__lt=anchor['id'])
+                )
+
+        lean = _wants_lean_media(request)
+        window, has_more = _load_thread_window(messages, limit, lean)
+        preview_map = _preview_map_for_messages(window)
         return _cors_json(
             JsonResponse(
                 {
                     'conversation': _conversation_to_dict(conversation, viewer),
                     'messages': [
-                        _message_to_dict(message, preview_map=preview_map)
-                        for message in messages
+                        _message_to_dict(
+                            message, preview_map=preview_map, lean=lean, viewer=viewer
+                        )
+                        for message in window
                     ],
+                    'has_more': has_more,
                 }
             )
         )
@@ -288,7 +518,15 @@ def conversation_detail(request, conversation_id):
     text = (body.get('text') or '').strip()
     if not text:
         return _bad_request('Message text is required')
-    message = Message.objects.create(conversation=conversation, sender=viewer, text=text)
+    # Only a photo can be temporary: the mode is meaningless on anything the
+    # recipient doesn't "open", and honouring it on, say, a text message would
+    # hide the text behind a tap for no reason.
+    photo_mode = (body.get('photo_mode') or '').strip()
+    if photo_mode not in dict(Message.PHOTO_MODES) or not text.startswith('__neat_image__:'):
+        photo_mode = ''
+    message = Message.objects.create(
+        conversation=conversation, sender=viewer, text=text, photo_mode=photo_mode
+    )
     conversation.save(update_fields=['updated'])
     message_dict = _message_to_dict(message)
     broadcast_to_conversation(
@@ -486,6 +724,117 @@ def message_edit(request, conversation_id, message_id):
     return _cors_json(JsonResponse({'message': message_dict}))
 
 
+@require_http_methods(['GET', 'OPTIONS'])
+def message_media(request, conversation_id, message_id):
+    """The bytes of one photo or voice note, fetched when the client needs them.
+
+    Threads no longer carry media inline for clients that understand this
+    route (see `_strip_media`): a conversation's payload is now its text, and
+    a picture is downloaded once, when it is about to be drawn, and kept on
+    the device from then on.
+
+    Temporary photos are deliberately not served here — opening one costs a
+    viewing, so it goes through `message_open` instead.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    if message.photo_mode:
+        return _cors_json(JsonResponse({'error': 'Use the open endpoint'}, status=403))
+    if not message.text.startswith(('__neat_image__:', '__neat_voice__:')):
+        return _bad_request('Message has no media')
+
+    response = _cors_json(JsonResponse({'text': message.text}))
+    # A message's media never changes, so let the client keep it. This is the
+    # one DM response worth caching, which is why it overrides the no-store
+    # default every other endpoint here sets.
+    response['Cache-Control'] = 'private, max-age=31536000, immutable'
+    del response['Pragma']
+    del response['Expires']
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def message_open(request, conversation_id, message_id):
+    """Spends one viewing of a temporary photo and hands back its bytes.
+
+    This is the only route to a "view once" / "allow replay" picture — the
+    thread itself never carries one (see `_message_to_dict`). Opening is
+    therefore an act, not a read: the count goes up, and on the last allowed
+    viewing the bytes are deleted from the row, so nothing can serve them
+    again to anybody.
+
+    Everyone in the conversation has their own viewings, the sender included:
+    spending yours is your business and must not touch theirs. The picture is
+    only deleted once nobody has any left.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_messages_tables()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    conversation, _other, error = _get_conversation_for_viewer(conversation_id, viewer)
+    if error:
+        return error
+
+    try:
+        message = Message.objects.get(pk=message_id, conversation=conversation)
+    except Message.DoesNotExist:
+        return _cors_json(JsonResponse({'error': 'Message not found'}, status=404))
+
+    if not message.photo_mode:
+        return _bad_request('Message is not a temporary photo')
+    if message.is_spent_for(viewer.id):
+        return _cors_json(JsonResponse({'error': 'Photo is no longer available'}, status=410))
+
+    photo = message.text
+    if not photo:
+        return _cors_json(JsonResponse({'error': 'Photo is no longer available'}, status=410))
+
+    row, _created = MessageOpen.objects.get_or_create(message=message, user=viewer)
+    row.count += 1
+    row.save(update_fields=['count', 'updated'])
+    message.opens += 1
+    fields = ['opens']
+
+    members = list(conversation.members.select_related('user').all())
+    spent = dict(MessageOpen.objects.filter(message=message).values_list('user_id', 'count'))
+    # Only once *nobody* has a viewing left does the picture go: deleting it
+    # when the first person finishes theirs would take the other's with it.
+    if all(spent.get(m.user_id, 0) >= message.open_budget for m in members):
+        message.text = ''
+        fields.append('text')
+    message.save(update_fields=fields)
+
+    # Reloaded with its open rows so the payloads below can be built without a
+    # query each.
+    message = Message.objects.prefetch_related('opens_rows').get(pk=message.pk)
+
+    _push_message(conversation, 'message.edited', message, members=members)
+
+    return _cors_json(
+        JsonResponse({'message': _message_to_dict(message, viewer=viewer), 'photo': photo})
+    )
+
+
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def message_react(request, conversation_id, message_id):
@@ -522,10 +871,8 @@ def message_react(request, conversation_id, message_id):
             user=viewer,
             defaults={'emoji': emoji},
         )
-    message_dict = _message_to_dict(message)
-    broadcast_to_conversation(
-        conversation, 'message.reaction', {'conversation_id': conversation.id, 'message': message_dict}
-    )
+    _push_message(conversation, 'message.reaction', message)
+    message_dict = _message_to_dict(message, viewer=viewer)
     return _cors_json(JsonResponse({'message': message_dict}))
 
 

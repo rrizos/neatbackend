@@ -11,6 +11,8 @@ urlpatterns = [
     path('<int:conversation_id>/delete/', views.conversation_delete, name='conversation_delete'),
     path('<int:conversation_id>/messages/<int:message_id>/delete/', views.message_delete, name='message_delete'),
     path('<int:conversation_id>/messages/<int:message_id>/edit/', views.message_edit, name='message_edit'),
+    path('<int:conversation_id>/messages/<int:message_id>/media/', views.message_media, name='message_media'),
+    path('<int:conversation_id>/messages/<int:message_id>/open/', views.message_open, name='message_open'),
     path('<int:conversation_id>/messages/<int:message_id>/react/', views.message_react, name='message_react'),
     path('<int:conversation_id>/messages/<int:message_id>/report/', views.message_report, name='message_report'),
 ]

@@ -17,7 +17,7 @@ from accounts.auth import get_authenticated_user, require_authenticated_user
 from linkpreview import service as linkpreview_service
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
-from django.db.models import Count, ExpressionWrapper, F, FloatField
+from django.db.models import Count, ExpressionWrapper, F, FloatField, Q
 from .models import (
     Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
     Poll, PollOption, PollVote,
@@ -110,6 +110,59 @@ def _preview_map_for(posts):
     except Exception:
         # Previews are decoration; a feed must render without them.
         return {}
+
+
+# ── Feed payload ──────────────────────────────────────────────────────────────
+#
+# A city's feed used to come back whole: every post ever made there, each with
+# its full comment threads, and a base64 avatar repeated for the author of
+# every post and every comment. The same person's picture could be in the
+# response fifty times.
+#
+# Clients that identify themselves (see dm_messages/views.py for the same
+# header) get a paged feed instead, with comments left to the comment sheet —
+# which already fetches them on open — and each avatar sent once, by username.
+# Anything without the header is an older build and still gets the old shape,
+# down to the bare JSON list.
+
+_FEED_PAGE_SIZE = 20
+_FEED_PAGE_MAX = 60
+
+
+def _wants_lean_feed(request):
+    try:
+        return int(request.headers.get('X-Neat-Client', '1')) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _feed_page_limit(request):
+    try:
+        limit = int(request.GET.get('limit', _FEED_PAGE_SIZE))
+    except (TypeError, ValueError):
+        return _FEED_PAGE_SIZE
+    return max(1, min(limit, _FEED_PAGE_MAX))
+
+
+def _lean_feed_payload(posts, viewer, viewer_following_ids, preview_map):
+    """Rows with each author's avatar lifted out into a lookup table."""
+    avatars = {}
+    rows = []
+    for post in posts:
+        data = _post_to_dict(
+            post,
+            viewer=viewer,
+            viewer_following_ids=viewer_following_ids,
+            light=True,
+            preview_map=preview_map,
+        )
+        author = data.get('author') or ''
+        avatar = data.get('avatarUrl') or ''
+        if author and avatar:
+            avatars[author] = avatar
+        data['avatarUrl'] = ''
+        rows.append(data)
+    return rows, avatars
 
 
 def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
@@ -402,7 +455,18 @@ def posts_list(request):
         viewer_city = ""
         if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
             viewer_city = viewer.profile.city
-        posts = Post.objects.select_related("user", "user__profile").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
+        lean = _wants_lean_feed(request)
+        posts = Post.objects.select_related("user", "user__profile")
+        if lean:
+            # No comment prefetch: `light` mode only needs the count, and
+            # pulling every comment row would drag each commenter's base64
+            # avatar into memory to serialise nothing.
+            posts = posts.prefetch_related("like_rows", "media_items").annotate(
+                comment_count=Count("comment_rows", distinct=True)
+            )
+        else:
+            posts = posts.prefetch_related("comment_rows__user", "like_rows", "media_items")
+        posts = posts.all().order_by("-created", "-id")
         requested_city = (request.GET.get("city") or "").strip()
         is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
@@ -417,6 +481,34 @@ def posts_list(request):
             viewer_following_ids = set(
                 Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
             )
+        if lean:
+            before = (request.GET.get("before") or "").strip()
+            if before:
+                # Cursor on the sort key, not on the id. The imported
+                # WordPress posts carry old timestamps under new ids, so the
+                # two orders disagree and paging by id returned a window that
+                # overlapped the previous page and skipped what was between.
+                try:
+                    anchor = Post.objects.filter(pk=int(before)).values("created", "id").first()
+                except (TypeError, ValueError):
+                    return _cors_json(JsonResponse({"error": "Invalid before"}, status=400))
+                if anchor:
+                    posts = posts.filter(
+                        Q(created__lt=anchor["created"])
+                        | Q(created=anchor["created"], id__lt=anchor["id"])
+                    )
+            limit = _feed_page_limit(request)
+            page = list(posts[: limit + 1])
+            has_more = len(page) > limit
+            page = page[:limit]
+            preview_map = _preview_map_for(page)
+            rows, avatars = _lean_feed_payload(
+                page, viewer, viewer_following_ids, preview_map
+            )
+            return _cors_json(
+                JsonResponse({"posts": rows, "avatars": avatars, "has_more": has_more})
+            )
+
         preview_map = _preview_map_for(posts)
         data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids,
                               preview_map=preview_map) for p in posts]
