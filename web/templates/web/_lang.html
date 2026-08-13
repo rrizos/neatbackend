@@ -1,0 +1,68 @@
+{% comment %}
+Bilingual plumbing shared by the Django-rendered public pages.
+
+Deliberately identical to what landing/generate_legal.py emits, so every page
+on neatapp.gr answers the language question the same way and a choice made on
+one is honoured by all the others:
+
+  1. ?lang=en / ?lang=el      — an explicit link
+  2. localStorage.neatLang    — the visitor's own EL/EN choice, site-wide
+  3. the neat_country cookie  — country nginx resolved from their IP
+  4. browser locale / time zone
+
+Which copy is shown is decided in CSS from html[data-lang], set before first
+paint, so neither language flashes and a browser with JavaScript off still
+gets a readable Greek page.
+{% endcomment %}
+<style>
+  .t-lang[data-lang="en"] { display: none; }
+  html[data-lang="en"] .t-lang[data-lang="en"] { display: inline; }
+  html[data-lang="en"] .t-lang[data-lang="el"] { display: none; }
+  .b-lang[data-lang="en"] { display: none; }
+  html[data-lang="en"] .b-lang[data-lang="en"] { display: block; }
+  html[data-lang="en"] .b-lang[data-lang="el"] { display: none; }
+
+  .lang-switch { display: inline-flex; padding: 2px; border-radius: 20px; background: var(--paper-dim); border: 1px solid var(--line); }
+  .lang-switch button {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    padding: 6px 12px; border-radius: 18px; font: 700 12px/1 var(--sans); color: var(--ink-soft);
+  }
+  .lang-switch button[aria-pressed="true"] { background: var(--blue); color: #fff; }
+</style>
+<script>
+(function () {
+  try {
+    var q = new URLSearchParams(location.search).get('lang');
+    var saved = null;
+    try { saved = localStorage.getItem('neatLang'); } catch (e) {}
+    if (saved !== 'el' && saved !== 'en') saved = null;
+
+    var country = '';
+    var m = document.cookie.match(/(?:^|;\s*)neat_country=([A-Za-z]{2})(?:;|$)/);
+    if (m) country = m[1].toUpperCase();
+
+    var lang;
+    if (q === 'en' || q === 'el') {
+      lang = q;
+    } else if (saved) {
+      lang = saved;
+    } else if (country) {
+      lang = country === 'GR' ? 'el' : 'en';
+    } else {
+      var greek = false;
+      var langs = navigator.languages || [navigator.language || ''];
+      for (var i = 0; i < langs.length; i++) {
+        if (String(langs[i]).toLowerCase().indexOf('el') === 0) { greek = true; break; }
+      }
+      if (!greek) {
+        try {
+          greek = Intl.DateTimeFormat().resolvedOptions().timeZone === 'Europe/Athens';
+        } catch (e) {}
+      }
+      lang = greek ? 'el' : 'en';
+    }
+    document.documentElement.lang = lang;
+    document.documentElement.setAttribute('data-lang', lang);
+  } catch (e) {}
+})();
+</script>

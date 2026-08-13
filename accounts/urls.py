@@ -17,6 +17,7 @@ urlpatterns = [
     path('suggestions/', views.suggestions, name='suggestions'),
     path('search/', views.search_users, name='search_users'),
     path('notifications/', views.notifications, name='notifications'),
+    path('neat-pass/', views.neat_pass, name='neat_pass'),
     path('search-history/', views.search_history, name='search_history'),
     path('search-history/<str:query>/', views.search_history, name='search_history_item'),
     path('forgot-password/', views.forgot_password, name='forgot_password'),

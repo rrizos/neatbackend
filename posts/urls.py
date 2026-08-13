@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     path('cities/', views.cities_list, name='cities_list'),
     path('viral/', views.viral_posts, name='viral_posts'),
+    path('city-heat/', views.city_heat, name='city_heat'),
     path('saved/', views.saved_posts, name='saved_posts'),
     path('', views.posts_list, name='posts_list'),
     path('<int:post_id>/', views.post_detail, name='post_detail'),

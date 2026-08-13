@@ -1012,3 +1012,88 @@ def post_report(request, post_id):
         )
 
     return _cors_json(JsonResponse({"ok": True}))
+
+
+# How far above its own normal a city has to run to read as fully hot. At 2.0,
+# twice the usual hourly traffic saturates the pin at red.
+_HEAT_HOT_MULTIPLE = 2.0
+# Days of history the per-city hourly average is taken over.
+_HEAT_BASELINE_DAYS = 7
+# Added to every denominator so heat means something in a quiet town.
+#
+# On a purely relative scale a village averaging 0.2 events an hour goes solid
+# red the moment two people do anything, and its pin then spends most of its
+# life red for no real reason. This is the absolute floor that a burst has to
+# clear before it can register, so small cities still warm up when something is
+# genuinely happening but don't flicker on background noise. It also removes
+# the divide-by-zero for a city with no history at all.
+_HEAT_SMOOTHING = 3.0
+
+
+def _activity_by_city(since, until=None):
+    """Posts + likes + comments per city in a window, as one number each.
+
+    Engagement is counted against the city of the post it lands on, not the
+    city of whoever produced it — a pin is meant to show how busy that place
+    is, and a like from three cities away is still attention paid to it.
+    """
+    counts = {}
+
+    def add(rows, key):
+        for row in rows:
+            city = (row[key] or '').strip()
+            if city:
+                counts[city] = counts.get(city, 0) + row['n']
+
+    def window(qs, field='created'):
+        qs = qs.filter(**{f'{field}__gte': since})
+        if until is not None:
+            qs = qs.filter(**{f'{field}__lt': until})
+        return qs
+
+    add(window(Post.objects).values('city').annotate(n=Count('id')), 'city')
+    add(window(PostLike.objects).values('post__city').annotate(n=Count('id')), 'post__city')
+    add(window(PostComment.objects).values('post__city').annotate(n=Count('id')), 'post__city')
+    return counts
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def city_heat(request):
+    """Per-city hotness, 0.0–1.0, for the map pins.
+
+    Heat is relative, not absolute: each city is measured against its own
+    hourly average rather than against Athens. An absolute scale would leave
+    every pin outside the two biggest cities permanently green no matter what
+    was happening there, which is the opposite of what the map is for.
+
+    Cities with no activity are simply absent from the response — the client
+    treats a missing city as cold, so there is no reason to send zeroes for
+    every town in Greece.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    now = timezone.now()
+    hour_ago = now - datetime.timedelta(hours=1)
+    baseline_start = now - datetime.timedelta(days=_HEAT_BASELINE_DAYS)
+
+    current = _activity_by_city(hour_ago)
+    if not current:
+        return _cors_json(JsonResponse({}))
+
+    # Baseline excludes the live hour, so a busy hour doesn't inflate the very
+    # average it is being judged against.
+    history = _activity_by_city(baseline_start, until=hour_ago)
+    hours = _HEAT_BASELINE_DAYS * 24 - 1
+
+    heat = {}
+    for city, count in current.items():
+        average = (history.get(city, 0) / hours) if hours else 0.0
+        ratio = count / (average * _HEAT_HOT_MULTIPLE + _HEAT_SMOOTHING)
+        value = max(0.0, min(1.0, ratio))
+        if value > 0:
+            heat[city] = round(value, 3)
+
+    return _cors_json(JsonResponse(heat))

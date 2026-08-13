@@ -237,3 +237,41 @@ class PollVote(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['poll', 'user'], name='unique_poll_vote'),
         ]
+
+
+class NeatPointsAward(models.Model):
+    """One row per (user, post, period) the post spent in a Virals top-10.
+
+    Neat Points are cumulative, but a post's score is not monotonic — likes can
+    be withdrawn and a post can drop out of the top-10 entirely. Storing the
+    high-water mark per period means a balance only ever grows, so a user never
+    watches points they were already shown disappear.
+
+    `period_key` is the calendar day the award belongs to (the charts period
+    the app reads for the Neat Pass). Past days are frozen; only today's rows
+    are ever recomputed.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='neat_points_awards',
+    )
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='neat_points_awards')
+    period_key = models.CharField(max_length=20)
+    city = models.CharField(max_length=120, blank=True, default='')
+    points = models.FloatField(default=0.0)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'post', 'period_key'],
+                name='unique_neat_points_award',
+            ),
+        ]
+        indexes = [models.Index(fields=['user', 'period_key'])]
+
+    def __str__(self):
+        return f'{self.user_id} +{self.points:.0f} ({self.period_key})'

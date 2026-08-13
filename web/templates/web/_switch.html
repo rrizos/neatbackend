@@ -1,0 +1,32 @@
+{% comment %}
+The EL/EN control, plus the script that makes a click stick site-wide.
+Kept out of _lang.html because that one has to run in <head> and this needs
+the buttons to exist.
+{% endcomment %}
+<script>
+(function () {
+  var buttons = document.querySelectorAll('[data-set-lang]');
+
+  function setLang(lang, remember) {
+    document.documentElement.lang = lang;
+    document.documentElement.setAttribute('data-lang', lang);
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', String(buttons[i].dataset.setLang === lang));
+    }
+    if (remember) {
+      // Shared with the landing and legal pages, so the choice holds across
+      // the whole site rather than just this one.
+      try { localStorage.setItem('neatLang', lang); } catch (e) {}
+      var url = new URL(location.href);
+      if (lang === 'el') url.searchParams.delete('lang'); else url.searchParams.set('lang', lang);
+      history.replaceState(null, '', url);
+    }
+  }
+
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function () { setLang(this.dataset.setLang, true); });
+  }
+
+  setLang(document.documentElement.getAttribute('data-lang') === 'en' ? 'en' : 'el', false);
+})();
+</script>

@@ -913,3 +913,40 @@ def search_history(request, query=None):
         return _cors_json(JsonResponse({'queries': [h.query for h in qs]}))
     except Exception as exc:
         return _handle_exception('search_history', exc)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def neat_pass(request):
+    """The viewer's Neat Points balance.
+
+    The app has a fallback that derives this from the daily Virals top-10 on
+    its own, and prefers this endpoint the moment it answers 200 — so the two
+    have to agree. They do: `posts.viral_points` reproduces both the ranking
+    and the points formula the client uses.
+
+    Today's awards are refreshed on read rather than by a background job. The
+    balance is only ever looked at from the Neat Pass screen, so recomputing
+    there keeps it live without a scheduler, and the work is bounded by the
+    cities the viewer posted in today.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    from django.utils import timezone as _tz
+    from posts.viral_points import refresh_awards, total_points
+    from posts.views import _viral_period_start
+
+    now = _tz.now()
+    try:
+        refresh_awards(viewer, now, _viral_period_start('daily'))
+    except Exception:
+        # A refresh failure must not blank the balance the user already has;
+        # serve the stored total and let the next open try again.
+        logger.exception('neat_pass: award refresh failed for user %s', viewer.id)
+
+    return _cors_json(JsonResponse({'points': total_points(viewer)}))
