@@ -1,11 +1,16 @@
 from django.urls import path
 
-from . import views, admin_views
+from . import social_views, views, admin_views
 
 urlpatterns = [
+    # Foreground heartbeat, which is what session length and retention are
+    # computed from. See accounts/models.py AppSession.
+    path('session/ping/', views.session_ping, name='session_ping'),
     path('health/', views.health, name='health'),
     path('signup/', views.signup, name='signup'),
     path('login/', views.login, name='login'),
+    # Apple and Google, for both signing up and signing back in.
+    path('social/', social_views.social_login, name='social_login'),
     path('logout/', views.logout, name='logout'),
     path('me/', views.me, name='me'),
     path('profiles/<str:username>/', views.profile_detail, name='profile_detail'),
@@ -22,6 +27,9 @@ urlpatterns = [
     path('search-history/<str:query>/', views.search_history, name='search_history_item'),
     path('forgot-password/', views.forgot_password, name='forgot_password'),
     path('reset-password/', views.reset_password, name='reset_password'),
+    # Gives a provider-only account a password, so Apple/Google is not the
+    # single permanent way back in. Also handles ordinary changes.
+    path('password/set/', views.set_password, name='set_password'),
     # Admin endpoints
     path('admin/analytics/', admin_views.admin_analytics, name='admin_analytics'),
     path('admin/reports/', admin_views.admin_reports, name='admin_reports'),

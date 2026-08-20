@@ -15,6 +15,9 @@ urlpatterns = [
     # Shared post links. Server-rendered so a crawler gets real meta tags and a
     # human gets the post itself — this replaced the Netlify edge functions.
     path('post/', include('web.urls')),
+    # Root-level, not under post/: it is its own page, behind an admin login.
+    path('analytics', web_views.analytics, name='analytics'),
+    path('analytics/', web_views.analytics),
     # Data and account pages. Served by Django rather than as static files
     # because the deletion form has to POST somewhere and send mail.
     path('safetyportal', web_views.safety_portal, name='safety_portal'),

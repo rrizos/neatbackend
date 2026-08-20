@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>neat · analytics</title>
+<style>
+  :root{
+    --bg:#0d1017; --panel:#151a23; --panel2:#1b212c; --line:#262d3a;
+    --text:#e8edf5; --dim:#8f99ab; --dimmer:#5f6878;
+    --accent:#5b8cff; --good:#3fca7d; --warn:#e0a42b; --crit:#f2585b;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+       font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  a{color:var(--accent)}
+
+  header.top{display:flex;align-items:baseline;justify-content:space-between;
+             gap:16px;flex-wrap:wrap;margin-bottom:26px}
+  header.top h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.2px}
+  header.top .meta{color:var(--dimmer);font-size:12px;font-family:var(--mono)}
+
+  section{margin-bottom:34px}
+  h2{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.09em;
+     color:var(--dim);margin:0 0 12px}
+  h2 .hint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--dimmer);
+           margin-left:8px;font-size:11.5px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g3,.g4{grid-template-columns:repeat(2,1fr)}
+                          .g2{grid-template-columns:1fr}}
+  @media(max-width:520px){.g3,.g4{grid-template-columns:1fr}}
+
+  .kpi .n{font-family:var(--mono);font-size:26px;font-weight:600;
+          font-variant-numeric:tabular-nums;letter-spacing:-.5px;display:block}
+  .kpi .k{color:var(--dim);font-size:11.5px;text-transform:uppercase;
+          letter-spacing:.06em;margin-top:2px}
+  .kpi .sub{color:var(--dimmer);font-size:11.5px;font-family:var(--mono);margin-top:5px}
+
+  /* Findings */
+  .finding{display:flex;gap:13px;padding:14px 16px;border:1px solid var(--line);
+           border-radius:10px;background:var(--panel);margin-bottom:9px}
+  .finding .dot{width:7px;height:7px;border-radius:50%;margin-top:7px;flex:none}
+  .finding.critical{border-color:#4a2226} .finding.critical .dot{background:var(--crit)}
+  .finding.warn{border-color:#43371c}     .finding.warn .dot{background:var(--warn)}
+  .finding.info .dot{background:var(--accent)}
+  .finding.good{border-color:#1e3d2c}     .finding.good .dot{background:var(--good)}
+  .finding h3{margin:0 0 3px;font-size:14px;font-weight:600}
+  .finding p{margin:0;color:var(--dim)}
+  .finding .do{margin-top:7px;color:var(--dimmer);font-size:13px;
+               border-left:2px solid var(--line);padding-left:10px}
+
+  /* Funnel */
+  .fun{display:flex;flex-direction:column;gap:7px}
+  .fun .row{display:grid;grid-template-columns:150px 1fr 132px;gap:12px;align-items:center}
+  .fun .bar{height:26px;background:var(--panel2);border-radius:5px;overflow:hidden}
+  .fun .bar i{display:block;height:100%;background:linear-gradient(90deg,#3f6fd8,#5b8cff)}
+  .fun .lab{color:var(--dim);font-size:13px}
+  .fun .val{font-family:var(--mono);font-size:12.5px;text-align:right;
+            font-variant-numeric:tabular-nums;color:var(--dim)}
+  .fun .val b{color:var(--text);font-weight:600}
+  .fun .drop{color:var(--crit)}
+
+  /* Histogram */
+  .hist{display:flex;align-items:flex-end;gap:2px;height:110px}
+  .hist .b{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px;
+           opacity:.85;position:relative}
+  .hist .b:hover{opacity:1}
+  .hist.warmc .b{background:#3f6fd8}
+  .axis{display:flex;justify-content:space-between;color:var(--dimmer);
+        font-size:10.5px;font-family:var(--mono);margin-top:6px}
+
+  /* Benchmarked bars */
+  .bm{display:flex;flex-direction:column;gap:11px}
+  .bm .row{display:grid;grid-template-columns:46px 1fr 92px;gap:11px;align-items:center}
+  .bm .track{height:9px;background:var(--panel2);border-radius:5px;position:relative}
+  .bm .track i{display:block;height:100%;border-radius:5px;background:var(--accent)}
+  .bm .track .mark{position:absolute;top:-4px;width:2px;height:17px;background:var(--dimmer)}
+  .bm .key{font-family:var(--mono);color:var(--dim);font-size:12px}
+  .bm .val{font-family:var(--mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;
+     text-transform:uppercase;letter-spacing:.06em;padding:0 10px 8px;
+     border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid #1c222d}
+  tr:last-child td{border-bottom:0}
+  td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .scroll{overflow-x:auto}
+  .tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;
+       font-family:var(--mono);border:1px solid}
+  .tag.healthy{color:var(--good);border-color:#1e3d2c;background:#12241b}
+  .tag.quiet{color:var(--warn);border-color:#43371c;background:#231c0f}
+  .tag.dead{color:var(--crit);border-color:#4a2226;background:#241417}
+  .muted{color:var(--dimmer)}
+  .note{color:var(--dimmer);font-size:12px;margin:9px 0 0}
+  .empty{color:var(--dimmer);font-size:13px;padding:6px 0}
+  .yes{color:var(--good)} .no{color:var(--dimmer)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>neat analytics</h1>
+  <div class="meta">
+    {{ head.now|date:"D j M Y, H:i" }} · since {{ head.first_signup|date:"j M Y" }}
+    · <a href="?logout=1">sign out</a>
+  </div>
+</header>
+
+<!-- What needs attention ------------------------------------------------- -->
+<section>
+  <h2>What needs attention <span class="hint">ranked by how much it costs you</span></h2>
+  {% for f in diagnosis %}
+    <div class="finding {{ f.level }}">
+      <span class="dot"></span>
+      <div>
+        <h3>{{ f.title }}</h3>
+        <p>{{ f.detail }}</p>
+        <div class="do">{{ f.action }}</div>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+
+<!-- Headline -------------------------------------------------------------- -->
+<section>
+  <h2>Where things stand</h2>
+  <div class="grid g4">
+    <div class="card kpi">
+      <span class="n">{{ head.total_users }}</span><div class="k">Total users</div>
+      <div class="sub">+{{ head.new_7d }} this week · +{{ head.new_today }} today</div>
+    </div>
+    <div class="card kpi">
+      <span class="n">{{ head.dau }}</span><div class="k">Active today</div>
+      <div class="sub">{{ head.wau }} this week · {{ head.mau }} this month
+        ({{ growth.mau_share }}% of all accounts)</div>
+    </div>
+    <div class="card kpi">
+      <span class="n">{{ growth.stickiness }}%</span><div class="k">Stickiness</div>
+      <div class="sub">daily ÷ monthly · strong is {{ growth.stickiness_target }}%+</div>
+    </div>
+    <div class="card kpi">
+      <span class="n">{{ head.posts }}</span><div class="k">Posts</div>
+      <div class="sub">{{ head.comments }} comments · {{ head.messages }} messages</div>
+    </div>
+  </div>
+</section>
+
+<!-- Activation ------------------------------------------------------------ -->
+<section>
+  <h2>Activation <span class="hint">how many accounts ever reach each milestone</span></h2>
+  <div class="card">
+    <div class="fun">
+      {% for s in activation.steps %}
+        <div class="row">
+          <div class="lab">{{ s.label }}</div>
+          <div class="bar"><i style="width:{{ s.of_total }}%"></i></div>
+          <div class="val"><b>{{ s.n }}</b> · {{ s.of_total }}%{% if s.drop %}
+            <span class="drop">−{{ s.drop }}%</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="note">
+      These are independent milestones ordered by reach, not steps in a funnel —
+      somebody can post without ever following anyone. The red figure is how far
+      each one falls below the milestone above it, so the largest is what fewest
+      people manage.
+      {% if first_post %}
+        Of the {{ first_post.people }} people who have posted, half did so within
+        <b>{{ first_post.median_hours }}h</b> of joining and
+        {{ first_post.within_24h }}% within a day.
+      {% endif %}
+    </p>
+  </div>
+</section>
+
+<!-- How people sign up ---------------------------------------------------- -->
+{% if signup_methods %}
+<section>
+  <h2>How people sign up <span class="hint">which route actually gets used</span></h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="fun">
+        {% for m in signup_methods.rows %}
+          <div class="row">
+            <div class="lab">{{ m.label }}</div>
+            <div class="bar"><i style="width:{{ m.pct }}%"></i></div>
+            <div class="val"><b>{{ m.n }}</b> · {{ m.pct }}%</div>
+          </div>
+        {% endfor %}
+      </div>
+      <p class="note">Every account, since the beginning.
+        {{ signup_methods.social_total }} of {{ signup_methods.total }}
+        ({{ signup_methods.social_pct }}%) were created through a provider.</p>
+    </div>
+    <div class="card">
+      <div class="fun">
+        {% for m in signup_methods.recent %}
+          <div class="row">
+            <div class="lab">{{ m.label }}</div>
+            <div class="bar"><i style="width:{{ m.pct }}%"></i></div>
+            <div class="val"><b>{{ m.n }}</b> · {{ m.pct }}%</div>
+          </div>
+        {% endfor %}
+      </div>
+      <p class="note">Last 30 days only ({{ signup_methods.recent_total }} signups) —
+        the fair comparison, since Apple and Google were not offered for most of
+        the history on the left.</p>
+    </div>
+  </div>
+  <div class="grid g3" style="margin-top:12px">
+    <div class="card kpi"><span class="n">{{ signup_methods.social_pct }}%</span>
+      <div class="k">Signed up with a provider</div>
+      <div class="sub">{{ signup_methods.social_total }} accounts</div></div>
+    <div class="card kpi"><span class="n">{{ signup_methods.linked_later }}</span>
+      <div class="k">Added a provider later</div>
+      <div class="sub">to an account they already had</div></div>
+    <div class="card kpi"><span class="n">{{ signup_methods.provider_only }}</span>
+      <div class="k">Provider is their only way in</div>
+      <div class="sub">{{ signup_methods.provider_only_pct }}% of provider signups ·
+        no password set</div></div>
+  </div>
+</section>
+{% endif %}
+
+<!-- Retention ------------------------------------------------------------- -->
+<section>
+  <h2>Retention <span class="hint">the number that decides whether growth compounds</span></h2>
+  <div class="grid g2">
+    <div class="card">
+      {% if retention %}
+        <div class="bm">
+          <div class="row">
+            <div class="key">D1</div>
+            <div class="track"><i style="width:{{ retention.d1|default:0 }}%"></i>
+              <span class="mark" style="left:{{ retention.benchmarks.d1 }}%"></span></div>
+            <div class="val">{{ retention.d1|default_if_none:"—" }}% <span class="muted">/{{ retention.benchmarks.d1 }}</span></div>
+          </div>
+          <div class="row">
+            <div class="key">D7</div>
+            <div class="track"><i style="width:{{ retention.d7|default:0 }}%"></i>
+              <span class="mark" style="left:{{ retention.benchmarks.d7 }}%"></span></div>
+            <div class="val">{{ retention.d7|default_if_none:"—" }}% <span class="muted">/{{ retention.benchmarks.d7 }}</span></div>
+          </div>
+          <div class="row">
+            <div class="key">D30</div>
+            <div class="track"><i style="width:{{ retention.d30|default:0 }}%"></i>
+              <span class="mark" style="left:{{ retention.benchmarks.d30 }}%"></span></div>
+            <div class="val">{{ retention.d30|default_if_none:"—" }}% <span class="muted">/{{ retention.benchmarks.d30 }}</span></div>
+          </div>
+        </div>
+        <p class="note">
+          The grey line is where a strong consumer-social app sits. These are
+          <b>floors</b>: they come from a single last-seen timestamp, which cannot
+          see somebody who returned and left again the same day, so the true
+          figures are higher. The cohort table beside this is the honest version.
+        </p>
+      {% else %}<div class="empty">Not enough history yet.</div>{% endif %}
+    </div>
+
+    <div class="card">
+      {% if cohorts %}
+        <div class="scroll"><table>
+          <tr><th>Joined week of</th><th class="num">People</th>
+              <th class="num">D1</th><th class="num">D7</th><th class="num">D30</th></tr>
+          {% for c in cohorts.rows %}
+            <tr><td>{{ c.label }}</td><td class="num">{{ c.size }}</td>
+              <td class="num">{{ c.d1|default_if_none:"—" }}{% if c.d1 != None %}%{% endif %}</td>
+              <td class="num">{{ c.d7|default_if_none:"—" }}{% if c.d7 != None %}%{% endif %}</td>
+              <td class="num">{{ c.d30|default_if_none:"—" }}{% if c.d30 != None %}%{% endif %}</td></tr>
+          {% endfor %}
+        </table></div>
+        <p class="note">Measured from real sessions, so only covers signups since
+          {{ cohorts.since|date:"j M" }}. A dash means that cohort is not old enough yet.</p>
+      {% else %}
+        <div class="empty">
+          <b>Real cohorts start filling in from now.</b><br>
+          This counts actual return visits rather than inferring them, but it can
+          only speak for people who join from today onwards. Check back in a week.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid g4" style="margin-top:12px">
+    <div class="card kpi"><span class="n">{{ dormant.never_seen }}</span>
+      <div class="k">Never came back</div><div class="sub">{{ dormant.never_seen_pct }}% of all accounts</div></div>
+    <div class="card kpi"><span class="n">{{ dormant.quiet_30d }}</span>
+      <div class="k">Quiet 30 days</div><div class="sub">{{ dormant.quiet_30d_pct }}%</div></div>
+    <div class="card kpi"><span class="n">{{ dormant.quiet_90d }}</span>
+      <div class="k">Quiet 90 days</div><div class="sub">{{ dormant.quiet_90d_pct }}% · effectively churned</div></div>
+    <div class="card kpi">
+      <span class="n">{% if growth.change != None %}{{ growth.change }}%{% else %}—{% endif %}</span>
+      <div class="k">Signups vs last week</div>
+      <div class="sub">{{ growth.this_week }} now · {{ growth.last_week }} before</div></div>
+  </div>
+</section>
+
+<!-- Habit ----------------------------------------------------------------- -->
+<section>
+  <h2>Habit <span class="hint">days active out of the last 28 — a healthy app's curve smiles</span></h2>
+  <div class="grid g2">
+    <div class="card">
+      {% if power_curve %}
+        <div class="hist">
+          {% for b in power_curve.buckets %}
+            <div class="b" style="height:{% widthratio b.n power_curve.peak 100 %}%"
+                 title="{{ b.days }} day{{ b.days|pluralize }}: {{ b.n }} people"></div>
+          {% endfor %}
+        </div>
+        <div class="axis"><span>1 day</span><span>14</span><span>28 days</span></div>
+        <p class="note">{{ power_curve.people }} people active in the window;
+          {{ power_curve.heavy }} of them opened the app on 21+ of the 28 days.
+          A curve that only slopes down means people try it and drift; a lift on
+          the right means a habit is forming.</p>
+      {% else %}
+        <div class="empty"><b>Fills in over the next four weeks.</b><br>
+          This needs session history, which only began being recorded now.</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      {% if sessions.tracking %}
+        <div class="grid g2" style="gap:14px">
+          <div class="kpi"><span class="n">{{ sessions.median_seconds }}s</span>
+            <div class="k">Median visit</div><div class="sub">avg {{ sessions.avg_seconds }}s</div></div>
+          <div class="kpi"><span class="n">{{ sessions.per_user }}</span>
+            <div class="k">Visits per person</div><div class="sub">{{ sessions.sessions }} total</div></div>
+        </div>
+        <p class="note">Tracking since {{ sessions.since|date:"j M, H:i" }} ·
+          {{ sessions.sessions_7d }} sessions this week across {{ sessions.people }} people.
+          Median is the number to read — a couple of phones left open all day
+          drag the average anywhere.</p>
+      {% else %}
+        <div class="empty"><b>No sessions recorded yet.</b><br>
+          Time-in-app starts counting once builds with session tracking are in use.</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<!-- Who makes it ---------------------------------------------------------- -->
+<section>
+  <h2>Who makes the content <span class="hint">and whether anyone is connected</span></h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="fun">
+        <div class="row"><div class="lab">Post things</div>
+          <div class="bar"><i style="width:{{ creators.creators_pct }}%"></i></div>
+          <div class="val"><b>{{ creators.creators }}</b> · {{ creators.creators_pct }}%</div></div>
+        <div class="row"><div class="lab">Only react</div>
+          <div class="bar"><i style="width:{{ creators.reactors_pct }}%"></i></div>
+          <div class="val"><b>{{ creators.reactors }}</b> · {{ creators.reactors_pct }}%</div></div>
+        <div class="row"><div class="lab">Read only</div>
+          <div class="bar"><i style="width:{{ creators.lurkers_pct }}%"></i></div>
+          <div class="val"><b>{{ creators.lurkers }}</b> · {{ creators.lurkers_pct }}%</div></div>
+      </div>
+      <p class="note">Most people on any social app only read, and that is fine —
+        what matters is that the creating group is big enough to keep them fed.</p>
+    </div>
+    <div class="card">
+      <table>
+        <tr><td>Follow nobody</td><td class="num">{{ graph.isolated }}</td>
+            <td class="num muted">{{ graph.isolated_pct }}%</td></tr>
+        <tr><td>Nobody follows them</td><td class="num">{{ graph.nobody_follows_them }}</td>
+            <td class="num muted">{{ graph.nobody_follows_them_pct }}%</td></tr>
+        <tr><td>Average people followed</td><td class="num">{{ graph.avg_following }}</td><td></td></tr>
+        <tr><td>New follows this week</td><td class="num">{{ graph.follows_7d }}</td><td></td></tr>
+        <tr><td>Posts with no like or comment</td><td class="num">{{ health.no_engagement }}</td>
+            <td class="num muted">{{ health.no_engagement_pct }}%</td></tr>
+        <tr><td>Average likes per post</td><td class="num">{{ health.avg_likes }}</td><td></td></tr>
+        <tr><td>Unread notifications piled up</td><td class="num">{{ health.unread_notifications }}</td><td></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Cities ---------------------------------------------------------------- -->
+<section>
+  <h2>Cities <span class="hint">people are worth nothing without content near them</span></h2>
+  <div class="card scroll">
+    <table>
+      <tr><th>City</th><th class="num">Users</th><th class="num">Active 30d</th>
+          <th class="num">Active %</th><th class="num">Posts</th>
+          <th class="num">Posts 30d</th><th class="num">Per user</th><th>State</th></tr>
+      {% for c in cities %}
+        <tr><td>{{ c.city }}</td><td class="num">{{ c.users }}</td>
+          <td class="num">{{ c.active }}</td><td class="num muted">{{ c.active_pct }}%</td>
+          <td class="num">{{ c.posts }}</td><td class="num">{{ c.posts_30d }}</td>
+          <td class="num muted">{{ c.posts_per_user }}</td>
+          <td><span class="tag {{ c.verdict }}">{{ c.verdict }}</span></td></tr>
+      {% endfor %}
+    </table>
+    <p class="note"><b>dead</b> — five or more people, nothing posted in 30 days.
+      <b>quiet</b> — posting from under 5% of the people there.</p>
+  </div>
+</section>
+
+<!-- Rhythm ---------------------------------------------------------------- -->
+<section>
+  <h2>When the app is used <span class="hint">posts and messages by hour, last 60 days</span></h2>
+  <div class="card">
+    <div class="hist warmc">
+      {% for h in hours.hours %}
+        <div class="b" style="height:{% widthratio h.n hours.peak 100 %}%"
+             title="{{ h.hour }}:00 — {{ h.n }}"></div>
+      {% endfor %}
+    </div>
+    <div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span>
+      <span>18:00</span><span>23:00</span></div>
+    {% if hours.busiest != None %}
+      <p class="note">Busiest hour is <b>{{ hours.busiest }}:00</b>. Send anything
+        that needs to be seen — a push, a seeded post — just before it, not after.</p>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Trend ----------------------------------------------------------------- -->
+<section>
+  <h2>Last 30 days</h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="hist">
+        {% for d in signups %}
+          <div class="b" style="height:{% widthratio d.n max_signup 100 %}%"
+               title="{{ d.day|date:'j M' }}: {{ d.n }} signups"></div>
+        {% endfor %}
+      </div>
+      <div class="axis"><span>30 days ago</span><span>signups</span><span>today</span></div>
+    </div>
+    <div class="card">
+      <div class="hist warmc">
+        {% for d in activity %}
+          <div class="b" style="height:{% widthratio d.total max_activity 100 %}%"
+               title="{{ d.day|date:'j M' }}: {{ d.posts }} posts, {{ d.comments }} comments, {{ d.messages }} messages"></div>
+        {% endfor %}
+      </div>
+      <div class="axis"><span>30 days ago</span><span>posts + comments + messages</span><span>today</span></div>
+    </div>
+  </div>
+  <div class="grid g4" style="margin-top:12px">
+    <div class="card kpi"><span class="n">{{ health.posts_7d }}</span><div class="k">Posts this week</div></div>
+    <div class="card kpi"><span class="n">{{ health.likes_7d }}</span><div class="k">Likes this week</div></div>
+    <div class="card kpi"><span class="n">{{ health.comments_7d }}</span><div class="k">Comments this week</div></div>
+    <div class="card kpi"><span class="n">{{ health.messages_7d }}</span><div class="k">Messages this week</div></div>
+  </div>
+</section>
+
+<!-- People ---------------------------------------------------------------- -->
+<section>
+  <h2>Most active</h2>
+  <div class="card scroll">
+    <table>
+      <tr><th>User</th><th class="num">Posts</th><th class="num">Comments</th><th>Joined</th></tr>
+      {% for u in active_users %}
+        <tr><td>{{ u.username }}</td><td class="num">{{ u.post_count }}</td>
+          <td class="num">{{ u.comment_count }}</td>
+          <td class="muted">{{ u.date_joined|date:"j M Y" }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Newest accounts <span class="hint">most recent {{ users|length }}</span></h2>
+  <div class="card scroll">
+    <table>
+      <tr><th>User</th><th>City</th><th>Joined</th><th>Last seen</th><th>Came back</th></tr>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.username }}{% if u.verified %} <span class="tag healthy">✓</span>{% endif %}</td>
+          <td class="muted">{{ u.city }}</td>
+          <td class="muted">{{ u.joined|date:"j M Y, H:i" }}</td>
+          <td class="muted">{% if u.last_active %}{{ u.last_active|date:"j M Y, H:i" }}{% else %}never{% endif %}</td>
+          <td>{% if u.returned %}<span class="yes">yes</span>{% else %}<span class="no">no</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

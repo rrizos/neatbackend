@@ -1,7 +1,10 @@
 from django.db import models
 from django.conf import settings
+
+from accounts.avatars import avatar_for as _avatar_for
 from django.utils import timezone
 import json
+import uuid
 
 
 class Post(models.Model):
@@ -34,7 +37,7 @@ class Post(models.Model):
             'id': self.id,
             'author': self.user.username if self.user_id else self.author,
             'authorId': self.user_id,
-            'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
+            'avatarUrl': _avatar_for(getattr(self.user, 'profile', None)),
             'city': self.city,
             'text': self.text,
             'imageUrl': self.image_url,
@@ -106,7 +109,7 @@ class PostComment(models.Model):
             'imageUrl': self.image_url,
             'parentId': self.parent_id,
             'created': self.created.isoformat(),
-            'avatarUrl': getattr(getattr(self.user, 'profile', None), 'avatar_url', ''),
+            'avatarUrl': _avatar_for(getattr(self.user, 'profile', None)),
             'likes': self.comment_likes.count(),
             'liked': liked,
             'likedByOwner': liked_by_owner,
@@ -128,14 +131,57 @@ class CommentLike(models.Model):
 
 class PostMedia(models.Model):
     TYPES = [('image', 'Image'), ('video', 'Video')]
+
+    # Transcode state for videos. Everything else is born READY.
+    #
+    # A video upload used to be re-encoded inside the POST request, which held
+    # one of gunicorn's request slots for the whole encode -- 18s for a minute
+    # of 1080p, ~55s for three. Enough simultaneous uploads and every slot is
+    # busy and the site answers nobody. The encode now happens in the
+    # `transcode_worker` process and this column is the queue.
+    #
+    # PENDING is not "broken": `url` already points at the original upload,
+    # which plays. Clients that understand the state show a processing tile,
+    # and older builds simply play the original. FAILED means the encode did
+    # not survive its retries and the original is what everyone keeps -- a
+    # video that could not be re-encoded is worth more than no video at all.
+    READY = 'ready'
+    PENDING = 'pending'
+    PROCESSING = 'processing'
+    FAILED = 'failed'
+    STATUSES = [
+        (READY, 'Ready'),
+        (PENDING, 'Pending transcode'),
+        (PROCESSING, 'Transcoding'),
+        (FAILED, 'Transcode failed'),
+    ]
+
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='media_items')
     media_type = models.CharField(max_length=10, choices=TYPES, default='image')
     url = models.TextField()
     duration = models.FloatField(null=True, blank=True)
     order = models.IntegerField(default=0)
+    # Poster frame for a video, written by the transcode worker. Empty for
+    # images, and for videos uploaded before posters existed. Anywhere a video
+    # is shown before it plays -- a DM's shared-post card, a notification row --
+    # used to draw a black square with a play glyph, because decoding a video
+    # client-side just to get one frame is not worth it. The worker already has
+    # the file open, so it costs nothing to take the frame there instead.
+    thumb_url = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=12, choices=STATUSES, default=READY, db_index=True)
+    attempts = models.IntegerField(default=0)
+    # How far through the encode this video is, 0-100. Only meaningful while
+    # status is PROCESSING; the app shows it so a twenty-second wait reads as
+    # work happening rather than as the app having hung.
+    progress = models.IntegerField(default=0)
+    updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['order']
+
+    @property
+    def is_processing(self):
+        return self.status in (self.PENDING, self.PROCESSING)
 
 
 class PostReport(models.Model):
@@ -275,3 +321,36 @@ class NeatPointsAward(models.Model):
 
     def __str__(self):
         return f'{self.user_id} +{self.points:.0f} ({self.period_key})'
+
+
+class StagedUpload(models.Model):
+    """A file uploaded before the post that will carry it exists.
+
+    Composing a post takes time — picking the video, writing the caption,
+    adding a poll — and during all of it the network sits idle, because the
+    upload only began when Post was pressed. On a phone connection an 11 MB
+    video then costs the poster a minute of staring at a progress ring for
+    bytes that could have gone up while they were typing.
+
+    So the file is uploaded as soon as it is picked, and the post that follows
+    refers to it by id rather than carrying it. By the time somebody finishes a
+    caption, the upload is usually already done and posting is instant.
+
+    Rows are claimed (and deleted) when a post is created from them. Anything
+    left is an abandoned compose — the user picked a video and changed their
+    mind — and is swept up by `purge_staged_uploads`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staged_uploads'
+    )
+    url = models.TextField()
+    media_type = models.CharField(max_length=10, default='image')
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['created'])]
+
+    def __str__(self):
+        return f'{self.user_id}: {self.media_type} {self.url[:40]}'

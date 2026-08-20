@@ -5,3 +5,12 @@ __pycache__/
 *.sqlite3
 .vscode/
 firebase-service-account.json
+
+# User-uploaded files. These are real people's photos — DM images, avatars,
+# post media — written here by the app at runtime. They are data, not source,
+# and this repository is public.
+media/
+
+# Written by manage.py when it is run without .env.prod loaded, which points
+# it at a throwaway SQLite file instead of the real database.
+db.sqlite3

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>neat analytics</title>
+  <style>
+    :root {
+      --ground: #0e1116; --panel: #161b22; --ink: #e6edf3; --ink-2: #8b949e;
+      --rule: #262c36; --accent: #2f81f7; --bad: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: var(--ground); color: var(--ink); padding: 24px;
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    form {
+      width: 100%; max-width: 22rem; background: var(--panel);
+      border: 1px solid var(--rule); border-radius: 10px; padding: 28px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    h1 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; }
+    p.sub { margin: 0; color: var(--ink-2); font-size: .88rem; }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: .8rem; color: var(--ink-2); }
+    input {
+      background: var(--ground); border: 1px solid var(--rule); border-radius: 6px;
+      padding: 10px 12px; color: var(--ink); font-size: .95rem; font-family: inherit;
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+    button {
+      margin-top: 4px; background: var(--accent); color: #fff; border: 0;
+      border-radius: 6px; padding: 11px; font-size: .95rem; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    button:hover { filter: brightness(1.08); }
+    .error { color: var(--bad); font-size: .85rem; margin: 0; }
+  </style>
+</head>
+<body>
+  <form method="post">
+    {% csrf_token %}
+    <h1>neat analytics</h1>
+    <p class="sub">Sign in with your neat admin account.</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Username
+      <input name="username" autocomplete="username" autocapitalize="none" required autofocus>
+    </label>
+    <label>Password
+      <input name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>

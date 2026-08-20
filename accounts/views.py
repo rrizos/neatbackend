@@ -1,10 +1,12 @@
 import json
 import logging
+import re
 import secrets
 
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from django.core.mail import send_mail
 from django.db import IntegrityError
 from django.db.models import Q
@@ -13,8 +15,14 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .auth import get_authenticated_user, require_authenticated_user
-from .avatars import resize_avatar_data_url
-from .models import AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
+from .avatars import (
+    avatar_for,
+    resize_avatar_data_url,
+    store_avatar_from_bytes,
+    store_full_avatar,
+    store_thumb_avatar,
+)
+from .models import AppSession, AuthToken, Block, Follow, Notification, PasswordResetCode, SearchHistory, blocked_user_ids, is_blocked
 from .ratelimit import client_ip, rate_limited
 from .serializers import auth_payload, ensure_profile, user_to_dict
 from dm_messages.realtime import push_to_user
@@ -199,6 +207,16 @@ def login(request):
             return _cors_json(JsonResponse({'error': 'Too many attempts. Please try again later.'}, status=429))
 
         user = authenticate(username=username, password=password)
+        if user is None and '@' in username:
+            # Django's backend only ever matches the username column, so an
+            # address has to be turned into one first. Only when it belongs to
+            # exactly one account: 8 addresses here are shared by several
+            # (one by 19), and picking any of them would sign somebody into an
+            # account that is not the one they meant. Those people sign in with
+            # their username, which is unambiguous by definition.
+            matches = list(User.objects.filter(email__iexact=username)[:2])
+            if len(matches) == 1:
+                user = authenticate(username=matches[0].username, password=password)
         if user is None:
             # authenticate() also returns None for a *locked* (inactive)
             # account, which is worth distinguishing in the trail.
@@ -285,6 +303,90 @@ def logout(request):
 
 
 @csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def set_password(request):
+    """Give an account a password, or replace the one it has.
+
+    Exists because an account created through Apple or Google has no usable
+    password at all, which also means the forgot-password flow refuses it —
+    so the provider was the only way back in, for ever. Somebody who loses
+    that provider account would have lost this one with it.
+
+    Setting the first password needs nothing but being signed in; replacing an
+    existing one needs the current password, so a borrowed unlocked phone
+    cannot be used to lock the owner out of their own account.
+    """
+    try:
+        if request.method == 'OPTIONS':
+            return _cors_json(HttpResponse())
+
+        user = require_authenticated_user(request)
+        if user is None:
+            return _cors_json(JsonResponse({'error': 'Not authenticated'}, status=401))
+
+        if rate_limited(f'setpw:{user.pk}', limit=10, window_seconds=900):
+            return _bad_request('Too many attempts. Please try again later.', status=429)
+
+        body = _json_body(request)
+        if body is None:
+            return _bad_request('Invalid JSON')
+
+        new_password = body.get('password') or ''
+        had_password = user.has_usable_password()
+
+        if had_password:
+            current = body.get('currentPassword') or body.get('current_password') or ''
+            if not authenticate(username=user.username, password=current):
+                return _bad_request('Your current password is not correct.')
+
+        try:
+            validate_password(new_password, user)
+        except ValidationError as exc:
+            return _bad_request(' '.join(exc.messages))
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+
+        security_audit.record(
+            'auth.password_set' if not had_password else 'auth.password_changed',
+            severity='medium',
+            actor=user,
+            request=request,
+            status_code=200,
+            message=(
+                f'{user.username} set a password on a provider-only account'
+                if not had_password else f'{user.username} changed their password'
+            ),
+        )
+        return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
+    except Exception as exc:
+        return _handle_exception('set_password', exc)
+
+
+USERNAME_MIN = 3
+USERNAME_MAX = 20
+_USERNAME_RE = re.compile(r'^[a-zA-Z0-9._]+$')
+
+
+def _username_format_error(name):
+    """Why [name] is not usable, or None if it is fine.
+
+    Deliberately narrow: usernames end up in URLs and in @-mentions, so
+    anything that would have to be escaped in either place is refused here
+    rather than discovered later.
+    """
+    if len(name) < USERNAME_MIN:
+        return f'Username must be at least {USERNAME_MIN} characters.'
+    if len(name) > USERNAME_MAX:
+        return f'Username must be at most {USERNAME_MAX} characters.'
+    if not _USERNAME_RE.match(name):
+        return 'Username can only use letters, numbers, dots and underscores.'
+    if name.startswith('.') or name.endswith('.'):
+        return 'Username cannot start or end with a dot.'
+    return None
+
+
+@csrf_exempt
 @require_http_methods(['GET', 'PATCH', 'DELETE', 'OPTIONS'])
 def me(request):
     try:
@@ -301,26 +403,105 @@ def me(request):
 
         profile = ensure_profile(user)
         if request.method == 'PATCH':
-            body = _json_body(request)
-            if body is None:
-                return _bad_request('Invalid JSON')
+            # Two shapes. multipart/form-data carries the avatar as a binary
+            # file, which is what the app sends now — base64 inside JSON costs
+            # a third more bytes, on the upload that matters most and over the
+            # connection with least to spare. JSON is still accepted, because
+            # every build released before this sends it.
+            uploaded_avatar = None
+            if 'multipart' in (request.content_type or ''):
+                # Django only populates request.POST/FILES for POST, so a
+                # multipart PATCH has to be parsed by hand — without this the
+                # body is never read and the request fails as "Invalid JSON".
+                try:
+                    post, files = request.parse_file_upload(request.META, request)
+                except Exception:
+                    return _bad_request('Could not read the upload')
+                body = {k: v for k, v in post.items()}
+                uploaded_avatar = files.get('avatar')
+            else:
+                body = _json_body(request)
+                if body is None:
+                    return _bad_request('Invalid JSON')
             new_username = (body.get('username') or user.username).strip()
+            username_chosen = False
             if new_username != user.username:
                 if not new_username:
                     return _bad_request('Username cannot be empty')
+                # Format is only enforced for somebody replacing the username
+                # we invented for them, which is the one case where the value
+                # has never been checked by anything. Applying it to every
+                # edit would start rejecting names existing accounts already
+                # hold and have been using happily.
+                if profile.username_pending:
+                    error = _username_format_error(new_username)
+                    if error:
+                        return _bad_request(error)
                 if User.objects.exclude(pk=user.pk).filter(username=new_username).exists():
                     return _bad_request('Username is already taken')
                 user.username = new_username
+                username_chosen = True
             user.email = (body.get('email') or user.email).strip()
             user.save(update_fields=['username', 'email'])
             profile.full_name = (body.get('fullName') or body.get('full_name') or profile.full_name).strip()
             profile.bio = (body.get('bio') if body.get('bio') is not None else profile.bio).strip()
-            profile.city = (body.get('city') or profile.city).strip()
-            avatar_in = (body.get('avatarUrl') or body.get('avatar_url') or profile.avatar_url).strip()
-            # Downscale oversized base64 avatars before storing so a full-res
-            # photo isn't embedded inline in every feed/charts payload.
-            profile.avatar_url = resize_avatar_data_url(avatar_in)
-            profile.save(update_fields=['full_name', 'bio', 'city', 'avatar_url'])
+            new_city = (body.get('city') or profile.city).strip()
+            city_changed = new_city != profile.city
+            if city_changed:
+                # Enforced here rather than only in the app: the rule is what
+                # keeps one person from being in several city feeds in a week,
+                # and a rule that only the client applies is not a rule.
+                if not profile.can_change_city():
+                    allowed = profile.city_change_allowed_at()
+                    return _bad_request(
+                        'You can change your city again on '
+                        f'{allowed:%d/%m/%Y}.'
+                    )
+                profile.city_changed_at = timezone.now()
+            profile.city = new_city
+            if uploaded_avatar is not None:
+                if uploaded_avatar.size > 20 * 1024 * 1024:
+                    return _bad_request('Image is too large.')
+                thumb, full, inline = store_avatar_from_bytes(
+                    uploaded_avatar.read(),
+                    previous_thumb=profile.avatar_thumb_url,
+                    previous_full=profile.avatar_full_url,
+                )
+                if inline:
+                    profile.avatar_thumb_url = thumb
+                    profile.avatar_full_url = full
+                    profile.avatar_url = inline
+                avatar_in = profile.avatar_url
+            else:
+                avatar_in = (body.get('avatarUrl') or body.get('avatar_url') or profile.avatar_url).strip()
+            # Two copies, for two very different jobs: a small inline one so a
+            # full-res photo isn't embedded in every feed/charts payload, and a
+            # sharp one on disk for the screens that show it large. Only write
+            # the second when this request actually carried a new picture --
+            # a save that only changed the bio must not rewrite the file.
+            if (uploaded_avatar is None and avatar_in != profile.avatar_url
+                    and avatar_in.startswith('data:')):
+                profile.avatar_full_url = store_full_avatar(
+                    avatar_in, previous_url=profile.avatar_full_url
+                )
+                # The small copy as a file too — this is the one every payload
+                # naming this person will carry from now on.
+                profile.avatar_thumb_url = store_thumb_avatar(
+                    avatar_in, previous_url=profile.avatar_thumb_url
+                )
+            if uploaded_avatar is None:
+                profile.avatar_url = resize_avatar_data_url(avatar_in)
+            save_fields = [
+                'full_name', 'bio', 'city', 'avatar_url', 'avatar_full_url',
+                'avatar_thumb_url',
+            ]
+            if city_changed:
+                save_fields.append('city_changed_at')
+            if username_chosen and profile.username_pending:
+                # They have replaced the invented one, so stop asking.
+                profile.username_pending = False
+                save_fields.append('username_pending')
+            profile.save(update_fields=save_fields)
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
     except Exception as exc:
@@ -351,7 +532,7 @@ def _mutuals_for(viewer, target):
         preview.append({
             'username': u.username,
             'fullName': getattr(p, 'full_name', '') if p else '',
-            'avatarUrl': getattr(p, 'avatar_url', '') if p else '',
+            'avatarUrl': avatar_for(p),
         })
     return preview, total
 
@@ -950,3 +1131,32 @@ def neat_pass(request):
         logger.exception('neat_pass: award refresh failed for user %s', viewer.id)
 
     return _cors_json(JsonResponse({'points': total_points(viewer)}))
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def session_ping(request):
+    """Heartbeat that says "this person is using the app right now".
+
+    Cheap on purpose: it writes one timestamp and returns nothing worth
+    parsing, because it fires every minute per active user and must never be
+    the reason a phone is doing work.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    platform = (request.headers.get('X-Neat-Platform') or '').strip()[:16]
+    try:
+        AppSession.record_ping(user, platform=platform)
+    except Exception:
+        # Analytics must never break the app it is measuring.
+        logger.exception('session ping failed')
+
+    profile = getattr(user, 'profile', None)
+    if profile is not None:
+        profile.last_active = timezone.now()
+        profile.save(update_fields=['last_active'])
+    return _cors_json(JsonResponse({'ok': True}))

@@ -56,6 +56,16 @@ def _send_to_user(user, *, title, body, data, silent, image=None):
     badge = badge_count(user)
     if badge is not None:
         apns_aps_kwargs['badge'] = badge
+        # Also in `data`, where the app can read it.
+        #
+        # `aps.badge` is applied by iOS itself, but only for a push that
+        # arrives while the app is not in front — so a message that lands with
+        # the app open leaves the icon showing whatever it said before. The
+        # copy here lets the client set the number on arrival either way, which
+        # is what makes a DM count towards the badge in every state rather than
+        # only some of them.
+        data = dict(data or {})
+        data['badge'] = badge
 
     if silent:
         # Omitting the sound key on both platforms is what keeps these

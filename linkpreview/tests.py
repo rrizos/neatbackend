@@ -268,7 +268,16 @@ class BatchPreviewTests(TestCase):
         with self.assertNumQueries(1):
             service.previews_for_texts(texts)
 
-    def test_failed_and_stale_rows_are_not_served(self):
+    def test_failed_rows_are_not_served_but_stale_ones_are(self):
+        """Two different meanings that used to be treated the same.
+
+        `ok=False` means we asked and there is no card — serving it would put an
+        empty box under every dead link. Stale means we *have* a card and have
+        not re-confirmed it lately, which is no reason to show nothing: titles
+        and thumbnails do not change, and hosts that block crawlers can never be
+        re-confirmed at all. Excluding both is what made a link show its card
+        for a week and then go blank permanently.
+        """
         LinkPreview.objects.create(
             url_hash=url_fingerprint('https://dead.example.com/'),
             url='https://dead.example.com/', ok=False,
@@ -280,7 +289,10 @@ class BatchPreviewTests(TestCase):
         )
         got = service.previews_for_texts(
             ['https://dead.example.com/', 'https://old.example.com/'])
-        self.assertEqual(got, {})
+
+        self.assertNotIn('https://dead.example.com/', got)
+        self.assertIn('https://old.example.com/', got)
+        self.assertEqual(got['https://old.example.com/']['title'], 'old')
 
 
 class OembedTests(TestCase):
@@ -411,3 +423,185 @@ class MetadataParsingTests(TestCase):
                 '</head></html>')
         data = parse_metadata('https://example.com/', html)
         self.assertEqual(data['image_url'], '')
+
+
+class ThumbnailCopyTests(TestCase):
+    """A card must not outlive the picture it points at.
+
+    TikTok (and Instagram, and Facebook) sign their CDN image URLs with an
+    `x-expires` roughly two days out, while a resolved card is kept for seven.
+    Storing their URL therefore produced a card that rendered correctly for two
+    days and then, for the remaining five, pointed at a URL returning 403 —
+    which the client's errorBuilder collapsed to nothing. That is the
+    "thumbnails disappear when I reopen the app" report.
+    """
+
+    TIKTOK = 'https://vm.tiktok.com/ZN8dSmPsR/'
+    SIGNED = (
+        'https://p16-common-sign.tiktokcdn-eu.com/tos/x~tplv-tiktokx-origin.image'
+        '?dr=10395&x-expires=1786712400&x-signature=abc123'
+    )
+
+    def _resolved(self, image_url):
+        return dict(SAMPLE, url=self.TIKTOK, image_url=image_url)
+
+    def test_expiring_url_is_replaced_by_our_own_copy(self):
+        with patch.object(service, 'fetch_preview', return_value=self._resolved(self.SIGNED)), \
+             patch.object(service, 'store_thumbnail', return_value='/media/linkpreview/abc.jpg') as copy:
+            row = service.resolve_and_store(self.TIKTOK)
+
+        copy.assert_called_once_with(self.SIGNED)
+        self.assertEqual(row.image_url, '/media/linkpreview/abc.jpg')
+        self.assertTrue(row.is_local_image)
+        # Nothing signed, and nothing that can expire, survives into the card.
+        self.assertNotIn('x-expires', row.to_dict()['image_url'])
+
+    def test_the_client_is_given_an_absolute_url(self):
+        # The app loads this with Image.network, which cannot resolve a bare
+        # /media/ path. Stored relative, served absolute.
+        with patch.object(service, 'fetch_preview', return_value=self._resolved(self.SIGNED)), \
+             patch.object(service, 'store_thumbnail', return_value='/media/linkpreview/abc.jpg'):
+            row = service.resolve_and_store(self.TIKTOK)
+
+        self.assertTrue(row.to_dict()['image_url'].startswith('https://'))
+        self.assertTrue(row.to_dict()['image_url'].endswith('/media/linkpreview/abc.jpg'))
+
+    def test_a_failed_copy_falls_back_to_the_original_url(self):
+        """Hotlinking is worse than copying, but far better than no picture."""
+        with patch.object(service, 'fetch_preview', return_value=self._resolved(self.SIGNED)), \
+             patch.object(service, 'store_thumbnail', return_value=''):
+            row = service.resolve_and_store(self.TIKTOK)
+
+        self.assertEqual(row.image_url, self.SIGNED)
+        self.assertFalse(row.is_local_image)
+        # And it is still handed over unchanged, not prefixed with our host.
+        self.assertEqual(row.to_dict()['image_url'], self.SIGNED)
+
+    def test_refreshing_a_card_removes_the_copy_it_replaces(self):
+        with patch.object(service, 'fetch_preview', return_value=self._resolved(self.SIGNED)), \
+             patch.object(service, 'store_thumbnail', return_value='/media/linkpreview/first.jpg'):
+            service.resolve_and_store(self.TIKTOK)
+
+        with patch.object(service, 'fetch_preview', return_value=self._resolved(self.SIGNED)), \
+             patch.object(service, 'store_thumbnail', return_value='/media/linkpreview/second.jpg'), \
+             patch.object(service, 'discard_thumbnail') as discard:
+            row = service.resolve_and_store(self.TIKTOK)
+
+        discard.assert_called_once_with('/media/linkpreview/first.jpg')
+        self.assertEqual(row.image_url, '/media/linkpreview/second.jpg')
+
+    def test_a_third_party_url_is_never_deleted_as_if_it_were_ours(self):
+        from .thumbnails import discard_thumbnail
+        # A no-op that must not raise, and must not try to touch the filesystem.
+        discard_thumbnail(self.SIGNED)
+        discard_thumbnail('/media/posts/not-a-thumbnail.jpg')
+        discard_thumbnail('/media/linkpreview/../../etc/passwd')
+
+
+class StaleCardTests(TestCase):
+    """A card that resolved once should not disappear a week later.
+
+    Cards expire after GOOD_TTL. Past that the feed stopped attaching them and
+    the client had to re-resolve live — and Instagram and TikTok refuse a
+    crawler, so that re-resolve fails every time. Worse, the failure was
+    recorded as `ok=False`, which turned a working card into a dead one
+    permanently. Together that is "the preview shows once, then never again
+    after I reopen the app".
+    """
+
+    URL = 'https://www.instagram.com/reel/DPOYCjWimPS/'
+
+    def _aged_card(self, days, ok=True):
+        row = LinkPreview.objects.create(
+            url_hash=url_fingerprint(self.URL),
+            url=self.URL,
+            title='Ένα reel',
+            image_url='/media/linkpreview/a.jpg',
+            site_name='Instagram',
+            ok=ok,
+        )
+        LinkPreview.objects.filter(pk=row.pk).update(
+            fetched_at=timezone.now() - timezone.timedelta(days=days)
+        )
+        return LinkPreview.objects.get(pk=row.pk)
+
+    def test_a_fortnight_old_card_still_reaches_the_feed(self):
+        self._aged_card(days=14)
+        found = service.previews_for_texts([f'δες αυτό {self.URL}'])
+        self.assertIn(self.URL, found, 'a stale card must still be attached')
+        self.assertEqual(found[self.URL]['title'], 'Ένα reel')
+
+    def test_a_failed_refresh_does_not_kill_a_working_card(self):
+        row = self._aged_card(days=14)
+        self.assertTrue(row.is_stale)
+
+        # The host refuses the crawler, as Instagram does.
+        with patch.object(service, 'fetch_preview', side_effect=UnsafeUrl('403')):
+            self.assertIsNone(service.resolve_and_store(self.URL))
+
+        row.refresh_from_db()
+        self.assertTrue(row.ok, 'a failed refresh marked a good card dead')
+        self.assertEqual(row.title, 'Ένα reel')
+        # And it is still served.
+        self.assertIn(self.URL, service.previews_for_texts([self.URL]))
+
+    def test_a_link_that_never_resolved_is_still_remembered_as_a_failure(self):
+        # The negative cache still has to work, or a dead link costs every
+        # viewer a timeout.
+        with patch.object(service, 'fetch_preview', side_effect=UnsafeUrl('nope')):
+            self.assertIsNone(service.resolve_and_store('https://nowhere.invalid/x'))
+        row = LinkPreview.objects.get(url='https://nowhere.invalid/x')
+        self.assertFalse(row.ok)
+
+    def test_the_endpoint_falls_back_to_the_good_card_when_the_refresh_fails(self):
+        """It still tries to refresh — it just never answers "nothing"."""
+        self._aged_card(days=14)
+        user = get_user_model().objects.create_user('reader', password='x')
+        token = AuthToken.create_for_user(user).key
+        with patch.object(service, 'fetch_preview',
+                          side_effect=UnsafeUrl('403')) as fetch:
+            res = self.client.get(
+                f'/api/link-preview/?url={self.URL}',
+                HTTP_AUTHORIZATION=f'Token {token}',
+            )
+        fetch.assert_called_once()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['preview']['title'], 'Ένα reel')
+
+
+class EmptyCardTests(TestCase):
+    """A card has to carry something the URL doesn't.
+
+    TikTok answers a request for any video it won't describe — deleted,
+    private, or a short link that resolved to an empty username — with its
+    boilerplate page title and nothing else. Stored, that rendered as a card
+    reading "TikTok - Make Your Day" over a blank space, which reads as broken
+    rather than as an ordinary link.
+    """
+
+    def _resolved(self, **over):
+        base = dict(SAMPLE, title='TikTok - Make Your Day',
+                    description='', image_url='')
+        base.update(over)
+        return base
+
+    def test_a_title_with_nothing_else_is_not_a_card(self):
+        with patch.object(service, 'fetch_preview', return_value=self._resolved()):
+            self.assertIsNone(service.resolve_and_store('https://vm.tiktok.com/ZNdHHUCt8/'))
+
+    def test_a_title_with_a_picture_is_a_card(self):
+        with patch.object(service, 'fetch_preview',
+                          return_value=self._resolved(image_url='https://x/y.jpg')), \
+             patch.object(service, 'store_thumbnail', return_value='/media/linkpreview/a.jpg'):
+            row = service.resolve_and_store('https://vm.tiktok.com/ZN88eejyf/')
+        self.assertIsNotNone(row)
+        self.assertEqual(row.image_url, '/media/linkpreview/a.jpg')
+
+    def test_a_title_with_a_description_is_a_card(self):
+        # An article with no lead image is still worth a card.
+        with patch.object(service, 'fetch_preview',
+                          return_value=self._resolved(title='Τίτλος',
+                                                      description='Μια περίληψη.')):
+            row = service.resolve_and_store('https://www.in.gr/news/x/')
+        self.assertIsNotNone(row)
+        self.assertEqual(row.description, 'Μια περίληψη.')

@@ -54,6 +54,11 @@ class Message(models.Model):
     #: side — which is what a single shared counter did.
     OPEN_BUDGET = {PHOTO_ONCE: 1, PHOTO_REPLAY: 2}
 
+    #: Media URL when the photo or voice note is a file on disk rather than
+    #: base64 in `text`. See dm_messages/media.py — temporary photos stay in
+    #: the row, because only a row can be made to stop existing on cue.
+    media_url = models.CharField(max_length=255, blank=True, default='')
+
     conversation = models.ForeignKey(
         Conversation,
         on_delete=models.CASCADE,

@@ -17,7 +17,8 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from django.core.mail import send_mail
 from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_http_methods
 
@@ -251,3 +252,56 @@ def delete_account(request):
 
     logger.info('delete_account: request received for %s', email)
     return render(request, 'web/delete_account.html', {'sent': True})
+
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+#
+# Behind a login, because the page lists real accounts and when they were last
+# seen. It authenticates against the app's own credentials and requires
+# `Profile.is_admin` — there is no Django superuser on this deployment, and
+# inventing a second set of credentials to protect one page is worse than
+# reusing the one that already decides who is an admin in the app.
+
+ANALYTICS_SESSION_KEY = 'neat_analytics_admin'
+
+
+def _analytics_admin(request):
+    return bool(request.session.get(ANALYTICS_SESSION_KEY))
+
+
+@csrf_protect
+@require_http_methods(['GET', 'POST'])
+def analytics(request):
+    from django.contrib.auth import authenticate
+
+    from accounts.ratelimit import client_ip, rate_limited
+    from accounts.serializers import ensure_profile
+    from web import analytics as metrics
+
+    error = ''
+    if request.method == 'POST' and not _analytics_admin(request):
+        # Brute force on a page that lists your whole user base is worth
+        # slowing down properly.
+        if rate_limited(f'analytics:{client_ip(request)}', limit=8, window_seconds=900):
+            error = 'Too many attempts. Try again later.'
+        else:
+            user = authenticate(
+                username=(request.POST.get('username') or '').strip(),
+                password=request.POST.get('password') or '',
+            )
+            if user is not None and ensure_profile(user).is_admin:
+                request.session[ANALYTICS_SESSION_KEY] = True
+                request.session.set_expiry(60 * 60 * 8)
+                return redirect('analytics')
+            # Deliberately one message for both "no such user" and "not an
+            # admin": which of the two it was is not the visitor's business.
+            error = 'Those details are not valid here.'
+
+    if not _analytics_admin(request):
+        return render(request, 'web/analytics_login.html', {'error': error}, status=200)
+
+    if request.GET.get('logout'):
+        request.session.pop(ANALYTICS_SESSION_KEY, None)
+        return redirect('analytics')
+
+    return render(request, 'web/analytics.html', metrics.collect())

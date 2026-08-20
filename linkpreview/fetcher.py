@@ -31,6 +31,9 @@ from . import oembed
 
 # Enough to cover <head> on any sane page; we stop reading once </head> shows up.
 MAX_BODY_BYTES = 512 * 1024
+# A preview thumbnail, not a wallpaper. Anything past this is refused rather
+# than truncated -- half a JPEG is not worth storing.
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
 TIMEOUT_SECONDS = 6
 MAX_REDIRECTS = 3
 
@@ -236,6 +239,69 @@ def _fetch_once(url, accept='text/html,application/xhtml+xml'):
         except OSError:
             pass
 
+
+
+def fetch_image(url):
+    """Download a preview's picture. Returns (bytes, content_type).
+
+    Goes through exactly the same checks as the page fetch — validated scheme
+    and port, every resolved IP tested against the private ranges, the socket
+    opened against the validated IP with Host/SNI set by hand, redirects
+    followed one safely-checked hop at a time. That is not optional here: the
+    image URL comes out of a page *the poster chose*, so it is every bit as
+    attacker-controlled as the link they pasted, and this box hands out IAM
+    credentials to anything that can reach 169.254.169.254.
+
+    Raises UnsafeUrl for anything that is not a plainly fetchable image.
+    """
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        parts, port = _validate_url(current)
+        family, sockaddr, _ip = _resolve_and_validate(parts.hostname, port)
+        ctx = _ssl_context() if parts.scheme == 'https' else None
+
+        conn = _PinnedConnection(parts.hostname, port, family, sockaddr, ctx)
+        try:
+            path = urlunsplit(('', '', parts.path or '/', parts.query, '')) or '/'
+            conn.request('GET', path, headers={
+                'Host': parts.netloc,
+                'User-Agent': USER_AGENT,
+                'Accept': 'image/*',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'close',
+            })
+            resp = conn.getresponse()
+            headers = {k.lower(): v for k, v in resp.getheaders()}
+
+            if 300 <= resp.status < 400 and headers.get('location'):
+                current = urljoin(current, headers['location'])
+                continue
+            if resp.status != 200:
+                raise UnsafeUrl(f'image fetch returned {resp.status}')
+
+            ctype = (headers.get('content-type') or '').split(';')[0].strip().lower()
+            if not ctype.startswith('image/'):
+                raise UnsafeUrl(f'not an image: {ctype!r}')
+
+            declared = headers.get('content-length')
+            if declared and declared.isdigit() and int(declared) > MAX_IMAGE_BYTES:
+                raise UnsafeUrl('image too large')
+
+            # One byte past the cap, so a body that lies about its length (or
+            # never declares one) is caught rather than silently truncated.
+            raw = _decompress(resp.read(MAX_IMAGE_BYTES + 1),
+                              headers.get('content-encoding'))
+            if len(raw) > MAX_IMAGE_BYTES:
+                raise UnsafeUrl('image too large')
+            if not raw:
+                raise UnsafeUrl('empty image')
+            return raw, ctype
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+    raise UnsafeUrl('too many redirects')
 
 def fetch_head_html(url):
     """Follow redirects (safely) and return (final_url, html_text).
@@ -464,6 +530,36 @@ def fetch_oembed(url):
     return oembed.parse(body.decode('utf-8', 'replace'))
 
 
+
+# Titles a site serves for anything it will not describe, keyed by the host
+# that serves them. Host-scoped on purpose: "Instagram" is boilerplate on
+# instagram.com and a perfectly good headline on a news site, and stripping it
+# there would throw away the only thing the card had to say.
+_BOILERPLATE_TITLES = {
+    'tiktok.com': {'TikTok - Make Your Day', 'TikTok'},
+    'instagram.com': {'Instagram'},
+}
+
+
+def _is_boilerplate_title(title, url):
+    """Whether [title] is the site's own filler rather than the post's."""
+    title = (title or '').strip()
+    if not title:
+        return False
+    host = urlsplit(url or '').hostname or ''
+    for domain, titles in _BOILERPLATE_TITLES.items():
+        if (host == domain or host.endswith('.' + domain)) and title in titles:
+            return True
+    return False
+
+
+def _handle_from_url(url):
+    """The `@handle` in a TikTok/Instagram style URL, or ''."""
+    if not url:
+        return ''
+    match = re.search(r'/(@[A-Za-z0-9_.]{2,40})(?:/|$)', url)
+    return match.group(1) if match else ''
+
 def fetch_preview(url):
     """Full pipeline. Raises UnsafeUrl on anything we won't or can't preview.
 
@@ -484,6 +580,43 @@ def fetch_preview(url):
         if card is None:
             raise
         page = None
+        final_url = url
+
+    # Retry oEmbed against the URL the redirects landed on. TikTok's oEmbed
+    # refuses a `vm.tiktok.com` short link outright, and a shared TikTok is
+    # almost always a short link — so the first call above returns nothing and
+    # the thumbnail, which for TikTok exists *only* in oEmbed and never in the
+    # page, was lost. The canonical URL is the same video; oEmbed simply wants
+    # to be asked about it by its real name.
+    if card is None and final_url and final_url != url:
+        try:
+            card = fetch_oembed(final_url)
+        except Exception:
+            card = None
+
+    # Last resort for TikTok: name the creator.
+    #
+    # A TikTok *photo* post has no oEmbed at all (that API covers videos), and
+    # the page it serves a crawler carries no picture anywhere — the images are
+    # fetched client-side. So there is nothing to show but the URL, and the
+    # page title is TikTok's own boilerplate rather than anything about the
+    # post. The handle is right there in the canonical URL though, and
+    # "@grstorm.2 on TikTok" is a real card where "TikTok - Make Your Day" over
+    # a blank space is not.
+    if page is not None:
+        if not page.get('author_handle'):
+            handle = _handle_from_url(final_url)
+            if handle:
+                page['author_handle'] = handle.lstrip('@')
+                page['author_name'] = page['author_name'] or handle
+                page['author_url'] = f'https://www.tiktok.com/{handle}'
+        # A boilerplate title is worse than none: it captions somebody's post
+        # with the app's own tagline. Dropped whenever the card has anything
+        # truer to show — a creator, a picture or a summary.
+        if (_is_boilerplate_title(page.get('title'), final_url)
+                and (page.get('author_handle') or page.get('image_url')
+                     or page.get('description'))):
+            page['title'] = ''
 
     if page is None:
         return {

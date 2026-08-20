@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from .images import public_url as _public_image_url
+
 
 class Event(models.Model):
     OFFICIAL = 'official'
@@ -48,7 +50,10 @@ class Event(models.Model):
             'title': self.title,
             'description': self.description,
             'location': self.location,
-            'imageUrl': self.image_url,
+            # Absolute when it is one of our files, so the client can load it
+            # without knowing the host; base64 data URLs pass through unchanged
+            # for events created before images moved onto disk.
+            'imageUrl': _public_image_url(self.image_url),
             'category': self.category,
             'date': self.date.isoformat() if self.date else '',
             'creator': self.creator.username if self.creator_id else '',

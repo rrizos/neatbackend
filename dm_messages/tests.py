@@ -302,3 +302,151 @@ class ThreadPayloadTests(TestCase):
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(f'/api/messages/{self.conversation.id}/', **self.auth())
         return len(ctx)
+
+
+class StoredMediaTests(TestCase):
+    """DM media as files, and the one case that must stay in the database.
+
+    Over half the database was base64 inside `Message.text`. Moving it to disk
+    is what makes a chat photo load like every other image in the app — but a
+    view-once photo cannot move, because `message_open` promises the bytes stop
+    existing once the viewings are spent, and it keeps that promise by clearing
+    the column. A file at a stable URL could not.
+    """
+
+    def setUp(self):
+        self.a = User.objects.create_user('alpha', password='x')
+        self.b = User.objects.create_user('beta', password='x')
+        # Same city, or the server refuses the message.
+        for user in (self.a, self.b):
+            Profile.objects.update_or_create(user=user, defaults={'city': 'Αθήνα'})
+        self.token = AuthToken.create_for_user(self.a).key
+        self.conversation = Conversation.objects.create()
+        for user in (self.a, self.b):
+            ConversationMember.objects.create(conversation=self.conversation, user=user)
+
+    def _png(self):
+        import base64, io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new('RGB', (40, 40), (7, 90, 160)).save(buf, 'PNG')
+        return base64.b64encode(buf.getvalue()).decode()
+
+    def _send(self, text, photo_mode=''):
+        body = {'text': text}
+        if photo_mode:
+            body['photo_mode'] = photo_mode
+        return self.client.post(
+            f'/api/messages/{self.conversation.id}/',
+            data=json.dumps(body),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='3',
+        )
+
+    def test_an_ordinary_photo_becomes_a_file(self):
+        res = self._send('__neat_image__:' + self._png())
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertTrue(message.media_url.startswith('/media/dm/'))
+        # The row keeps the shape, not the bytes.
+        self.assertEqual(message.text, '__neat_image__:')
+        self.assertIn('mediaUrl', res.json())
+
+    def test_a_view_once_photo_stays_in_the_row(self):
+        res = self._send('__neat_image__:' + self._png(), photo_mode='once')
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertEqual(message.media_url, '',
+                         'a temporary photo must not become a file')
+        self.assertTrue(len(message.text) > 40, 'its bytes stay in the row')
+
+    def test_an_older_client_still_receives_the_bytes(self):
+        res = self._send('__neat_image__:' + self._png())
+        message_id = res.json()['id']
+        old = self.client.get(
+            f'/api/messages/{self.conversation.id}/messages/{message_id}/media/',
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='2',
+        )
+        self.assertEqual(old.status_code, 200)
+        self.assertTrue(old.json()['text'].startswith('__neat_image__:'))
+        self.assertGreater(len(old.json()['text']), 100,
+                           'an old build needs the bytes, not a URL')
+
+    def test_deleting_the_message_removes_the_file(self):
+        import os
+        from django.conf import settings
+        res = self._send('__neat_image__:' + self._png())
+        message = Message.objects.get(pk=res.json()['id'])
+        path = os.path.join(settings.MEDIA_ROOT, message.media_url[len('/media/'):])
+        self.assertTrue(os.path.exists(path))
+        message.delete()
+        self.assertFalse(os.path.exists(path), 'the file outlived its message')
+
+
+class BinaryUploadTests(TestCase):
+    """Sending DM media as a file rather than base64 inside JSON.
+
+    base64 costs a third more bytes than the picture it encodes, on exactly the
+    uploads people make over a phone connection. Both shapes are accepted —
+    every build released before this sends JSON.
+    """
+
+    def setUp(self):
+        self.a = User.objects.create_user('sender', password='x')
+        self.b = User.objects.create_user('receiver', password='x')
+        for u in (self.a, self.b):
+            Profile.objects.update_or_create(user=u, defaults={'city': 'Αθήνα'})
+        self.token = AuthToken.create_for_user(self.a).key
+        self.conversation = Conversation.objects.create()
+        for u in (self.a, self.b):
+            ConversationMember.objects.create(conversation=self.conversation, user=u)
+
+    def _jpeg(self):
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new('RGB', (300, 300), (10, 140, 90)).save(buf, 'JPEG')
+        return buf.getvalue()
+
+    def test_a_photo_sent_as_a_file_becomes_a_stored_file(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.client.post(
+            f'/api/messages/{self.conversation.id}/',
+            data={'media': SimpleUploadedFile('p.jpg', self._jpeg(), 'image/jpeg'),
+                  'media_kind': 'image', 'text': ''},
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='3',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertTrue(message.media_url.startswith('/media/dm/'))
+        self.assertEqual(message.text, '__neat_image__:')
+
+    def test_a_voice_note_keeps_its_duration(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.client.post(
+            f'/api/messages/{self.conversation.id}/',
+            data={'media': SimpleUploadedFile('v.m4a', b'\x00\x01voice', 'audio/mp4'),
+                  'media_kind': 'voice', 'media_suffix': '|7', 'text': ''},
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='3',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertTrue(message.media_url.endswith('.m4a'))
+        self.assertEqual(message.text, '__neat_voice__:|7',
+                         'the duration the bubble draws must survive')
+
+    def test_json_sending_still_works(self):
+        import base64, json as _json
+        res = self.client.post(
+            f'/api/messages/{self.conversation.id}/',
+            data=_json.dumps({'text': '__neat_image__:' + base64.b64encode(self._jpeg()).decode()}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='3',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(Message.objects.get(pk=res.json()['id']).media_url)

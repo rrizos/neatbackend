@@ -1,3 +1,4 @@
+import base64
 import json
 from datetime import timedelta
 
@@ -12,9 +13,19 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
+from accounts.avatars import avatar_for
 from accounts.models import Block, is_blocked
 from linkpreview import service as linkpreview_service
 
+from accounts.client_version import wants_url_avatars
+from .media import (
+    IMAGE_PREFIX,
+    VOICE_PREFIX,
+    as_data_url,
+    discard_message_media,
+    public_url as dm_public_url,
+    store_message_media,
+)
 from .models import (
     Conversation,
     ConversationMember,
@@ -88,6 +99,29 @@ def _strip_media(text):
         separator = text.rfind('|')
         return '__neat_voice__:' + text[separator:] if separator >= 0 else '__neat_voice__:'
     return text
+
+
+def _body_and_files(request):
+    """The request body, whether it arrived as JSON or multipart.
+
+    Media used to be base64 inside a JSON body, which costs a third more bytes
+    than the file itself on exactly the uploads people make over a phone
+    connection. Multipart sends the bytes as they are. JSON is still accepted,
+    because every build released before this uses it.
+
+    Returns (body_dict, files) — `files` is empty for a JSON request.
+    """
+    if 'multipart' in (request.content_type or ''):
+        if request.method == 'POST':
+            return {k: v for k, v in request.POST.items()}, request.FILES
+        # Django only parses multipart for POST; anything else has to be asked
+        # for explicitly or the body is silently never read.
+        try:
+            post, files = request.parse_file_upload(request.META, request)
+        except Exception:
+            return None, {}
+        return {k: v for k, v in post.items()}, files
+    return _json_body(request), {}
 
 
 def _load_thread_window(queryset, limit, lean):
@@ -231,6 +265,20 @@ def _message_to_dict(message, preview_map=None, lean=False, viewer=None):
         'reactions': reactions,
         'edited': message.edited,
     }
+    if message.media_url and not message.photo_mode:
+        if wants_url_avatars():
+            # The picture travels as a URL the client fetches once and caches,
+            # instead of as bytes inside every copy of this thread.
+            data['mediaUrl'] = dm_public_url(message.media_url)
+        else:
+            # Builds released before this only understand bytes in `text`, and
+            # they have to keep working — so the file is read back for them.
+            prefix = (IMAGE_PREFIX if message.text.startswith(IMAGE_PREFIX)
+                      else VOICE_PREFIX)
+            suffix = message.text[len(prefix):]
+            encoded = as_data_url(message.media_url, prefix)
+            if encoded:
+                data['text'] = f'{prefix}{encoded}{suffix}'
     if message.photo_mode:
         data['photo_mode'] = message.photo_mode
         # Per person: how many viewings *you* have left, and whether anyone
@@ -341,7 +389,7 @@ def _conversation_to_dict(conversation, viewer):
         'id': conversation.id,
         'otherUser': other.username,
         'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
-        'otherAvatarUrl': getattr(other_profile, 'avatar_url', '') if other_profile else '',
+        'otherAvatarUrl': avatar_for(other_profile),
         'otherLastActive': other_last_active.isoformat() if other_last_active else '',
         # Never the bytes: a photo reads as "sent a photo" here, and for a
         # temporary one handing them over would skip the opening entirely.
@@ -508,7 +556,7 @@ def conversation_detail(request, conversation_id):
             )
         )
 
-    body = _json_body(request)
+    body, files = _body_and_files(request)
     if body is None:
         return _bad_request('Invalid JSON')
     if other is not None and Block.objects.filter(blocker=viewer, blocked=other).exists():
@@ -516,6 +564,14 @@ def conversation_detail(request, conversation_id):
     if other is not None and not _same_city(viewer, other):
         return _bad_request('You can only message people in your city')
     text = (body.get('text') or '').strip()
+    # A binary upload carries the bytes as a file part and only the marker in
+    # `text`, so it is reassembled here before anything else looks at it.
+    upload = files.get('media') if files else None
+    if upload is not None:
+        kind = (body.get('media_kind') or 'image').strip()
+        prefix = VOICE_PREFIX if kind == 'voice' else IMAGE_PREFIX
+        suffix = (body.get('media_suffix') or '').strip()
+        text = f'{prefix}{base64.b64encode(upload.read()).decode()}{suffix}'
     if not text:
         return _bad_request('Message text is required')
     # Only a photo can be temporary: the mode is meaningless on anything the
@@ -524,8 +580,15 @@ def conversation_detail(request, conversation_id):
     photo_mode = (body.get('photo_mode') or '').strip()
     if photo_mode not in dict(Message.PHOTO_MODES) or not text.startswith('__neat_image__:'):
         photo_mode = ''
+    # Ordinary photos and voice notes become files; a temporary photo stays in
+    # the row, because only a row can be made to stop existing on cue.
+    media_url = ''
+    if not photo_mode:
+        stored, text = store_message_media(text)
+        media_url = stored or ''
     message = Message.objects.create(
-        conversation=conversation, sender=viewer, text=text, photo_mode=photo_mode
+        conversation=conversation, sender=viewer, text=text,
+        photo_mode=photo_mode, media_url=media_url,
     )
     conversation.save(update_fields=['updated'])
     message_dict = _message_to_dict(message)
@@ -758,7 +821,18 @@ def message_media(request, conversation_id, message_id):
     if not message.text.startswith(('__neat_image__:', '__neat_voice__:')):
         return _bad_request('Message has no media')
 
-    response = _cors_json(JsonResponse({'text': message.text}))
+    if message.media_url:
+        prefix = (IMAGE_PREFIX if message.text.startswith(IMAGE_PREFIX)
+                  else VOICE_PREFIX)
+        if wants_url_avatars():
+            payload = {'url': dm_public_url(message.media_url)}
+        else:
+            suffix = message.text[len(prefix):]
+            encoded = as_data_url(message.media_url, prefix)
+            payload = {'text': f'{prefix}{encoded}{suffix}'}
+        response = _cors_json(JsonResponse(payload))
+    else:
+        response = _cors_json(JsonResponse({'text': message.text}))
     # A message's media never changes, so let the client keep it. This is the
     # one DM response worth caching, which is why it overrides the no-store
     # default every other endpoint here sets.

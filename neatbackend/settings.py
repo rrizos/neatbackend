@@ -62,7 +62,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'channels',
     'corsheaders',
-    'accounts',
+    'accounts.apps.AccountsConfig',
     'posts',
     'dm_messages.apps.DmMessagesConfig',
     'events.apps.EventsConfig',
@@ -74,6 +74,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # First, so every serializer below knows what the caller can render.
+    'accounts.client_version.ClientVersionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -141,6 +143,17 @@ if _db_name:
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', ''),
             'PORT': os.environ.get('DB_PORT', '3306'),
+            # The database is a *managed* instance on another host, so every
+            # connection is a network round trip plus a TLS handshake. At the
+            # default of 0 that cost is paid again on every single request,
+            # which is latency no query tuning can win back. 60s reuses a
+            # connection across requests without holding one open so long that
+            # a restarted database leaves workers talking to a dead socket.
+            'CONN_MAX_AGE': 60,
+            # Cheap liveness check before a reused connection is handed out,
+            # so a connection the server closed in the meantime is replaced
+            # rather than raising to the caller. (Django 4.1+.)
+            'CONN_HEALTH_CHECKS': True,
         }
     }
 elif _database_url:
@@ -158,6 +171,33 @@ else:
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
+
+
+# Absolute base for URLs we hand to clients for our own files.
+#
+# Link-preview thumbnails are copied onto our disk and served from /media/, but
+# the app loads them with Image.network, which needs an absolute URL. Kept
+# host-agnostic in the database (a bare /media/... path) and made absolute on
+# the way out, so moving off the pinned IP to api.neatapp.gr is a config change
+# rather than a data migration.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://63.181.201.175').rstrip('/')
+
+
+# ── Sign in with Apple / Google ──────────────────────────────────────────────
+#
+# The audiences an incoming ID token is allowed to name. A token is only ever
+# trusted if its `aud` is one of these, because a perfectly valid token issued
+# to somebody else's app would otherwise be accepted as proof of identity here.
+#
+# Apple: the app's bundle id (and the Services ID, if the web flow is ever added).
+# Google: every per-platform OAuth client id — iOS and Android each get their
+# own, and both appear as the audience of tokens from that platform.
+def _id_list(name, default=''):
+    return tuple(v.strip() for v in os.environ.get(name, default).split(',') if v.strip())
+
+
+APPLE_CLIENT_IDS = _id_list('APPLE_CLIENT_IDS', 'NeatApp.Neat')
+GOOGLE_CLIENT_IDS = _id_list('GOOGLE_CLIENT_IDS')
 
 
 # Password validation

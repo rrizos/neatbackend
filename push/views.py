@@ -54,9 +54,15 @@ def register_device(request):
     if not token or platform not in ('ios', 'android'):
         return _bad_request('token and a valid platform are required')
 
+    device_id = (body.get('deviceId') or body.get('device_id') or '').strip()[:64]
+    if device_id:
+        # This phone's previous token, whatever it was, is gone — keeping it
+        # would deliver every notification twice.
+        DeviceToken.objects.filter(device_id=device_id).exclude(token=token).delete()
+
     DeviceToken.objects.update_or_create(
         token=token,
-        defaults={'user': viewer, 'platform': platform},
+        defaults={'user': viewer, 'platform': platform, 'device_id': device_id},
     )
     return _cors_json(JsonResponse({'ok': True}))
 
