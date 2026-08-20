@@ -31,28 +31,37 @@ class Profile(models.Model):
     #: rather than inferred, so the prompt survives the app being killed
     #: mid-sign-up in exactly the way the empty-city check does.
     username_pending = models.BooleanField(default=False)
-    #: When the home city was last set, so it cannot be changed again for a
-    #: month. The whole app is scoped to one city — feed, posting rights,
-    #: events, who can see you — so somebody hopping between them every day
-    #: would be in every local feed at once while belonging to none of them.
-    #: Null on accounts that predate this; they are measured from sign-up.
+    #: When the home city was last set. Stamped on the first city too, so the
+    #: month runs from when somebody actually chose one rather than from when
+    #: the account row appeared.
     city_changed_at = models.DateTimeField(null=True, blank=True)
 
-    #: How long a city has to be kept before it can be changed again.
+    #: How long a city is kept before it can be changed again.
     CITY_CHANGE_INTERVAL = datetime.timedelta(days=30)
 
     def city_change_allowed_at(self):
-        """When this account may next change city.
+        """When this account may next change city, or None if it may now.
 
-        Measured from the last change, or from sign-up for anyone who has
-        never changed one — so a brand new account cannot pick a city, look
-        around a second one, and settle in a third on its first evening.
+        An account with no city yet is always allowed: that is the last step of
+        sign-up, and every account reaches it seconds after being created. A
+        rule measured from the account's creation refuses that first city and
+        leaves people unable to finish signing up at all — which is exactly what
+        happened when this was first written.
+
+        For accounts that had a city before this field existed there is nothing
+        to measure from, so sign-up is used; they have held that city since
+        then anyway.
         """
+        if not self.city:
+            return None
         anchor = self.city_changed_at or self.created
         return anchor + self.CITY_CHANGE_INTERVAL
 
     def can_change_city(self, now=None):
-        return (now or timezone.now()) >= self.city_change_allowed_at()
+        allowed = self.city_change_allowed_at()
+        if allowed is None:
+            return True
+        return (now or timezone.now()) >= allowed
     is_verified = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
     can_create_official_events = models.BooleanField(default=False)

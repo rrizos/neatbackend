@@ -448,14 +448,12 @@ def me(request):
             new_city = (body.get('city') or profile.city).strip()
             city_changed = new_city != profile.city
             if city_changed:
-                # Enforced here rather than only in the app: the rule is what
-                # keeps one person from being in several city feeds in a week,
-                # and a rule that only the client applies is not a rule.
+                # Only ever a *change*: setting the first city is what the last
+                # step of sign-up does, and can_change_city() allows it.
                 if not profile.can_change_city():
                     allowed = profile.city_change_allowed_at()
                     return _bad_request(
-                        'You can change your city again on '
-                        f'{allowed:%d/%m/%Y}.'
+                        f'You can change your city again on {allowed:%d/%m/%Y}.'
                     )
                 profile.city_changed_at = timezone.now()
             profile.city = new_city
