@@ -224,7 +224,15 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# The app serves one country, so "today" and "3pm" mean Greek time to everyone
+# who reads them. Storage is unaffected: USE_TZ keeps every timestamp in the
+# database in UTC, and this only decides what they are converted to on the way
+# out — the analytics page, template output, and timezone.localtime().
+#
+# Safe on this database: named-zone CONVERT_TZ is what TruncDate compiles to
+# under a non-UTC zone, and the server has the timezone tables loaded (checked:
+# 1792 names). Without them those queries would silently return nothing.
+TIME_ZONE = 'Europe/Athens'
 
 USE_I18N = True
 

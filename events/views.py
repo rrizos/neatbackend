@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from datetime import datetime
+from datetime import timezone as datetime_timezone
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -89,7 +90,14 @@ def _parse_event_datetime(value):
             return None
         dt = datetime.combine(d, datetime.min.time())
     if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        # Pinned to UTC rather than the project's display zone. An event time
+        # is a wall-clock time somebody typed — "the gig starts at 19:00" — not
+        # an instant, and the app shows it back verbatim without converting.
+        # Every event already stored follows that convention, so reading the
+        # default zone here (now Europe/Athens) would stamp new events three
+        # hours off from the old ones and there would be no way to tell which
+        # kind any given row was.
+        dt = timezone.make_aware(dt, datetime_timezone.utc)
     return dt
 
 
