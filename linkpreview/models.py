@@ -3,6 +3,7 @@ import hashlib
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from neatbackend.cdn import cdn
 
 # A link that resolved keeps its card for a week; one that failed is retried
 # after an hour. The negative cache matters as much as the positive one — a
@@ -65,7 +66,9 @@ class LinkPreview(models.Model):
         database; third-party URLs are already absolute and pass through.
         """
         if self.is_local_image:
-            return f'{settings.PUBLIC_BASE_URL}{self.image_url}'
+            edge = cdn(self.image_url)
+            return edge if edge != self.image_url else \
+                f'{settings.PUBLIC_BASE_URL}{self.image_url}'
         return self.image_url
 
     def to_dict(self):

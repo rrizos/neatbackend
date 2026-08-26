@@ -202,11 +202,18 @@ def avatar_for(profile):
         return ''
     from django.conf import settings
 
+    from neatbackend.cdn import cdn
+
     from .client_version import wants_url_avatars
 
     thumb = getattr(profile, 'avatar_thumb_url', '')
     if wants_url_avatars() and thumb:
-        return f'{settings.PUBLIC_BASE_URL}{thumb}' if thumb.startswith('/') else thumb
+        if not thumb.startswith('/'):
+            return thumb
+        # Through the CDN when there is one. Otherwise the absolute URL this
+        # has always produced, which every installed build already fetches.
+        edge = cdn(thumb)
+        return edge if edge != thumb else f'{settings.PUBLIC_BASE_URL}{thumb}'
     return getattr(profile, 'avatar_url', '') or ''
 
 

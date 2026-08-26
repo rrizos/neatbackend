@@ -294,6 +294,12 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', _default_sender)
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
 
+# Where clients are told to fetch media from. Empty means "from this server",
+# which is the current behaviour. Set it to a CloudFront domain and every media
+# URL in an API response is rewritten to point at the edge instead — see
+# neatbackend/cdn.py. Files do not move; only the address changes.
+MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
+
 # Firebase Cloud Messaging — path to the service-account JSON downloaded from
 # Firebase console (Project settings → Service accounts). Never commit this
 # file; defaults to a gitignored path next to manage.py for local dev, and

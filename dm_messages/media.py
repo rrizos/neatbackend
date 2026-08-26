@@ -26,6 +26,7 @@ import uuid
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from neatbackend.cdn import cdn
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,10 @@ def discard_message_media(url):
 
 def public_url(url):
     if url and url.startswith(settings.MEDIA_URL):
-        return f'{settings.PUBLIC_BASE_URL}{url}'
+        # Through the CDN when one is configured; otherwise this host, which
+        # is what every installed build already fetches from.
+        edge = cdn(url)
+        return edge if edge != url else f'{settings.PUBLIC_BASE_URL}{url}'
     return url
 
 

@@ -1,8 +1,16 @@
-"""Comment pictures as files.
+"""Post and comment pictures as files.
 
-Post images moved to disk long ago; comment images did not, so
-`PostComment.image_url` still held base64 — the same cost in the same shape,
-just somewhere nobody had looked.
+Comment images were the reason this existed — `PostComment.image_url` still
+held base64 long after post images had moved to disk.
+
+Post images then turned out to have a different problem: they were written to
+disk exactly as the phone sent them. A camera JPEG arrives at close to
+lossless, so a single 828x1792 photo was **2 MB** on the wire when the same
+pixels re-encoded at quality 85 are **200 KB**. A feed of twenty of those is
+40 MB, which over a phone connection is the better part of a minute of
+staring at grey boxes. Re-encoding on the way in gives that back at no visible
+cost — the resolution does not change, only the quality setting it was saved
+with.
 """
 
 import base64
@@ -41,6 +49,34 @@ def _write(raw):
         return default_storage.url(name)
     except Exception:
         logger.exception('could not store comment image')
+        return ''
+
+
+def store_post_image(uploaded):
+    """Re-encode and store a post image, returning its URL.
+
+    Falls back to storing the original if Pillow is unavailable or the file
+    cannot be decoded: an upload that reaches this point has already been
+    validated, and refusing it here would lose a post over a compression
+    detail.
+    """
+    if uploaded is None:
+        return ''
+    try:
+        uploaded.seek(0)
+        raw = uploaded.read()
+    except Exception:
+        return ''
+    url = _write(raw)
+    if url:
+        return url
+    # Could not re-encode; keep the original rather than drop the picture.
+    try:
+        uploaded.seek(0)
+        name = default_storage.save(f'{STORAGE_DIR}/{uuid.uuid4()}.jpg', uploaded)
+        return default_storage.url(name)
+    except Exception:
+        logger.exception('could not store post image')
         return ''
 
 
