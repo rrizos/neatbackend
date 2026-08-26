@@ -4,6 +4,7 @@ import secrets
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from neatbackend.timefmt import local_iso
 
 
 class Profile(models.Model):
@@ -230,7 +231,7 @@ class Notification(models.Model):
             'targetCommentId': self.target_comment_id,
             'targetText': self.target_text,
             'isRead': self.is_read,
-            'created': self.created.isoformat(),
+            'created': local_iso(self.created),
             'imageUrl': image_url,
             'videoUrl': video_url,
         }

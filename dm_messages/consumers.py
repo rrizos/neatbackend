@@ -9,6 +9,7 @@ from django.utils import timezone
 from .models import ConversationMember
 from .realtime import apush_to_user
 from .ws_auth import resolve_token
+from neatbackend.timefmt import local_iso
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
         payload = {
             'username': self.user.username,
             'online': True,
-            'last_active': last_active.isoformat(),
+            'last_active': local_iso(last_active),
         }
         for user_id in partner_ids:
             await apush_to_user(user_id, 'presence', payload)
@@ -121,7 +122,7 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
         payload = {
             'username': self.user.username,
             'online': False,
-            'last_active': last_active.isoformat(),
+            'last_active': local_iso(last_active),
         }
         for user_id in partner_ids:
             await apush_to_user(user_id, 'presence', payload)
@@ -199,7 +200,7 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
         payload = {
             'conversation_id': conversation_id,
             'reader': self.user.username,
-            'read_at': read_at.isoformat(),
+            'read_at': local_iso(read_at),
         }
         # Broadcast to every member (including the reader's other devices)
         # so read state stays in sync across all connected clients.

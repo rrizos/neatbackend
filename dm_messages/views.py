@@ -35,6 +35,7 @@ from .models import (
     MessageReport,
 )
 from .realtime import broadcast_to_conversation, push_to_user
+from neatbackend.timefmt import local_iso
 
 User = get_user_model()
 
@@ -261,7 +262,7 @@ def _message_to_dict(message, preview_map=None, lean=False, viewer=None):
         'text': '' if message.photo_mode else (
             _strip_media(message.text) if lean else message.text
         ),
-        'created': message.created.isoformat(),
+        'created': local_iso(message.created),
         'reactions': reactions,
         'edited': message.edited,
     }
@@ -390,15 +391,15 @@ def _conversation_to_dict(conversation, viewer):
         'otherUser': other.username,
         'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
         'otherAvatarUrl': avatar_for(other_profile),
-        'otherLastActive': other_last_active.isoformat() if other_last_active else '',
+        'otherLastActive': local_iso(other_last_active),
         # Never the bytes: a photo reads as "sent a photo" here, and for a
         # temporary one handing them over would skip the opening entirely.
         'lastMessage': _inbox_preview(last_message),
         'lastSender': last_message.sender.username if last_message else '',
-        'updated': conversation.updated.isoformat(),
+        'updated': local_iso(conversation.updated),
         'unreadCount': unread_qs.count(),
-        'lastReadAt': member.last_read_at.isoformat() if member and member.last_read_at else '',
-        'otherLastReadAt': other_member.last_read_at.isoformat() if other_member and other_member.last_read_at else '',
+        'lastReadAt': local_iso(member.last_read_at if member else None),
+        'otherLastReadAt': local_iso(other_member.last_read_at if other_member else None),
         'otherIsTyping': _is_typing(other_member),
         'viewerBlockedOther': Block.objects.filter(blocker=viewer, blocked=other).exists() if other != viewer else False,
         'otherBlockedViewer': Block.objects.filter(blocker=other, blocked=viewer).exists() if other != viewer else False,

@@ -1,5 +1,6 @@
 from .avatars import avatar_for
 from .models import Block, Follow, Profile
+from neatbackend.timefmt import local_iso
 
 
 def ensure_profile(user):
@@ -42,7 +43,7 @@ def user_to_dict(user, viewer=None):
         'canChangeCity': profile.can_change_city() if is_self_or_admin else False,
         'cityChangeAllowedAt': (
             (profile.city_change_allowed_at() or None) and
-            profile.city_change_allowed_at().isoformat()
+            local_iso(profile.city_change_allowed_at())
         ) if is_self_or_admin else None,
         # Whether this account can be signed into with a password at all.
         # False for one created through Apple or Google that has not set one,
