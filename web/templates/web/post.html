@@ -22,17 +22,19 @@
 
 <style>
   :root {
-    --bg:       #080808;
-    --surface:  #111111;
-    --surface2: #181818;
-    --border:   rgba(255,255,255,0.08);
-    --border2:  rgba(255,255,255,0.13);
-    --ink:      #f0f0f0;
-    --ink-soft: #888888;
-    --blue:     #1479ff;
-    --blue-bg:  rgba(20,121,255,0.12);
+    --bg:        #060608;
+    --surface:   #0f0f12;
+    --surface2:  #16161a;
+    --border:    rgba(255,255,255,0.07);
+    --border2:   rgba(255,255,255,0.12);
+    --ink:       #ececec;
+    --ink-soft:  #7a7a8a;
+    --ink-muted: #4a4a58;
+    --blue:      #1479ff;
+    --blue-glow: rgba(20,121,255,0.18);
     --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    --radius: 18px;
+    --r-card: 20px;
+    --r-inner: 14px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -43,159 +45,191 @@
   a { color: inherit; text-decoration: none; }
   img, video { max-width: 100%; display: block; }
 
-  /* ── layout ── */
-  .wrap { max-width: 560px; margin: 0 auto; padding: 0 16px 60px; }
+  /* layout */
+  .wrap { max-width: 540px; margin: 0 auto; padding: 0 16px 72px; }
 
-  /* ── header ── */
+  /* header */
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 0 24px;
+    padding: 22px 0 26px;
   }
-  .brand {
-    display: flex; align-items: center; gap: 8px;
-    font-weight: 800; font-size: 18px; letter-spacing: -0.03em;
-  }
-  .brand img { width: 32px; height: 32px; border-radius: 8px; }
-  .open-btn {
-    background: var(--blue); color: #fff;
-    padding: 9px 18px; border-radius: 100px;
-    font-size: 14px; font-weight: 700; white-space: nowrap;
-    transition: opacity .15s;
-  }
-  .open-btn:hover { opacity: .85; }
+  .brand img { width: 46px; height: 46px; border-radius: 14px; }
 
-  /* ── post card ── */
+  .open-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: linear-gradient(135deg, #1a7fff 0%, #0055e0 100%);
+    color: #fff; padding: 10px 20px; border-radius: 100px;
+    font-size: 14px; font-weight: 700; letter-spacing: -0.01em;
+    box-shadow: 0 4px 16px rgba(20,121,255,0.35);
+    cursor: pointer; border: none; font-family: inherit;
+    transition: transform .12s, box-shadow .12s;
+  }
+  .open-btn:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(20,121,255,0.3); }
+
+  /* post card */
   .card {
     background: var(--surface);
     border: 1px solid var(--border2);
-    border-radius: var(--radius);
+    border-radius: var(--r-card);
     overflow: hidden;
-    margin-bottom: 12px;
+    box-shadow: 0 2px 24px rgba(0,0,0,0.5);
   }
-  .card-inner { padding: 16px; }
+  .card-inner { padding: 18px 18px 0; }
 
   /* byline */
-  .byline { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
-  .avatar {
-    width: 44px; height: 44px; border-radius: 50%; flex: none;
-    object-fit: cover; background: var(--surface2);
+  .byline { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .av-wrap {
+    width: 46px; height: 46px; border-radius: 50%; flex: none;
+    background: var(--surface2); border: 1.5px solid var(--border2);
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 17px; color: var(--ink-soft);
+    font-weight: 700; font-size: 18px; color: var(--ink-soft);
+    overflow: hidden;
   }
-  .avatar img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+  .av-wrap img { width: 46px; height: 46px; object-fit: cover; }
   .who { min-width: 0; flex: 1; }
-  .author-row { display: flex; align-items: center; gap: 5px; }
-  .author { font-weight: 700; font-size: 15px; }
-  .verified { color: var(--blue); }
-  .meta { color: var(--ink-soft); font-size: 13px; margin-top: 1px; }
+  .author-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .author { font-weight: 750; font-size: 15px; letter-spacing: -0.01em; }
+  .v-badge { width: 16px; height: 16px; flex: none; color: var(--blue); }
+  .meta { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
 
   /* post text */
   .post-text {
-    font-size: 16px; line-height: 1.55; white-space: pre-wrap;
-    overflow-wrap: anywhere; margin-bottom: 14px; color: var(--ink);
+    font-size: 15.5px; line-height: 1.6; white-space: pre-wrap;
+    overflow-wrap: anywhere; margin-bottom: 16px; color: var(--ink);
   }
 
-  /* media */
-  .media-block { margin-bottom: 14px; border-radius: 12px; overflow: hidden; }
-  .media-block img { width: 100%; max-height: 520px; object-fit: cover; }
-  .media-block video { width: 100%; max-height: 520px; background: #000; }
-  .media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
-  .media-grid img, .media-grid video { width: 100%; aspect-ratio: 1; object-fit: cover; }
+  /* media — bleeds to card edges */
+  .media-wrap { margin: 0 0 0; }
+  .media-single { overflow: hidden; }
+  .media-single img, .media-single video {
+    width: 100%; max-height: 540px; object-fit: cover; background: #000;
+  }
+  .media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+  .media-grid img, .media-grid video {
+    width: 100%; aspect-ratio: 1; object-fit: cover; background: #000;
+  }
 
   /* link card */
   .linkcard {
-    display: block; border: 1px solid var(--border);
-    border-radius: 12px; overflow: hidden; margin-bottom: 14px;
+    display: block; border: 1px solid var(--border2);
+    border-radius: var(--r-inner); overflow: hidden; margin-bottom: 16px;
     background: var(--surface2);
   }
-  .linkcard img { width: 100%; max-height: 220px; object-fit: cover; }
-  .linkcard-body { padding: 11px 13px; }
-  .linkcard-site { color: var(--blue); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
-  .linkcard-title { font-weight: 650; font-size: 14.5px; line-height: 1.35; }
-  .linkcard-desc { color: var(--ink-soft); font-size: 13.5px; margin-top: 4px; line-height: 1.4; }
+  .linkcard img { width: 100%; max-height: 200px; object-fit: cover; }
+  .linkcard-body { padding: 10px 13px 12px; }
+  .linkcard-site { color: var(--blue); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
+  .linkcard-title { font-weight: 650; font-size: 14px; line-height: 1.35; }
+  .linkcard-desc { color: var(--ink-soft); font-size: 13px; margin-top: 4px; line-height: 1.4; }
 
   /* poll */
-  .poll { display: grid; gap: 8px; margin-bottom: 14px; }
+  .poll { display: grid; gap: 8px; margin-bottom: 16px; }
   .poll-option {
     position: relative; border: 1px solid var(--border2);
     border-radius: 10px; padding: 10px 14px; overflow: hidden;
   }
-  .poll-fill { position: absolute; inset: 0 auto 0 0; background: var(--blue-bg); z-index: 0; }
-  .poll-row { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
-  .poll-pct { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .poll-fill { position: absolute; inset: 0 auto 0 0; background: var(--blue-glow); }
+  .poll-row { position: relative; display: flex; justify-content: space-between; gap: 12px; font-size: 14.5px; }
+  .poll-pct { color: var(--ink-soft); font-variant-numeric: tabular-nums; font-size: 13px; }
 
-  /* stats */
+  /* stats bar */
   .stats {
-    display: flex; gap: 16px; align-items: center;
-    border-top: 1px solid var(--border); padding-top: 12px;
-    color: var(--ink-soft); font-size: 14px;
+    display: flex; gap: 18px; align-items: center;
+    border-top: 1px solid var(--border);
+    padding: 13px 18px 14px;
+    color: var(--ink-soft); font-size: 13.5px;
   }
   .stat { display: flex; align-items: center; gap: 5px; }
-  .stat svg { width: 16px; height: 16px; flex: none; }
+  .stat svg { width: 15px; height: 15px; flex: none; opacity: .7; }
   .stat b { color: var(--ink); font-weight: 650; }
 
-  /* ── comments ── */
+  /* section label */
   .section-label {
-    font-size: 12px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .1em; color: var(--ink-soft);
-    margin: 22px 0 10px;
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--ink-muted);
+    margin: 24px 0 10px;
   }
+
+  /* comments */
   .comments-card {
     background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--radius); overflow: hidden;
+    border-radius: var(--r-card); overflow: hidden;
+    box-shadow: 0 2px 24px rgba(0,0,0,0.4);
   }
-  .comment {
+  .cmt {
     display: flex; gap: 11px; padding: 14px 16px;
     border-bottom: 1px solid var(--border);
   }
-  .comment:last-child { border-bottom: 0; }
-  .comment .avatar { width: 34px; height: 34px; font-size: 13px; }
-  .comment .avatar img { width: 34px; height: 34px; }
-  .comment-body { min-width: 0; flex: 1; }
-  .comment-head { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 3px; }
-  .comment-author { font-weight: 650; font-size: 14px; }
-  .comment-time { color: var(--ink-soft); font-size: 12.5px; }
-  .comment-text { font-size: 14.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: #e0e0e0; }
-  .comment-likes { color: var(--ink-soft); font-size: 12.5px; margin-top: 5px; display: flex; align-items: center; gap: 4px; }
-  .pill { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 100px; }
-  .pill-pinned { background: var(--blue-bg); color: var(--blue); }
-  .pill-owner { background: rgba(255,80,80,.12); color: #ff6b6b; }
-  .replies { margin-top: 10px; padding-left: 14px; border-left: 2px solid var(--border); }
-  .replies .comment { padding: 9px 0; border-bottom: 0; background: transparent; }
-  .empty-comments { color: var(--ink-soft); font-size: 14.5px; padding: 18px 16px; }
+  .cmt:last-child { border-bottom: 0; }
+  .cmt-av {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    font-size: 13px; font-weight: 700; color: var(--ink-soft);
+    background: var(--surface2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .cmt-av img { width: 34px; height: 34px; object-fit: cover; }
+  .cmt-body { min-width: 0; flex: 1; }
+  .cmt-head { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cmt-author { font-weight: 700; font-size: 13.5px; }
+  .cmt-time { color: var(--ink-muted); font-size: 12px; }
+  .cmt-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8e8; }
+  .cmt-img { margin-top: 8px; border-radius: 10px; overflow: hidden; max-height: 200px; }
+  .cmt-img img { width: 100%; max-height: 200px; object-fit: cover; }
+  .cmt-likes { color: var(--ink-muted); font-size: 12px; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .pill { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 100px; }
+  .pill-pinned { background: var(--blue-glow); color: var(--blue); }
+  .pill-owner  { background: rgba(255,75,75,.1); color: #ff6060; }
+  .replies { margin-top: 10px; padding-left: 13px; border-left: 2px solid var(--border2); display: flex; flex-direction: column; gap: 10px; }
+  .reply { display: flex; gap: 9px; }
+  .reply .cmt-av { width: 28px; height: 28px; font-size: 11px; }
+  .reply .cmt-av img { width: 28px; height: 28px; }
+  .reply .cmt-author { font-size: 13px; }
+  .reply .cmt-text  { font-size: 13.5px; }
 
-  /* ── download CTA ── */
-  .download-cta {
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--radius); padding: 26px 20px;
-    text-align: center; margin-top: 12px;
+  /* download CTA */
+  .cta {
+    margin-top: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--r-card);
+    padding: 28px 22px 26px;
+    text-align: center;
+    box-shadow: 0 2px 24px rgba(0,0,0,0.4);
+    position: relative; overflow: hidden;
   }
-  .download-cta h3 {
-    font-size: 19px; font-weight: 800; letter-spacing: -.02em;
-    margin-bottom: 6px;
+  .cta::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, var(--blue-glow), transparent 70%);
+    pointer-events: none;
   }
-  .download-cta p { color: var(--ink-soft); font-size: 14.5px; margin-bottom: 18px; line-height: 1.45; }
-  .stores { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .cta-logo { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px; display: block; position: relative; }
+  .cta h3 { font-size: 20px; font-weight: 800; letter-spacing: -.03em; margin-bottom: 7px; position: relative; }
+  .cta p { color: var(--ink-soft); font-size: 14px; margin-bottom: 22px; line-height: 1.5; max-width: 320px; margin-left: auto; margin-right: auto; position: relative; }
+  .stores { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; position: relative; }
   .store-btn {
-    display: inline-flex; align-items: center; gap: 7px;
-    background: var(--blue); color: #fff;
-    padding: 11px 20px; border-radius: 12px;
-    font-weight: 700; font-size: 14px;
-    transition: opacity .15s;
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--surface2); color: var(--ink);
+    border: 1px solid var(--border2);
+    padding: 12px 22px; border-radius: 14px;
+    font-weight: 650; font-size: 14px; font-family: inherit;
+    transition: background .15s;
   }
-  .store-btn:hover { opacity: .85; }
-  .store-btn svg { width: 18px; height: 18px; flex: none; }
+  .store-btn:hover { background: #1e1e26; }
+  .store-btn svg { width: 20px; height: 20px; flex: none; }
+  .store-btn .lbl { display: flex; flex-direction: column; text-align: left; }
+  .store-btn .sub  { font-size: 10.5px; font-weight: 500; color: var(--ink-soft); line-height: 1; margin-bottom: 2px; }
+  .store-btn .name { font-size: 14.5px; font-weight: 750; line-height: 1; }
 
-  /* ── footer ── */
-  footer { text-align: center; color: var(--ink-soft); font-size: 12.5px; margin-top: 24px; }
-  footer a { color: var(--ink-soft); margin: 0 6px; }
-  footer a:hover { color: var(--ink); }
+  /* footer */
+  footer { text-align: center; color: var(--ink-muted); font-size: 12px; margin-top: 32px; }
+  footer a { color: var(--ink-muted); margin: 0 8px; }
+  footer a:hover { color: var(--ink-soft); }
 
-  @media (max-width: 480px) {
-    .open-btn { padding: 8px 14px; font-size: 13px; }
-    .download-cta h3 { font-size: 17px; }
-    .stores { flex-direction: column; align-items: center; }
-    .store-btn { width: 100%; justify-content: center; }
+  @media (max-width: 460px) {
+    .open-btn { padding: 9px 16px; font-size: 13px; }
+    .stores { flex-direction: column; align-items: stretch; }
+    .store-btn { justify-content: center; }
+    .cta h3 { font-size: 18px; }
   }
 </style>
 </head>
@@ -204,83 +238,39 @@
 
   <!-- Header -->
   <header>
-    <a class="brand" href="/">
-      <img src="/brand/logo-dark.png" alt="Neat" />
-      Neat
-    </a>
-    <a class="open-btn" href="{{ og_url }}">Άνοιγμα στην εφαρμογή</a>
+    <a class="brand" href="/"><img src="/brand/logo-dark.png" alt="Neat" /></a>
+    <button class="open-btn" onclick="openInApp()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM12 17a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2z"/></svg>
+      Άνοιγμα στην εφαρμογή
+    </button>
   </header>
 
   <!-- Post card -->
   <div class="card">
     <div class="card-inner">
 
-      <!-- Author -->
+      <!-- Byline -->
       <div class="byline">
-        <div class="avatar">
-          {% if post.avatarUrl %}
-            <img src="{{ post.avatarUrl }}" alt="" loading="lazy" />
-          {% else %}
-            {{ post.author|first|upper }}
-          {% endif %}
+        <div class="av-wrap">
+          {% if post.avatarUrl %}<img src="{{ post.avatarUrl }}" alt="" loading="lazy" />
+          {% else %}{{ post.author|first|upper }}{% endif %}
         </div>
         <div class="who">
           <div class="author-row">
             <span class="author">@{{ post.author }}</span>
             {% if post.authorVerified %}
-              <span class="verified">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
-                  <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="var(--surface)"/>
-                </svg>
-              </span>
+              <svg class="v-badge" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
+                <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="var(--surface)"/>
+              </svg>
             {% endif %}
           </div>
-          <div class="meta">{{ post.created|greek_ago }}{% if post.city %} · {{ post.city }}{% endif %}</div>
+          <div class="meta">{{ post.created|greek_ago }}{% if post.city %}&thinsp;·&thinsp;{{ post.city }}{% endif %}</div>
         </div>
       </div>
 
       <!-- Text -->
       {% if post.text %}<div class="post-text">{{ post.text }}</div>{% endif %}
-
-      <!-- Media -->
-      {% if post.media %}
-        {% if post.media|length == 1 %}
-          <div class="media-block">
-            {% with item=post.media.0 %}
-              {% if item.type == 'image' %}
-                <img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}
-                <video src="{{ item.url }}" controls playsinline preload="metadata"></video>
-              {% endif %}
-            {% endwith %}
-          </div>
-        {% else %}
-          <div class="media-grid">
-            {% for item in post.media %}
-              {% if item.type == 'image' %}
-                <img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}
-                <video src="{{ item.url }}" playsinline preload="metadata"></video>
-              {% endif %}
-            {% endfor %}
-          </div>
-        {% endif %}
-      {% endif %}
-
-      <!-- Link preview -->
-      {% if post.link_preview %}
-        <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener" target="_blank">
-          {% if post.link_preview.image_url %}
-            <img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />
-          {% endif %}
-          <div class="linkcard-body">
-            {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
-            {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
-            {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:140 }}</div>{% endif %}
-          </div>
-        </a>
-      {% endif %}
 
       <!-- Poll -->
       {% if post.poll %}
@@ -299,70 +289,96 @@
         </div>
       {% endif %}
 
-      <!-- Stats -->
-      <div class="stats">
-        <span class="stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
-          <b>{{ post.likes }}</b>&nbsp;{% if post.likes == 1 %}like{% else %}likes{% endif %}
-        </span>
-        <span class="stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v11H8l-4 4z"/></svg>
-          <b>{{ post.comment_count }}</b>&nbsp;{% if post.comment_count == 1 %}σχόλιο{% else %}σχόλια{% endif %}
-        </span>
-        {% if post.shares %}
-          <span class="stat">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l7 6-7 6v-3.5c-4 0-7 1-9 3.5.6-4.6 3.6-7.5 9-8z"/></svg>
-            <b>{{ post.shares }}</b>&nbsp;κοινοποιήσεις
-          </span>
+      <!-- Link preview -->
+      {% if post.link_preview %}
+        <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener" target="_blank">
+          {% if post.link_preview.image_url %}<img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />{% endif %}
+          <div class="linkcard-body">
+            {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
+            {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
+            {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:130 }}</div>{% endif %}
+          </div>
+        </a>
+      {% endif %}
+
+    </div><!-- /card-inner -->
+
+    <!-- Media (bleeds to card edges) -->
+    {% if post.media %}
+      <div class="media-wrap">
+        {% if post.media|length == 1 %}
+          <div class="media-single">
+            {% with item=post.media.0 %}
+              {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
+              {% elif item.type == 'video' %}<video src="{{ item.url }}" controls playsinline preload="metadata"></video>
+              {% endif %}
+            {% endwith %}
+          </div>
+        {% else %}
+          <div class="media-grid">
+            {% for item in post.media %}
+              {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
+              {% elif item.type == 'video' %}<video src="{{ item.url }}" playsinline preload="metadata"></video>
+              {% endif %}
+            {% endfor %}
+          </div>
         {% endif %}
       </div>
+    {% endif %}
 
+    <!-- Stats -->
+    <div class="stats">
+      <span class="stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+        <b>{{ post.likes }}</b>
+      </span>
+      <span class="stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <b>{{ post.comment_count }}</b>
+      </span>
+      {% if post.shares %}<span class="stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l7 6-7 6v-3.5c-4 0-7 1-9 3.5.6-4.6 3.6-7.5 9-8z"/></svg>
+        <b>{{ post.shares }}</b>
+      </span>{% endif %}
     </div>
-  </div>
+  </div><!-- /card -->
 
   <!-- Comments -->
   {% if post.comments %}
     <div class="section-label">Σχόλια</div>
     <div class="comments-card">
       {% for comment in post.comments %}
-        <div class="comment">
-          <div class="avatar">
-            {% if comment.avatarUrl %}
-              <img src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
-            {% else %}
-              {{ comment.author|first|upper }}
-            {% endif %}
+        <div class="cmt">
+          <div class="cmt-av">
+            {% if comment.avatarUrl %}<img src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
+            {% else %}{{ comment.author|first|upper }}{% endif %}
           </div>
-          <div class="comment-body">
-            <div class="comment-head">
-              <span class="comment-author">@{{ comment.author }}</span>
-              <span class="comment-time">{{ comment.created|greek_ago }}</span>
+          <div class="cmt-body">
+            <div class="cmt-head">
+              <span class="cmt-author">@{{ comment.author }}</span>
+              <span class="cmt-time">{{ comment.created|greek_ago }}</span>
               {% if comment.pinned %}<span class="pill pill-pinned">Καρφιτσωμένο</span>{% endif %}
               {% if comment.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
             </div>
-            {% if comment.text %}<div class="comment-text">{{ comment.text }}</div>{% endif %}
-            {% if comment.imageUrl %}<div style="margin-top:8px"><img src="{{ comment.imageUrl }}" alt="" loading="lazy" style="border-radius:8px;max-height:200px;object-fit:cover" /></div>{% endif %}
-            {% if comment.likes %}<div class="comment-likes"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ comment.likes }}</div>{% endif %}
-
+            {% if comment.text %}<div class="cmt-text">{{ comment.text }}</div>{% endif %}
+            {% if comment.imageUrl %}<div class="cmt-img"><img src="{{ comment.imageUrl }}" alt="" loading="lazy" /></div>{% endif %}
+            {% if comment.likes %}<div class="cmt-likes"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ comment.likes }}</div>{% endif %}
             {% if comment.replies %}
               <div class="replies">
                 {% for reply in comment.replies %}
-                  <div class="comment">
-                    <div class="avatar">
-                      {% if reply.avatarUrl %}
-                        <img src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
-                      {% else %}
-                        {{ reply.author|first|upper }}
-                      {% endif %}
+                  <div class="reply">
+                    <div class="cmt-av">
+                      {% if reply.avatarUrl %}<img src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
+                      {% else %}{{ reply.author|first|upper }}{% endif %}
                     </div>
-                    <div class="comment-body">
-                      <div class="comment-head">
-                        <span class="comment-author">@{{ reply.author }}</span>
-                        <span class="comment-time">{{ reply.created|greek_ago }}</span>
+                    <div class="cmt-body">
+                      <div class="cmt-head">
+                        <span class="cmt-author">@{{ reply.author }}</span>
+                        <span class="cmt-time">{{ reply.created|greek_ago }}</span>
                         {% if reply.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
                       </div>
-                      {% if reply.text %}<div class="comment-text">{{ reply.text }}</div>{% endif %}
-                      {% if reply.likes %}<div class="comment-likes"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ reply.likes }}</div>{% endif %}
+                      {% if reply.text %}<div class="cmt-text">{{ reply.text }}</div>{% endif %}
+                      {% if reply.likes %}<div class="cmt-likes"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ reply.likes }}</div>{% endif %}
                     </div>
                   </div>
                 {% endfor %}
@@ -375,25 +391,39 @@
   {% endif %}
 
   <!-- Download CTA -->
-  <div class="download-cta">
-    <h3>Δες τι γίνεται στην πόλη σου</h3>
-    <p>Κάνε like, σχολίασε και ανακάλυψε τοπικά νέα με το Neat.</p>
+  <div class="cta">
+    <img class="cta-logo" src="/brand/logo-dark.png" alt="Neat" />
+    <h3>Δες τι γίνεται γύρω σου</h3>
+    <p>Ανακάλυψε τοπικά νέα, events και ανθρώπους από την πόλη σου.</p>
     <div class="stores">
       <a class="store-btn" href="{{ app_store_url }}" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-        App Store
+        <span class="lbl"><span class="sub">Κατέβασε στο</span><span class="name">App Store</span></span>
       </a>
       <a class="store-btn" href="{{ play_store_url }}" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5v-17c0-.83.94-1.3 1.6-.8l14 8.5c.6.36.6 1.24 0 1.6l-14 8.5c-.66.5-1.6.03-1.6-.8z"/></svg>
-        Google Play
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 20.5v-17c0-.83.94-1.3 1.6-.8l14 8.5c.6.36.6 1.24 0 1.6l-14 8.5c-.66.5-1.6.03-1.6-.8z"/></svg>
+        <span class="lbl"><span class="sub">Κατέβασε στο</span><span class="name">Google Play</span></span>
       </a>
     </div>
   </div>
 
   <footer>
-    <a href="/privacy">Απόρρητο</a>·<a href="/terms">Όροι</a>
+    <a href="/privacy">Απόρρητο</a>&ensp;·&ensp;<a href="/terms">Όροι χρήσης</a>
   </footer>
 
 </div>
+
+<script>
+  // Opens the post directly in the Neat app via custom URL scheme.
+  // neat://post/NNN is handled by _handleUri in app.dart, which navigates
+  // to that post inside the author's profile.
+  // Universal Links (https://neatapp.gr/post/NNN) don't fire when you're
+  // already on neatapp.gr, so the custom scheme is the only reliable trigger.
+  // If the app isn't installed the redirect silently fails and the page stays
+  // visible — the user can then use the store buttons below.
+  function openInApp() {
+    window.location.href = 'neat://post/{{ post_id }}';
+  }
+</script>
 </body>
 </html>
