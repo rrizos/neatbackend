@@ -54,7 +54,7 @@ img, video { display: block; max-width: 100%; }
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
-.logo { height: 42px; width: auto; border-radius: 12px; }
+.logo { height: 56px; width: 56px; border-radius: 16px; object-fit: cover; }
 
 .header-open {
   font-size: 13px; font-weight: 650; color: var(--blue);
@@ -116,13 +116,17 @@ img, video { display: block; max-width: 100%; }
 
 /* ─── stats ─── */
 .stats {
-  display: flex; gap: 16px; color: var(--ink2);
-  font-size: 13px; padding: 10px 0 0;
+  display: flex; gap: 20px; color: var(--ink2);
+  font-size: 14px; font-weight: 500;
+  padding: 12px 0 0;
   border-top: 1px solid var(--border);
   margin-bottom: 32px;
 }
-.stat { display: flex; align-items: center; gap: 5px; }
-.stat svg { width: 18px; height: 18px; }
+.stat { display: flex; align-items: center; gap: 6px; }
+.stat svg { width: 22px; height: 22px; flex: none; }
+.stat-likes svg { color: #ff4d6a; }
+.stat-comments svg { color: #60a5fa; }
+.stat-shares svg { color: var(--ink2); }
 
 /* ─── comments ─── */
 .comments-title {
@@ -174,17 +178,20 @@ img, video { display: block; max-width: 100%; }
 .download-alt {
   text-align: center; padding: 32px 0 8px;
 }
-.download-alt p { font-size: 14px; color: var(--ink2); margin-bottom: 16px; }
-.store-links { display: flex; gap: 10px; flex-direction: column; }
+.download-alt p { font-size: 14px; color: var(--ink2); margin-bottom: 18px; }
+.store-links { display: flex; gap: 12px; flex-direction: column; }
 .store-link {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  background: var(--blue); color: #fff;
-  border-radius: 14px; padding: 14px 20px;
-  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; gap: 14px;
+  background: #000; color: #fff;
+  border-radius: 14px; padding: 13px 22px;
+  border: 1px solid rgba(255,255,255,0.15);
   transition: opacity .15s;
 }
-.store-link:hover { opacity: .88; }
-.store-link svg { width: 22px; height: 22px; flex: none; }
+.store-link:hover { opacity: .85; }
+.store-link svg { width: 28px; height: 28px; flex: none; }
+.store-link .badge-txt { text-align: left; }
+.store-link .badge-sub { font-size: 11px; color: rgba(255,255,255,.7); display: block; margin-bottom: 1px; }
+.store-link .badge-name { font-size: 19px; font-weight: 700; display: block; letter-spacing: -0.02em; }
 
 /* ─── footer ─── */
 footer { text-align: center; padding: 16px 0 4px; font-size: 11.5px; color: var(--ink3); }
@@ -288,16 +295,23 @@ footer a { color: var(--ink3); margin: 0 6px; }
 
   <!-- Stats -->
   <div class="stats">
-    <span class="stat">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+    <span class="stat stat-likes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+      </svg>
       {{ post.likes }}
     </span>
-    <span class="stat">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span class="stat stat-comments">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
       {{ post.comment_count }}
     </span>
-    {% if post.shares %}<span class="stat">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l7 6-7 6v-3.5c-4 0-7 1-9 3.5.6-4.6 3.6-7.5 9-8z"/></svg>
+    {% if post.shares %}<span class="stat stat-shares">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
       {{ post.shares }}
     </span>{% endif %}
   </div>
@@ -352,12 +366,25 @@ footer a { color: var(--ink3); margin: 0 6px; }
     <p>Δεν έχεις τη Neat;</p>
     <div class="store-links">
       <a class="store-link" href="{{ app_store_url }}" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-        App Store
+        <!-- Apple logo -->
+        <svg viewBox="0 0 24 24" fill="white"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+        <span class="badge-txt">
+          <span class="badge-sub">Κατέβασε στο</span>
+          <span class="badge-name">App Store</span>
+        </span>
       </a>
       <a class="store-link" href="{{ play_store_url }}" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 20.5v-17c0-.83.94-1.3 1.6-.8l14 8.5c.6.36.6 1.24 0 1.6l-14 8.5c-.66.5-1.6.03-1.6-.8z"/></svg>
-        Google Play
+        <!-- Google Play logo (colorful) -->
+        <svg viewBox="0 0 24 24" width="28" height="28">
+          <path d="M3.18 23.76c.33.18.7.24 1.09.13l11.7-6.76-2.48-2.48z" fill="#EA4335"/>
+          <path d="M20.91 10.49L18.1 8.89l-2.77 2.77 2.77 2.77 2.84-1.63a1.6 1.6 0 0 0 0-2.31z" fill="#FBBC04"/>
+          <path d="M4.27.11A1.6 1.6 0 0 0 3.18.37L15.33 12.5l2.48-2.48z" fill="#4285F4"/>
+          <path d="M3.18.37A1.6 1.6 0 0 0 2.5 1.66v20.68a1.6 1.6 0 0 0 .68 1.42L15.33 12.5z" fill="#34A853"/>
+        </svg>
+        <span class="badge-txt">
+          <span class="badge-sub">Κατέβασε στο</span>
+          <span class="badge-name">Google Play</span>
+        </span>
       </a>
     </div>
   </div>
