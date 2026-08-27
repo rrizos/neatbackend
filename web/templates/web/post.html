@@ -325,7 +325,7 @@
           <div class="media-single">
             {% with item=post.media.0 %}
               {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}<video src="{{ item.url }}" controls playsinline preload="metadata"></video>
+              {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" controls playsinline preload="metadata"></video>
               {% endif %}
             {% endwith %}
           </div>
@@ -333,7 +333,7 @@
           <div class="media-grid">
             {% for item in post.media %}
               {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}<video src="{{ item.url }}" playsinline preload="metadata"></video>
+              {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" playsinline preload="metadata"></video>
               {% endif %}
             {% endfor %}
           </div>
