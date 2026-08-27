@@ -6,6 +6,8 @@
 
 <title>{{ og_title }}</title>
 <meta name="description" content="{{ og_description }}" />
+<!-- iOS Smart App Banner: shows "Open" in Safari even before the user taps anything -->
+<meta name="apple-itunes-app" content="app-id=6748038152, app-argument=neat://post/{{ post_id }}" />
 
 <meta property="og:type" content="article" />
 <meta property="og:site_name" content="Neat" />
@@ -225,6 +227,16 @@
   footer a { color: var(--ink-muted); margin: 0 8px; }
   footer a:hover { color: var(--ink-soft); }
 
+  /* in-app browser hint */
+  .inapp-hint {
+    display: none;
+    background: #1a1a22; border: 1px solid var(--border2);
+    border-radius: 12px; padding: 12px 16px;
+    margin-top: 10px; font-size: 13.5px; color: var(--ink-soft);
+    line-height: 1.5; text-align: center;
+  }
+  .inapp-hint b { color: var(--ink); }
+
   @media (max-width: 460px) {
     .open-btn { padding: 9px 16px; font-size: 13px; }
     .stores { flex-direction: column; align-items: stretch; }
@@ -240,10 +252,13 @@
   <header>
     <a class="brand" href="/"><img src="/brand/logo-dark.png" alt="Neat" /></a>
     <button class="open-btn" onclick="openInApp()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM12 17a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2z"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
       Άνοιγμα στην εφαρμογή
     </button>
   </header>
+  <div class="inapp-hint" id="inapp-hint">
+    Πάτα <b>···</b> ή <b>⋮</b> και μετά <b>«Άνοιγμα στο πρόγραμμα περιήγησης»</b> για να ανοίξεις απευθείας στην εφαρμογή.
+  </div>
 
   <!-- Post card -->
   <div class="card">
@@ -414,15 +429,51 @@
 </div>
 
 <script>
-  // Opens the post directly in the Neat app via custom URL scheme.
-  // neat://post/NNN is handled by _handleUri in app.dart, which navigates
-  // to that post inside the author's profile.
-  // Universal Links (https://neatapp.gr/post/NNN) don't fire when you're
-  // already on neatapp.gr, so the custom scheme is the only reliable trigger.
-  // If the app isn't installed the redirect silently fails and the page stays
-  // visible — the user can then use the store buttons below.
+  var POST_ID     = {{ post_id }};
+  var IOS_STORE   = '{{ app_store_url }}';
+  var PLAY_STORE  = '{{ play_store_url }}';
+  var ua          = navigator.userAgent || '';
+  var isIOS       = /iphone|ipad|ipod/i.test(ua);
+  var isAndroid   = /android/i.test(ua);
+  // Instagram, Facebook, Twitter, Snapchat, TikTok all run their own WebView
+  // on iOS and block custom-scheme navigation entirely.
+  var isInAppBrowser = /instagram|fban|fbav|fbios|twitter|snapchat|tiktok|musical/i.test(ua);
+
+  // Show "open in browser" hint immediately if we're inside an in-app browser,
+  // because nothing else will work there on iOS.
+  if (isInAppBrowser && isIOS) {
+    document.getElementById('inapp-hint').style.display = 'block';
+  }
+
   function openInApp() {
-    window.location.href = 'neat://post/{{ post_id }}';
+    if (isInAppBrowser && isIOS) {
+      // Can't navigate out of Instagram/FB WebView programmatically on iOS.
+      // The hint above is already visible — just scroll to it.
+      document.getElementById('inapp-hint').scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+
+    if (isAndroid) {
+      // Android Intent URL: launches the app directly; falls back to Play Store
+      // if the app is not installed (S.browser_fallback_url).
+      window.location.href =
+        'intent://post/' + POST_ID +
+        '#Intent;scheme=neat;package=gr.app.neat;' +
+        'S.browser_fallback_url=' + encodeURIComponent(PLAY_STORE) + ';end';
+      return;
+    }
+
+    // iOS Safari (or desktop): try the custom scheme.
+    // If the app is installed, iOS hands it off immediately.
+    // If not, the redirect fails silently — after 2 s we send them to the
+    // App Store (document.hidden guards against firing if they did switch apps).
+    window.location.href = 'neat://post/' + POST_ID;
+    var gone = Date.now();
+    setTimeout(function () {
+      if (!document.hidden && Date.now() - gone < 3000) {
+        window.location.href = IOS_STORE;
+      }
+    }, 2000);
   }
 </script>
 </body>
