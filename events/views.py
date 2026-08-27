@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from datetime import datetime
+from datetime import timezone as datetime_timezone
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -15,6 +16,7 @@ from accounts.auth import require_authenticated_user
 from accounts.models import Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 
+from .images import store_event_image, store_event_image_upload
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
 
 User = get_user_model()
@@ -88,7 +90,14 @@ def _parse_event_datetime(value):
             return None
         dt = datetime.combine(d, datetime.min.time())
     if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        # Pinned to UTC rather than the project's display zone. An event time
+        # is a wall-clock time somebody typed — "the gig starts at 19:00" — not
+        # an instant, and the app shows it back verbatim without converting.
+        # Every event already stored follows that convention, so reading the
+        # default zone here (now Europe/Athens) would stamp new events three
+        # hours off from the old ones and there would be no way to tell which
+        # kind any given row was.
+        dt = timezone.make_aware(dt, datetime_timezone.utc)
     return dt
 
 
@@ -134,8 +143,35 @@ def _notify_mentions(text, actor, city, event, verb='mentioned you in a comment'
         )
 
 
+# Upper bound on one city's event list. See events_list.
+_EVENT_LIST_CAP = 200
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'POST', 'OPTIONS'])
+def _body_and_files(request):
+    """The request body, whether it arrived as JSON or multipart.
+
+    Media used to be base64 inside a JSON body, which costs a third more bytes
+    than the file itself on exactly the uploads people make over a phone
+    connection. Multipart sends the bytes as they are. JSON is still accepted,
+    because every build released before this uses it.
+
+    Returns (body_dict, files) — `files` is empty for a JSON request.
+    """
+    if 'multipart' in (request.content_type or ''):
+        if request.method == 'POST':
+            return {k: v for k, v in request.POST.items()}, request.FILES
+        # Django only parses multipart for POST; anything else has to be asked
+        # for explicitly or the body is silently never read.
+        try:
+            post, files = request.parse_file_upload(request.META, request)
+        except Exception:
+            return None, {}
+        return {k: v for k, v in post.items()}, files
+    return _json_body(request), {}
+
+
 def events_list(request):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
@@ -151,13 +187,20 @@ def events_list(request):
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:
         events = events.filter(event_type=event_type)
     if request.method == 'GET':
-        events = list(events)
+        # Bounded because each row carries its picture as base64 in
+        # `image_url`, so the response grows by tens of KB per event with
+        # nothing to stop it. A no-op at today's volumes (17 events in total);
+        # it exists so a city that accumulates hundreds cannot turn this into a
+        # multi-megabyte response on the tab's every open. `Meta.ordering`
+        # keeps the busiest and newest, which is what the tab shows first
+        # anyway.
+        events = list(events[:_EVENT_LIST_CAP])
         attending_ids = Event.attending_ids_for(viewer, events)
         return _cors_json(JsonResponse({
             'events': [event.to_dict(attending_event_ids=attending_ids) for event in events],
         }))
 
-    body = _json_body(request)
+    body, files = _body_and_files(request)
     if body is None:
         return _bad_request('Invalid JSON')
     title = (body.get('title') or '').strip()
@@ -177,7 +220,8 @@ def events_list(request):
         title=title,
         description=(body.get('description') or '').strip(),
         location=(body.get('location') or '').strip(),
-        image_url=(body.get('imageUrl') or '').strip(),
+        image_url=store_event_image_upload(files.get('image'))
+        or store_event_image((body.get('imageUrl') or '').strip()),
         category=(body.get('category') or '').strip(),
         date=_parse_event_datetime(body.get('date')),
         creator=viewer,
@@ -295,7 +339,8 @@ def event_update(request, event_id):
         event.location = (body.get('location') or '').strip()
         update_fields.append('location')
     if 'imageUrl' in body:
-        event.image_url = (body.get('imageUrl') or '').strip()
+        event.image_url = store_event_image(
+            (body.get('imageUrl') or '').strip(), previous_url=event.image_url)
         update_fields.append('image_url')
     if 'category' in body:
         event.category = (body.get('category') or '').strip()

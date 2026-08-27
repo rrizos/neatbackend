@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Διαγραφή λογαριασμού — Neat</title>
+<meta name="description" content="Ζήτησε τη διαγραφή του λογαριασμού σου στο Neat.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://neatapp.gr/deleteaccount">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon.png" sizes="96x96">
+<link rel="apple-touch-icon" href="/icons/Icon-192.png">
+<link rel="stylesheet" href="/legal.css">
+{% include "web/_lang.html" %}
+<style>
+  .form-card {
+    max-width: 560px; margin: 0 auto; background: var(--paper-dim);
+    border: 1px solid var(--line); border-radius: 18px; padding: 22px;
+  }
+  .form-card label { display: block; font-weight: 650; margin-bottom: 8px; }
+  .form-card input[type="email"] {
+    width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--line-strong); background: var(--paper);
+    color: var(--ink); font: inherit;
+  }
+  .form-card input[type="email"]:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .form-card button[type="submit"] {
+    margin-top: 16px; width: 100%; padding: 13px 18px; border: 0; border-radius: 100px;
+    background: var(--coral); color: #1a1a1a; font: 700 15px/1 var(--sans); cursor: pointer;
+  }
+  .hint { color: var(--ink-soft); font-size: 14px; margin-top: 12px; }
+  .notice { border-radius: 14px; padding: 14px 16px; margin: 0 auto 20px; max-width: 560px; }
+  .notice.ok { background: rgba(80, 137, 255, 0.12); border: 1px solid var(--blue); }
+  .notice.bad { background: rgba(255, 138, 129, 0.12); border: 1px solid var(--coral); }
+  /* Bots fill everything; people never see this. */
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="back-link" href="/safetyportal" aria-label="Πίσω">←</a>
+    <a class="brand" href="/" aria-label="Neat"><img src="/brand/logo-dark.png" alt=""></a>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <button type="button" data-set-lang="el" aria-pressed="true">ΕΛ</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="legal">
+  <div class="wrap">
+
+    <div class="legal-head">
+      <h1>
+        <span class="t-lang" data-lang="el">Διαγραφή λογαριασμού</span>
+        <span class="t-lang" data-lang="en">Delete your account</span>
+      </h1>
+    </div>
+
+    {% if sent %}
+      <div class="notice ok">
+        <p class="b-lang" data-lang="el">
+          Λάβαμε το αίτημά σου. Αν υπάρχει λογαριασμός με αυτή τη διεύθυνση, θα
+          διαγραφεί μαζί με όλα του τα δεδομένα. Θα λάβεις επιβεβαίωση στο email
+          σου μόλις ολοκληρωθεί.
+        </p>
+        <p class="b-lang" data-lang="en">
+          We have your request. If an account exists for that address it will be
+          deleted along with all of its data, and you will get a confirmation by
+          email once that is done.
+        </p>
+      </div>
+    {% elif error %}
+      <div class="notice bad">
+        <p class="b-lang" data-lang="el">{{ error_el }}</p>
+        <p class="b-lang" data-lang="en">{{ error_en }}</p>
+      </div>
+    {% endif %}
+
+    {% if not sent %}
+    <div class="form-card">
+      <p class="b-lang" data-lang="el">
+        Αν μπορείς ακόμα να συνδεθείς, ο γρηγορότερος τρόπος είναι μέσα από την
+        εφαρμογή: <strong>Ρυθμίσεις → Διαγραφή λογαριασμού</strong>. Η διαγραφή
+        γίνεται αμέσως. Χρησιμοποίησε αυτή τη σελίδα αν δεν έχεις πια πρόσβαση.
+      </p>
+      <p class="b-lang" data-lang="en">
+        If you can still sign in, the quickest route is inside the app:
+        <strong>Settings → Delete account</strong>, which takes effect
+        immediately. Use this page if you no longer have access.
+      </p>
+
+      <form method="post" action="/deleteaccount" novalidate>
+        {% csrf_token %}
+        <label for="email">
+          <span class="t-lang" data-lang="el">Το email του λογαριασμού σου</span>
+          <span class="t-lang" data-lang="en">The email address on your account</span>
+        </label>
+        <input id="email" type="email" name="email" required autocomplete="email"
+               inputmode="email" placeholder="you@example.com"
+               value="{{ email_value }}">
+        <div class="trap" aria-hidden="true">
+          <label for="website">Website</label>
+          <input id="website" type="text" name="website" tabindex="-1" autocomplete="off">
+        </div>
+        <button type="submit">
+          <span class="t-lang" data-lang="el">Αποστολή αιτήματος</span>
+          <span class="t-lang" data-lang="en">Send request</span>
+        </button>
+      </form>
+
+      <p class="hint b-lang" data-lang="el">
+        Διαγράφονται ο λογαριασμός σου, τα post και τα events σου, και οι
+        συνομιλίες που μένουν χωρίς άλλους συμμετέχοντες. Η ενέργεια δεν
+        αναιρείται.
+      </p>
+      <p class="hint b-lang" data-lang="en">
+        This removes your account, your posts and events, and any conversation
+        left without other participants. It cannot be undone.
+      </p>
+    </div>
+    {% endif %}
+
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <div class="foot-copy">
+      <span class="t-lang" data-lang="el">© 2026 Neat. Με αγάπη για κάθε ελληνική πόλη.</span>
+      <span class="t-lang" data-lang="en">© 2026 Neat. Made with love for every Greek city.</span>
+    </div>
+    <div class="foot-links">
+      <a href="/"><span class="t-lang" data-lang="el">Αρχική</span><span class="t-lang" data-lang="en">Home</span></a>
+      <a href="/safetyportal"><span class="t-lang" data-lang="el">Ασφάλεια</span><span class="t-lang" data-lang="en">Safety</span></a>
+      <a href="/terms"><span class="t-lang" data-lang="el">Όροι Χρήσης</span><span class="t-lang" data-lang="en">Terms of Use</span></a>
+      <a href="/privacy"><span class="t-lang" data-lang="el">Απόρρητο</span><span class="t-lang" data-lang="en">Privacy</span></a>
+    </div>
+  </div>
+</footer>
+
+{% include "web/_switch.html" %}
+</body>
+</html>

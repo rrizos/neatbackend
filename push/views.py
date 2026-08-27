@@ -6,13 +6,14 @@ from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
 
+from .badge import badge_count
 from .models import DeviceToken
 
 
 def _cors_json(response):
     response['Access-Control-Allow-Origin'] = '*'
     response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    response['Access-Control-Allow-Methods'] = 'POST,OPTIONS'
+    response['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'
@@ -53,11 +54,37 @@ def register_device(request):
     if not token or platform not in ('ios', 'android'):
         return _bad_request('token and a valid platform are required')
 
+    device_id = (body.get('deviceId') or body.get('device_id') or '').strip()[:64]
+    if device_id:
+        # This phone's previous token, whatever it was, is gone — keeping it
+        # would deliver every notification twice.
+        DeviceToken.objects.filter(device_id=device_id).exclude(token=token).delete()
+
     DeviceToken.objects.update_or_create(
         token=token,
-        defaults={'user': viewer, 'platform': platform},
+        defaults={'user': viewer, 'platform': platform, 'device_id': device_id},
     )
     return _cors_json(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def badge(request):
+    """What the app icon should read right now.
+
+    A push can only ever raise the badge; nothing on the device lowers it when
+    the user reads a message or opens the bell. The client asks for this number
+    whenever the unread counts change and stamps it on the icon itself, so the
+    same arithmetic backs both paths — see push/badge.py.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    return _cors_json(JsonResponse({'badge': badge_count(viewer) or 0}))
 
 
 @csrf_exempt

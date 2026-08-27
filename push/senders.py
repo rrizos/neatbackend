@@ -1,5 +1,6 @@
 import logging
 
+from .badge import badge_count
 from .firebase import get_app
 from .models import DeviceToken
 
@@ -47,6 +48,25 @@ def _send_to_user(user, *, title, body, data, silent, image=None):
     # a plain gray/white circle instead of a colored one.
     android_notification_kwargs = {'channel_id': channel_id, 'color': '#1479FF'}
     apns_aps_kwargs = {}
+
+    # The red count on the iOS home-screen icon. Both signal receivers that
+    # reach here are post_save, so the row that triggered this push is already
+    # counted. Android has no equivalent key — its launchers derive their own
+    # badge from the notifications currently in the tray.
+    badge = badge_count(user)
+    if badge is not None:
+        apns_aps_kwargs['badge'] = badge
+        # Also in `data`, where the app can read it.
+        #
+        # `aps.badge` is applied by iOS itself, but only for a push that
+        # arrives while the app is not in front — so a message that lands with
+        # the app open leaves the icon showing whatever it said before. The
+        # copy here lets the client set the number on arrival either way, which
+        # is what makes a DM count towards the badge in every state rather than
+        # only some of them.
+        data = dict(data or {})
+        data['badge'] = badge
+
     if silent:
         # Omitting the sound key on both platforms is what keeps these
         # "soft" — they show in the tray but never ring or vibrate.

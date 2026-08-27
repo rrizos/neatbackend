@@ -1,6 +1,9 @@
 from django.conf import settings
 from django.db import models
 
+from .images import public_url as _public_image_url
+from neatbackend.timefmt import local_iso
+
 
 class Event(models.Model):
     OFFICIAL = 'official'
@@ -48,7 +51,10 @@ class Event(models.Model):
             'title': self.title,
             'description': self.description,
             'location': self.location,
-            'imageUrl': self.image_url,
+            # Absolute when it is one of our files, so the client can load it
+            # without knowing the host; base64 data URLs pass through unchanged
+            # for events created before images moved onto disk.
+            'imageUrl': _public_image_url(self.image_url),
             'category': self.category,
             'date': self.date.isoformat() if self.date else '',
             'creator': self.creator.username if self.creator_id else '',
@@ -57,7 +63,7 @@ class Event(models.Model):
             'ticketsUrl': self.tickets_url,
             'attendees': self.attendees,
             'isAttending': attending_event_ids is not None and self.id in attending_event_ids,
-            'created': self.created.isoformat(),
+            'created': local_iso(self.created),
         }
 
     @staticmethod
@@ -144,7 +150,7 @@ class EventComment(models.Model):
             'id': self.id,
             'author': self.user.username,
             'text': self.text,
-            'created': self.created.isoformat(),
+            'created': local_iso(self.created),
             'pinned': self.pinned,
             'likes': self.like_rows.count(),
             'liked': liked,

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ασφάλεια και δεδομένα — Neat</title>
+<meta name="description" content="Πολιτική απορρήτου, όροι χρήσης και διαγραφή λογαριασμού για το Neat.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://neatapp.gr/safetyportal">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon.png" sizes="96x96">
+<link rel="apple-touch-icon" href="/icons/Icon-192.png">
+<link rel="stylesheet" href="/legal.css">
+{% include "web/_lang.html" %}
+<style>
+  .portal { max-width: 560px; margin: 0 auto; display: grid; gap: 12px; }
+  .portal a {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    text-decoration: none; padding: 20px 22px; border-radius: 16px;
+    background: var(--paper-dim); border: 1px solid var(--line);
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .portal a:hover { border-color: var(--blue); transform: translateY(-1px); }
+  /* Both are spans so the .t-lang children can stay inline; without this they
+     run together on one line instead of stacking. */
+  .portal .label { display: block; font-weight: 700; font-size: 17px; }
+  .portal .sub { display: block; color: var(--ink-soft); font-size: 14px; margin-top: 3px; line-height: 1.45; }
+  .portal .arrow { color: var(--ink-soft); font-size: 20px; flex: none; }
+  .portal a.danger:hover { border-color: var(--coral); }
+  .portal a.danger .label { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="back-link" href="/" aria-label="Πίσω">←</a>
+    <a class="brand" href="/" aria-label="Neat"><img src="/brand/logo-dark.png" alt=""></a>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <button type="button" data-set-lang="el" aria-pressed="true">ΕΛ</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="legal">
+  <div class="wrap">
+
+    <div class="legal-head">
+      <h1>
+        <span class="t-lang" data-lang="el">Ασφάλεια και δεδομένα</span>
+        <span class="t-lang" data-lang="en">Safety and data</span>
+      </h1>
+      <p class="b-lang" data-lang="el">
+        Ό,τι αφορά τα δεδομένα και τον λογαριασμό σου, σε ένα μέρος.
+      </p>
+      <p class="b-lang" data-lang="en">
+        Everything about your data and your account, in one place.
+      </p>
+    </div>
+
+    <nav class="portal" aria-label="Safety and data">
+      <a href="/privacy">
+        <span>
+          <span class="label">
+            <span class="t-lang" data-lang="el">Πολιτική Απορρήτου</span>
+            <span class="t-lang" data-lang="en">Privacy Policy</span>
+          </span>
+          <span class="sub">
+            <span class="t-lang" data-lang="el">Τι δεδομένα κρατάμε και γιατί.</span>
+            <span class="t-lang" data-lang="en">What we keep, and why.</span>
+          </span>
+        </span>
+        <span class="arrow" aria-hidden="true">→</span>
+      </a>
+
+      <a href="/terms">
+        <span>
+          <span class="label">
+            <span class="t-lang" data-lang="el">Όροι Χρήσης</span>
+            <span class="t-lang" data-lang="en">Terms of Service</span>
+          </span>
+          <span class="sub">
+            <span class="t-lang" data-lang="el">Οι κανόνες της κοινότητας.</span>
+            <span class="t-lang" data-lang="en">The community rules.</span>
+          </span>
+        </span>
+        <span class="arrow" aria-hidden="true">→</span>
+      </a>
+
+      <a href="mailto:support@neatapp.gr?subject=Neat%20support">
+        <span>
+          <span class="label">
+            <span class="t-lang" data-lang="el">Επικοινωνία</span>
+            <span class="t-lang" data-lang="en">Contact us</span>
+          </span>
+          <span class="sub">
+            <span class="t-lang" data-lang="el">Στείλε μας email για οτιδήποτε χρειάζεσαι.</span>
+            <span class="t-lang" data-lang="en">Email us about anything you need.</span>
+          </span>
+        </span>
+        <span class="arrow" aria-hidden="true">→</span>
+      </a>
+
+      <a href="/deleteaccount" class="danger">
+        <span>
+          <span class="label">
+            <span class="t-lang" data-lang="el">Διαγραφή λογαριασμού</span>
+            <span class="t-lang" data-lang="en">Delete account</span>
+          </span>
+          <span class="sub">
+            <span class="t-lang" data-lang="el">Διαγραφή του λογαριασμού και όλων των δεδομένων σου.</span>
+            <span class="t-lang" data-lang="en">Remove your account and all of your data.</span>
+          </span>
+        </span>
+        <span class="arrow" aria-hidden="true">→</span>
+      </a>
+    </nav>
+
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <div class="foot-copy">
+      <span class="t-lang" data-lang="el">© 2026 Neat. Με αγάπη για κάθε ελληνική πόλη.</span>
+      <span class="t-lang" data-lang="en">© 2026 Neat. Made with love for every Greek city.</span>
+    </div>
+    <div class="foot-links">
+      <a href="/"><span class="t-lang" data-lang="el">Αρχική</span><span class="t-lang" data-lang="en">Home</span></a>
+      <a href="mailto:support@neatapp.gr"><span class="t-lang" data-lang="el">Επικοινωνία</span><span class="t-lang" data-lang="en">Contact</span></a>
+    </div>
+  </div>
+</footer>
+
+{% include "web/_switch.html" %}
+</body>
+</html>

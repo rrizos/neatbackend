@@ -52,6 +52,8 @@ def delete_media_file(url):
 @receiver(post_delete, sender=PostMedia)
 def _delete_post_media_file(sender, instance, **kwargs):
     delete_media_file(instance.url)
+    # The poster frame is a second file for the same row.
+    delete_media_file(instance.thumb_url)
 
 
 @receiver(post_delete, sender=Post)

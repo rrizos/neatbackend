@@ -60,6 +60,7 @@ def link_preview(request):
     if row is not None:
         return _cors_json(JsonResponse({'preview': row.to_dict() if row.ok else None}))
 
+
     # Only an actual outbound fetch is rate limited. The counter lives in the
     # DB-backed cache, so a locked/unavailable cache table fails open rather
     # than 500-ing — a preview card is never worth breaking a feed render.
@@ -76,6 +77,15 @@ def link_preview(request):
         return _no_preview(status=429)
 
     row = service.resolve_and_store(url)
-    if row is None:
-        return _no_preview()
-    return _cors_json(JsonResponse({'preview': row.to_dict()}))
+    if row is not None:
+        return _cors_json(JsonResponse({'preview': row.to_dict()}))
+
+    # The refresh failed. If we still hold a card that worked, serve it rather
+    # than reporting no preview: hosts that block crawlers (Instagram, TikTok)
+    # refuse every refresh, and answering "nothing" because we could not
+    # re-confirm a card we already have is how a working preview vanished for
+    # good after its first week.
+    usable = service.stale_row(url)
+    if usable is not None and usable.ok and (usable.title or usable.image_url):
+        return _cors_json(JsonResponse({'preview': usable.to_dict()}))
+    return _no_preview()

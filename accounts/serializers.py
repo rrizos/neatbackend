@@ -1,4 +1,6 @@
+from .avatars import avatar_for
 from .models import Block, Follow, Profile
+from neatbackend.timefmt import local_iso
 
 
 def ensure_profile(user):
@@ -33,7 +35,25 @@ def user_to_dict(user, viewer=None):
         'fullName': profile.full_name,
         'bio': profile.bio,
         'city': profile.city,
-        'avatarUrl': profile.avatar_url,
+        # Only the owner is told to pick a username; to anyone else the
+        # generated one is simply their username.
+        'usernamePending': profile.username_pending if is_self_or_admin else False,
+        # When the home city may next be changed. null means "right now",
+        # which is also what a brand new account with no city yet sees.
+        'canChangeCity': profile.can_change_city() if is_self_or_admin else False,
+        'cityChangeAllowedAt': (
+            (profile.city_change_allowed_at() or None) and
+            local_iso(profile.city_change_allowed_at())
+        ) if is_self_or_admin else None,
+        # Whether this account can be signed into with a password at all.
+        # False for one created through Apple or Google that has not set one,
+        # which is what the settings screen offers to fix.
+        'hasPassword': user.has_usable_password() if is_self_or_admin else False,
+        'avatarUrl': avatar_for(profile),
+        # Only the enlarged-avatar screens fetch this; everything else draws
+        # the inline copy above. Empty for anyone who has not saved a picture
+        # since the two-copy split shipped.
+        'avatarFullUrl': profile.avatar_full_url,
         'followers': followers,
         'following': following,
         'isFollowing': is_following,

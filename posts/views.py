@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import uuid
 from PIL import Image, UnidentifiedImageError
 from django.conf import settings
@@ -17,10 +16,12 @@ from accounts.auth import get_authenticated_user, require_authenticated_user
 from linkpreview import service as linkpreview_service
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
-from django.db.models import Count, ExpressionWrapper, F, FloatField
+from django.db.models import Count, ExpressionWrapper, F, FloatField, Q
+from neatbackend.cdn import cdn
+from .images import store_post_image, store_comment_image, store_comment_image_data
 from .models import (
     Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
-    Poll, PollOption, PollVote,
+    Poll, PollOption, PollVote, StagedUpload,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,48 +31,6 @@ logger = logging.getLogger(__name__)
 # cap when type=="video", leaving images completely unbounded.
 _MAX_VIDEO_UPLOAD_BYTES = 150 * 1024 * 1024
 _MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
-
-
-def _transcode_to_h264(full_path):
-    """
-    Transcode video at full_path to H.264/AAC in-place.
-    Raises on failure so the caller can decide how to handle it.
-    """
-    tmp_out = full_path + '.tmp.mp4'
-    try:
-        subprocess.run(
-            [
-                'ffmpeg', '-y', '-i', full_path,
-                # veryfast trades a little compression efficiency for a large
-                # cut in encode CPU time — this box is CPU-constrained and
-                # every upload currently blocks a request while it runs.
-                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '25',
-                # Scale down to fit within 960x960, maintain AR, round to even
-                # dims. Smaller than the previous 1280 cap: feed clips are
-                # viewed at phone-screen size, so this is still sharp there
-                # while cutting encode time and output size meaningfully.
-                # Keeps H.264 Level ≤ 4.0, which all Android 7+ hardware
-                # decoders support reliably (Level 5.0 causes runtime crashes
-                # even when reported as format_supported=YES).
-                '-vf', 'scale=960:960:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2',
-                '-profile:v', 'high', '-level', '4.0',
-                # Hard cap on bitrate so a busy/high-motion clip can't blow
-                # past what a feed video needs — bounds worst-case file size
-                # (and therefore serving bandwidth) regardless of content.
-                '-maxrate', '2000k', '-bufsize', '4000k',
-                '-c:a', 'aac', '-b:a', '96k',
-                '-movflags', '+faststart',
-                tmp_out,
-            ],
-            check=True,
-            capture_output=True,
-            timeout=180,
-        )
-        os.replace(tmp_out, full_path)
-    except Exception:
-        if os.path.exists(tmp_out):
-            os.unlink(tmp_out)
-        raise
 
 
 def _cors_json(response):
@@ -112,8 +71,126 @@ def _preview_map_for(posts):
         return {}
 
 
+# ── Feed payload ──────────────────────────────────────────────────────────────
+#
+# A city's feed used to come back whole: every post ever made there, each with
+# its full comment threads, and a base64 avatar repeated for the author of
+# every post and every comment. The same person's picture could be in the
+# response fifty times.
+#
+# Clients that identify themselves (see dm_messages/views.py for the same
+# header) get a paged feed instead, with comments left to the comment sheet —
+# which already fetches them on open — and each avatar sent once, by username.
+# Anything without the header is an older build and still gets the old shape,
+# down to the bare JSON list.
+
+_FEED_PAGE_SIZE = 20
+_FEED_PAGE_MAX = 60
+# Hard ceiling for the unpaginated legacy feed. Not a page size -- there is no
+# second page for those clients -- but a bound on the worst a single request
+# can cost.
+_LEGACY_FEED_CAP = 50
+
+
+def _wants_lean_feed(request):
+    try:
+        return int(request.headers.get('X-Neat-Client', '1')) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _feed_page_limit(request):
+    try:
+        limit = int(request.GET.get('limit', _FEED_PAGE_SIZE))
+    except (TypeError, ValueError):
+        return _FEED_PAGE_SIZE
+    return max(1, min(limit, _FEED_PAGE_MAX))
+
+
+def _lean_feed_payload(posts, viewer, viewer_following_ids, preview_map):
+    """Rows with each author's avatar lifted out into a lookup table."""
+    avatars = {}
+    rows = []
+    page_ctx = _viewer_page_context(posts, viewer, viewer_following_ids)
+    for post in posts:
+        data = _post_to_dict(
+            post,
+            viewer=viewer,
+            viewer_following_ids=viewer_following_ids,
+            light=True,
+            preview_map=preview_map,
+            page_ctx=page_ctx,
+        )
+        author = data.get('author') or ''
+        avatar = data.get('avatarUrl') or ''
+        if author and avatar:
+            avatars[author] = avatar
+        data['avatarUrl'] = ''
+        rows.append(data)
+    return rows, avatars
+
+
+
+def _viewer_page_context(posts, viewer, viewer_following_ids):
+    """Everything per-viewer for a whole page, in a fixed number of queries.
+
+    `_post_to_dict` used to ask the database three separate questions about
+    *each* post — have I liked it, have I saved it, which of the people I
+    follow liked it — plus a COUNT for its likes and, for a poll, a vote lookup
+    per option. Measured: 27 queries for a 4-post page and 75 for a 20-post
+    page, so three per row on top of a fixed base. That is the whole reason a
+    feed request cost ~130ms of CPU, and CPU is what caps the box at ~17
+    requests a second.
+
+    Returns None for an anonymous viewer, who has none of these.
+    """
+    ids = [p.id for p in posts]
+    if not ids or not (viewer and viewer.is_authenticated):
+        return None
+
+    liked = set(
+        PostLike.objects.filter(post_id__in=ids, user=viewer)
+        .values_list('post_id', flat=True)
+    )
+    saved = set(
+        PostSave.objects.filter(post_id__in=ids, user=viewer)
+        .values_list('post_id', flat=True)
+    )
+
+    # Who, among the people this viewer follows, liked each post. One query for
+    # the page; the per-post cap of three names is applied in Python.
+    by_following = {}
+    if viewer_following_ids:
+        rows = (
+            PostLike.objects
+            .filter(post_id__in=ids, user_id__in=viewer_following_ids)
+            .select_related('user')
+            .order_by('post_id', 'created')
+            .values_list('post_id', 'user__username')
+        )
+        for post_id, username in rows:
+            names = by_following.setdefault(post_id, [])
+            if len(names) < 3:
+                names.append(username)
+
+    # Poll votes for the page, keyed by poll.
+    poll_ids = [p.poll.id for p in posts if getattr(p, 'poll', None) is not None]
+    votes = {}
+    if poll_ids:
+        votes = dict(
+            PollVote.objects.filter(poll_id__in=poll_ids, user=viewer)
+            .values_list('poll_id', 'option_id')
+        )
+
+    return {
+        'liked': liked,
+        'saved': saved,
+        'liked_by_following': by_following,
+        'poll_votes': votes,
+    }
+
 def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
-                  with_link_preview=False, preview_map=None):
+                  with_link_preview=False, preview_map=None, page_ctx=None):
     data = post.to_dict()
     # Two ways in. `preview_map` is the list path: already-known cards, looked
     # up in one query for the whole page, never fetched. `with_link_preview` is
@@ -154,18 +231,23 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
         if row_comments:
             data["comments"] = [comment.to_dict(viewer=viewer, owner_id=post.user_id) for comment in row_comments]
         data["comment_count"] = len(row_comments)
-    data["likes"] = post.like_rows.count() or post.likes
+    # len() over the prefetched rows, not .count(): a related manager's
+    # .count() ignores the prefetch cache and issues its own COUNT per post.
+    data["likes"] = len(post.like_rows.all()) or post.likes
     data["shares"] = post.shares
     poll = getattr(post, "poll", None)
     if poll is not None:
         voted_option_id = None
         if viewer and viewer.is_authenticated:
-            vote = PollVote.objects.filter(poll=poll, user=viewer).first()
-            voted_option_id = vote.option_id if vote else None
+            if page_ctx is not None:
+                voted_option_id = page_ctx['poll_votes'].get(poll.id)
+            else:
+                vote = PollVote.objects.filter(poll=poll, user=viewer).first()
+                voted_option_id = vote.option_id if vote else None
         data["poll"] = {
             "id": poll.id,
             "options": [
-                {"id": o.id, "text": o.text, "votes": o.votes_rows.count()}
+                {"id": o.id, "text": o.text, "votes": len(o.votes_rows.all())}
                 for o in poll.options.all()
             ],
             "voted_option_id": voted_option_id,
@@ -174,19 +256,27 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
     data["saved"] = False
     data["likedByFollowing"] = []
     if viewer and viewer.is_authenticated:
-        data["liked"] = PostLike.objects.filter(post=post, user=viewer).exists()
-        data["saved"] = PostSave.objects.filter(post=post, user=viewer).exists()
         data["following"] = post.user_id == viewer.id or post.user_id is not None
-        if viewer_following_ids is None:
-            viewer_following_ids = set(
-                Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+        if page_ctx is not None:
+            # Answered once for the whole page — see _viewer_page_context.
+            data["liked"] = post.id in page_ctx['liked']
+            data["saved"] = post.id in page_ctx['saved']
+            data["likedByFollowing"] = page_ctx['liked_by_following'].get(post.id, [])
+        else:
+            # Single-post path (post detail), where one row's worth of queries
+            # is the whole request rather than one of twenty.
+            data["liked"] = PostLike.objects.filter(post=post, user=viewer).exists()
+            data["saved"] = PostSave.objects.filter(post=post, user=viewer).exists()
+            if viewer_following_ids is None:
+                viewer_following_ids = set(
+                    Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+                )
+            liked_by_following = list(
+                PostLike.objects.filter(post=post, user_id__in=viewer_following_ids)
+                .select_related('user')
+                .order_by('created')[:3]
             )
-        liked_by_following = list(
-            PostLike.objects.filter(post=post, user_id__in=viewer_following_ids)
-            .select_related('user')
-            .order_by('created')[:3]
-        )
-        data["likedByFollowing"] = [pl.user.username for pl in liked_by_following]
+            data["likedByFollowing"] = [pl.user.username for pl in liked_by_following]
     else:
         data["following"] = post.user_id is not None
 
@@ -200,12 +290,31 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
     media_qs = list(post.media_items.all())
     if media_qs:
         data["media"] = [
-            {"type": m.media_type, "url": m.url, "duration": m.duration}
+            {
+                "type": m.media_type,
+                # Sent through the CDN when one is configured; unchanged
+                # otherwise. See neatbackend/cdn.py.
+                "url": cdn(m.url),
+                "duration": m.duration,
+                # '' until the worker has produced one, and for every video
+                # that predates posters — clients fall back to their old
+                # behaviour when it is empty.
+                "thumbUrl": cdn(m.thumb_url),
+                # Clients that know this key draw a processing tile while a
+                # video is queued; ones that don't play `url`, which is the
+                # original upload and works. Only ever "processing" or absent,
+                # so a failed transcode reads as an ordinary playable video.
+                "status": "processing" if m.is_processing else "ready",
+                "progress": m.progress if m.is_processing else 100,
+            }
             for m in media_qs
         ]
     elif data.get("imageUrl"):
         # Backward-compat: old single-image posts surface as a one-item media array
-        data["media"] = [{"type": "image", "url": data["imageUrl"], "duration": None}]
+        data["media"] = [
+            {"type": "image", "url": cdn(data["imageUrl"]), "duration": None,
+             "status": "ready"}
+        ]
     else:
         data["media"] = []
 
@@ -383,10 +492,111 @@ def viral_posts(request):
             Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
         )
     preview_map = _preview_map_for(posts)
+    _legacy_ctx = _viewer_page_context(posts, viewer, viewer_following_ids)
     data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids,
+                          page_ctx=_legacy_ctx,
                           light=light, preview_map=preview_map) for p in posts]
     return _cors_json(JsonResponse(data, safe=False))
 
+
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def stage_upload(request):
+    """Accept one file now, so the post that uses it can be instant later.
+
+    `POST /api/posts/upload/` with a `file` part -> `{"id": ..., "type": ...}`.
+    The client calls this the moment a photo or video is picked, while the user
+    is still writing the caption; `posts_list` then takes the id instead of the
+    bytes.
+
+    A video is queued for transcoding exactly as it would be if it had arrived
+    with the post, so the encode is usually finished too by the time the post
+    exists.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    uploaded = request.FILES.get('file')
+    if uploaded is None:
+        return _cors_json(JsonResponse({'error': 'No file'}, status=400))
+
+    media_type = (request.POST.get('type') or 'image').strip()
+    is_video = media_type == 'video'
+    cap = _MAX_VIDEO_UPLOAD_BYTES if is_video else _MAX_IMAGE_UPLOAD_BYTES
+    if uploaded.size > cap:
+        return _cors_json(JsonResponse(
+            {'error': f'File is too large (max {cap // (1024 * 1024)}MB).'}, status=400))
+
+    if not is_video:
+        try:
+            Image.open(uploaded).verify()
+        except (UnidentifiedImageError, OSError):
+            return _cors_json(JsonResponse(
+                {'error': "That doesn't look like a valid image."}, status=400))
+        uploaded.seek(0)
+
+    if is_video:
+        # Left exactly as uploaded; the transcode worker owns what happens to
+        # it from here.
+        path = default_storage.save(f'posts/{uuid.uuid4()}.mp4', uploaded)
+        url = default_storage.url(path)
+    else:
+        # Re-encoded rather than stored as sent. A camera JPEG arrives near
+        # lossless — measured at 2 MB for 828x1792, against 200 KB for the same
+        # pixels at quality 85 — and that difference is most of the time a cold
+        # feed spends loading.
+        url = store_post_image(uploaded)
+        if not url:
+            return _cors_json(JsonResponse(
+                {'error': 'Could not store that image.'}, status=400))
+    staged = StagedUpload.objects.create(
+        user=user, url=url, media_type=media_type,
+    )
+    return _cors_json(JsonResponse({
+        'id': str(staged.id),
+        'type': media_type,
+        'url': staged.url,
+    }, status=201))
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def posts_exist(request):
+    """Which of the given post ids still exist.
+
+    `GET /api/posts/exist/?ids=1,2,3` -> `{"missing": [2]}`.
+
+    Sharing a post into a chat stores a *snapshot* of it in the message, so the
+    card kept rendering perfectly after the post itself was deleted — tapping it
+    was the only way to find out, and what you got was an error. The chat needs
+    to know, and it needs to know for a whole thread at once rather than one
+    request per card, which is what this is for.
+
+    Only ids are exposed, never content: the caller is telling us which posts it
+    already holds a copy of.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+    if require_authenticated_user(request) is None:
+        return _unauthorized()
+
+    raw = (request.GET.get('ids') or '').strip()
+    ids = []
+    for part in raw.split(',')[:200]:  # bounded: this is a URL, not a body
+        part = part.strip()
+        if part.isdigit():
+            ids.append(int(part))
+    if not ids:
+        return _cors_json(JsonResponse({'missing': []}))
+
+    present = set(
+        Post.objects.filter(id__in=ids).values_list('id', flat=True)
+    )
+    return _cors_json(JsonResponse({'missing': sorted(set(ids) - present)}))
 
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
@@ -402,7 +612,23 @@ def posts_list(request):
         viewer_city = ""
         if viewer and viewer.is_authenticated and hasattr(viewer, "profile"):
             viewer_city = viewer.profile.city
-        posts = Post.objects.select_related("user", "user__profile").prefetch_related("comment_rows__user", "like_rows", "media_items").all().order_by("-created")
+        lean = _wants_lean_feed(request)
+        posts = Post.objects.select_related("user", "user__profile")
+        if lean:
+            # No comment prefetch: `light` mode only needs the count, and
+            # pulling every comment row would drag each commenter's base64
+            # avatar into memory to serialise nothing.
+            posts = posts.select_related("poll").prefetch_related(
+                "like_rows", "media_items", "poll__options__votes_rows",
+            ).annotate(
+                comment_count=Count("comment_rows", distinct=True)
+            )
+        else:
+            posts = posts.select_related("poll").prefetch_related(
+                "comment_rows__user", "like_rows", "media_items",
+                "poll__options__votes_rows",
+            )
+        posts = posts.all().order_by("-created", "-id")
         requested_city = (request.GET.get("city") or "").strip()
         is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
@@ -417,8 +643,46 @@ def posts_list(request):
             viewer_following_ids = set(
                 Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
             )
+        if lean:
+            before = (request.GET.get("before") or "").strip()
+            if before:
+                # Cursor on the sort key, not on the id. The imported
+                # WordPress posts carry old timestamps under new ids, so the
+                # two orders disagree and paging by id returned a window that
+                # overlapped the previous page and skipped what was between.
+                try:
+                    anchor = Post.objects.filter(pk=int(before)).values("created", "id").first()
+                except (TypeError, ValueError):
+                    return _cors_json(JsonResponse({"error": "Invalid before"}, status=400))
+                if anchor:
+                    posts = posts.filter(
+                        Q(created__lt=anchor["created"])
+                        | Q(created=anchor["created"], id__lt=anchor["id"])
+                    )
+            limit = _feed_page_limit(request)
+            page = list(posts[: limit + 1])
+            has_more = len(page) > limit
+            page = page[:limit]
+            preview_map = _preview_map_for(page)
+            rows, avatars = _lean_feed_payload(
+                page, viewer, viewer_following_ids, preview_map
+            )
+            return _cors_json(
+                JsonResponse({"posts": rows, "avatars": avatars, "has_more": has_more})
+            )
+
+        # Legacy clients (no X-Neat-Client header) get no pagination of their
+        # own, so this branch used to serialise *every* post in the city:
+        # 2.9 MB and ~1.8s of one worker at 248 posts, growing without limit as
+        # the table does, reachable without authenticating. The newest
+        # _LEGACY_FEED_CAP is all any build this old could show before the user
+        # ran out of scroll anyway, and it stops one request from being able to
+        # cost more the more successful the app gets.
+        posts = posts[:_LEGACY_FEED_CAP]
         preview_map = _preview_map_for(posts)
+        _viral_ctx = _viewer_page_context(posts, viewer, viewer_following_ids)
         data = [_post_to_dict(p, viewer=viewer, viewer_following_ids=viewer_following_ids,
+                              page_ctx=_viral_ctx,
                               preview_map=preview_map) for p in posts]
         return _cors_json(JsonResponse(data, safe=False))
 
@@ -450,6 +714,22 @@ def posts_list(request):
             if item.get("url"):
                 # External URL (e.g. Giphy) — store as-is
                 media_list.append({"type": item.get("type", "image"), "url": item["url"]})
+            elif item.get("upload_id"):
+                # Already uploaded while the caption was being written.
+                staged = StagedUpload.objects.filter(
+                    pk=item["upload_id"], user=user
+                ).first()
+                if staged is None:
+                    return _cors_json(JsonResponse(
+                        {"error": "That upload has expired. Please try again."},
+                        status=400))
+                media_list.append({
+                    "type": staged.media_type,
+                    "url": staged.url,
+                    "status": (PostMedia.PENDING if staged.media_type == "video"
+                               else PostMedia.READY),
+                })
+                staged.delete()
             else:
                 file_key = f"media_{item.get('file_index', len(media_list))}"
                 uploaded = request.FILES.get(file_key)
@@ -479,25 +759,33 @@ def posts_list(request):
                                 status=400,
                             ))
                         uploaded.seek(0)
-                    ext = "mp4" if is_video else "jpg"
-                    filename = f"posts/{uuid.uuid4()}.{ext}"
-                    # Save the UploadedFile directly (it streams via .chunks()
-                    # internally) instead of buffering the whole file into a
-                    # Python bytes object first via ContentFile(uploaded.read()).
-                    path = default_storage.save(filename, uploaded)
-                    url = default_storage.url(path)
                     if is_video:
-                        full_path = os.path.join(settings.MEDIA_ROOT, path)
-                        try:
-                            _transcode_to_h264(full_path)
-                        except Exception as e:
-                            logger.error(f'Transcoding failed for {full_path}: {e}')
-                            default_storage.delete(path)
+                        # Left as uploaded; the transcode worker owns it from
+                        # here. Saved directly (it streams via .chunks())
+                        # rather than buffered into a bytes object first.
+                        path = default_storage.save(
+                            f"posts/{uuid.uuid4()}.mp4", uploaded)
+                        url = default_storage.url(path)
+                    else:
+                        # Re-encoded rather than stored as sent — the same
+                        # saving as the staged path; see posts/images.py.
+                        url = store_post_image(uploaded)
+                        if not url:
                             return _cors_json(JsonResponse(
-                                {'error': 'Video processing failed. Please try again.'},
-                                status=500,
+                                {"error": "Could not store that image."},
+                                status=400,
                             ))
-                    media_list.append({"type": item.get("type", "image"), "url": url})
+                    # Videos are queued, not encoded here. Running ffmpeg
+                    # inline held a gunicorn request slot for the whole encode,
+                    # so a dozen simultaneous uploads could occupy every slot
+                    # and the site stopped answering anybody. `transcode_worker`
+                    # picks this up within seconds; until it does, `url` is the
+                    # original upload and plays fine.
+                    media_list.append({
+                        "type": item.get("type", "image"),
+                        "url": url,
+                        "status": PostMedia.PENDING if is_video else PostMedia.READY,
+                    })
     else:
         # Legacy path: JSON body with base64 data URLs
         try:
@@ -546,6 +834,9 @@ def posts_list(request):
                 url=url,
                 duration=item.get("duration"),
                 order=i,
+                # Only the multipart upload path queues work; a Giphy link or a
+                # legacy base64 body has nothing to transcode.
+                status=item.get("status") or PostMedia.READY,
             )
 
     if len(poll_options) >= 2:
@@ -705,8 +996,21 @@ def post_comment(request, post_id):
         return _cors_json(JsonResponse(_post_to_dict(post, viewer=user)))
 
     # POST
+    if "multipart" in (request.content_type or ""):
+        body = {k: v for k, v in request.POST.items()}
     text = (body.get("text") or body.get("comment") or "").strip()
     image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
+    # A binary upload wins over the JSON field: same picture, a third fewer
+    # bytes. Stored as a file either way -- a comment image used to be base64
+    # in the row, exactly as post images were.
+    uploaded = (request.FILES.get("image")
+                if "multipart" in (request.content_type or "") else None)
+    if uploaded is not None:
+        stored = store_comment_image(uploaded)
+        if stored:
+            image_url = stored
+    elif image_url.startswith("data:"):
+        image_url = store_comment_image_data(image_url) or image_url
     parent_id = body.get("parentId")
 
     if not text and not image_url:
@@ -779,7 +1083,15 @@ def saved_posts(request):
     viewer_following_ids = set(
         Follow.objects.filter(follower=user).values_list('following_id', flat=True)
     )
-    posts = [_post_to_dict(s.post, viewer=user, viewer_following_ids=viewer_following_ids) for s in save_rows]
+    _saved_ctx = _viewer_page_context(
+        [s.post for s in save_rows], user, viewer_following_ids
+    )
+    posts = [
+        _post_to_dict(s.post, viewer=user,
+                      viewer_following_ids=viewer_following_ids,
+                      page_ctx=_saved_ctx)
+        for s in save_rows
+    ]
     return _cors_json(JsonResponse({"posts": posts}))
 
 
@@ -1012,3 +1324,88 @@ def post_report(request, post_id):
         )
 
     return _cors_json(JsonResponse({"ok": True}))
+
+
+# How far above its own normal a city has to run to read as fully hot. At 2.0,
+# twice the usual hourly traffic saturates the pin at red.
+_HEAT_HOT_MULTIPLE = 2.0
+# Days of history the per-city hourly average is taken over.
+_HEAT_BASELINE_DAYS = 7
+# Added to every denominator so heat means something in a quiet town.
+#
+# On a purely relative scale a village averaging 0.2 events an hour goes solid
+# red the moment two people do anything, and its pin then spends most of its
+# life red for no real reason. This is the absolute floor that a burst has to
+# clear before it can register, so small cities still warm up when something is
+# genuinely happening but don't flicker on background noise. It also removes
+# the divide-by-zero for a city with no history at all.
+_HEAT_SMOOTHING = 3.0
+
+
+def _activity_by_city(since, until=None):
+    """Posts + likes + comments per city in a window, as one number each.
+
+    Engagement is counted against the city of the post it lands on, not the
+    city of whoever produced it — a pin is meant to show how busy that place
+    is, and a like from three cities away is still attention paid to it.
+    """
+    counts = {}
+
+    def add(rows, key):
+        for row in rows:
+            city = (row[key] or '').strip()
+            if city:
+                counts[city] = counts.get(city, 0) + row['n']
+
+    def window(qs, field='created'):
+        qs = qs.filter(**{f'{field}__gte': since})
+        if until is not None:
+            qs = qs.filter(**{f'{field}__lt': until})
+        return qs
+
+    add(window(Post.objects).values('city').annotate(n=Count('id')), 'city')
+    add(window(PostLike.objects).values('post__city').annotate(n=Count('id')), 'post__city')
+    add(window(PostComment.objects).values('post__city').annotate(n=Count('id')), 'post__city')
+    return counts
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def city_heat(request):
+    """Per-city hotness, 0.0–1.0, for the map pins.
+
+    Heat is relative, not absolute: each city is measured against its own
+    hourly average rather than against Athens. An absolute scale would leave
+    every pin outside the two biggest cities permanently green no matter what
+    was happening there, which is the opposite of what the map is for.
+
+    Cities with no activity are simply absent from the response — the client
+    treats a missing city as cold, so there is no reason to send zeroes for
+    every town in Greece.
+    """
+    if request.method == 'OPTIONS':
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    now = timezone.now()
+    hour_ago = now - datetime.timedelta(hours=1)
+    baseline_start = now - datetime.timedelta(days=_HEAT_BASELINE_DAYS)
+
+    current = _activity_by_city(hour_ago)
+    if not current:
+        return _cors_json(JsonResponse({}))
+
+    # Baseline excludes the live hour, so a busy hour doesn't inflate the very
+    # average it is being judged against.
+    history = _activity_by_city(baseline_start, until=hour_ago)
+    hours = _HEAT_BASELINE_DAYS * 24 - 1
+
+    heat = {}
+    for city, count in current.items():
+        average = (history.get(city, 0) / hours) if hours else 0.0
+        ratio = count / (average * _HEAT_HOT_MULTIPLE + _HEAT_SMOOTHING)
+        value = max(0.0, min(1.0, ratio))
+        if value > 0:
+            heat[city] = round(value, 3)
+
+    return _cors_json(JsonResponse(heat))

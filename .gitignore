@@ -5,3 +5,8 @@ __pycache__/
 *.sqlite3
 .vscode/
 firebase-service-account.json
+.env.prod
+.env.prod.bak*
+*.bak-*
+db.sqlite3.bak*
+media/
