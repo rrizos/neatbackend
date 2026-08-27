@@ -3,12 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-
 <title>{{ og_title }}</title>
 <meta name="description" content="{{ og_description }}" />
-<!-- iOS Smart App Banner: shows "Open" in Safari even before the user taps anything -->
-<meta name="apple-itunes-app" content="app-id=6748038152, app-argument=neat://post/{{ post_id }}" />
-
 <meta property="og:type" content="article" />
 <meta property="og:site_name" content="Neat" />
 <meta property="og:locale" content="el_GR" />
@@ -21,460 +17,383 @@
 <meta name="twitter:description" content="{{ og_description }}" />
 <meta name="twitter:image" content="{{ og_image }}" />
 <link rel="canonical" href="{{ og_url }}" />
-
+<meta name="apple-itunes-app" content="app-id=6748038152, app-argument=neat://post/{{ post_id }}" />
 <style>
-  :root {
-    --bg:        #060608;
-    --surface:   #0f0f12;
-    --surface2:  #16161a;
-    --border:    rgba(255,255,255,0.07);
-    --border2:   rgba(255,255,255,0.12);
-    --ink:       #ececec;
-    --ink-soft:  #7a7a8a;
-    --ink-muted: #4a4a58;
-    --blue:      #1479ff;
-    --blue-glow: rgba(20,121,255,0.18);
-    --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    --r-card: 20px;
-    --r-inner: 14px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg); color: var(--ink);
-    font-family: var(--sans); line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: inherit; text-decoration: none; }
-  img, video { max-width: 100%; display: block; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* layout */
-  .wrap { max-width: 540px; margin: 0 auto; padding: 0 16px 72px; }
+:root {
+  --bg: #09090b;
+  --surface: #111114;
+  --border: rgba(255,255,255,0.09);
+  --ink: #e8e8ec;
+  --ink2: #888896;
+  --ink3: #44444f;
+  --blue: #1479ff;
+  --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
 
-  /* header */
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 22px 0 26px;
-  }
-  .brand img { width: 46px; height: 46px; border-radius: 14px; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  /* room for the sticky bar */
+  padding-bottom: 80px;
+}
 
-  .open-btn {
-    display: inline-flex; align-items: center; gap: 7px;
-    background: linear-gradient(135deg, #1a7fff 0%, #0055e0 100%);
-    color: #fff; padding: 10px 20px; border-radius: 100px;
-    font-size: 14px; font-weight: 700; letter-spacing: -0.01em;
-    box-shadow: 0 4px 16px rgba(20,121,255,0.35);
-    cursor: pointer; border: none; font-family: inherit;
-    transition: transform .12s, box-shadow .12s;
-  }
-  .open-btn:active { transform: scale(0.97); box-shadow: 0 2px 8px rgba(20,121,255,0.3); }
+a { color: inherit; text-decoration: none; }
+img, video { display: block; max-width: 100%; }
 
-  /* post card */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--r-card);
-    overflow: hidden;
-    box-shadow: 0 2px 24px rgba(0,0,0,0.5);
-  }
-  .card-inner { padding: 18px 18px 0; }
+/* ─── page shell ─── */
+.page { max-width: 480px; margin: 0 auto; padding: 0 20px; }
 
-  /* byline */
-  .byline { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  .av-wrap {
-    width: 46px; height: 46px; border-radius: 50%; flex: none;
-    background: var(--surface2); border: 1.5px solid var(--border2);
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 18px; color: var(--ink-soft);
-    overflow: hidden;
-  }
-  .av-wrap img { width: 46px; height: 46px; object-fit: cover; }
-  .who { min-width: 0; flex: 1; }
-  .author-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .author { font-weight: 750; font-size: 15px; letter-spacing: -0.01em; }
-  .v-badge { width: 16px; height: 16px; flex: none; color: var(--blue); }
-  .meta { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
+/* ─── header ─── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 0 22px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.logo { height: 30px; width: auto; }
 
-  /* post text */
-  .post-text {
-    font-size: 15.5px; line-height: 1.6; white-space: pre-wrap;
-    overflow-wrap: anywhere; margin-bottom: 16px; color: var(--ink);
-  }
+.header-open {
+  font-size: 13px; font-weight: 650; color: var(--blue);
+  background: none; border: none; font-family: inherit;
+  cursor: pointer; padding: 6px 0; letter-spacing: -0.01em;
+}
 
-  /* media — bleeds to card edges */
-  .media-wrap { margin: 0 0 0; }
-  .media-single { overflow: hidden; }
-  .media-single img, .media-single video {
-    width: 100%; max-height: 540px; object-fit: cover; background: #000;
-  }
-  .media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
-  .media-grid img, .media-grid video {
-    width: 100%; aspect-ratio: 1; object-fit: cover; background: #000;
-  }
+/* ─── author row ─── */
+.author-row {
+  display: flex; align-items: center; gap: 11px;
+  margin-bottom: 14px;
+}
+.av {
+  width: 42px; height: 42px; border-radius: 50%; flex: none;
+  background: var(--surface); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 700; color: var(--ink2);
+}
+.av img { width: 42px; height: 42px; object-fit: cover; }
+.av-info .handle {
+  font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em;
+  display: flex; align-items: center; gap: 4px;
+}
+.av-info .meta { font-size: 12.5px; color: var(--ink2); margin-top: 1px; }
+.verified { color: var(--blue); width: 14px; height: 14px; }
 
-  /* link card */
-  .linkcard {
-    display: block; border: 1px solid var(--border2);
-    border-radius: var(--r-inner); overflow: hidden; margin-bottom: 16px;
-    background: var(--surface2);
-  }
-  .linkcard img { width: 100%; max-height: 200px; object-fit: cover; }
-  .linkcard-body { padding: 10px 13px 12px; }
-  .linkcard-site { color: var(--blue); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
-  .linkcard-title { font-weight: 650; font-size: 14px; line-height: 1.35; }
-  .linkcard-desc { color: var(--ink-soft); font-size: 13px; margin-top: 4px; line-height: 1.4; }
+/* ─── post text ─── */
+.post-text {
+  font-size: 15px; line-height: 1.6;
+  color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+  margin-bottom: 14px;
+}
 
-  /* poll */
-  .poll { display: grid; gap: 8px; margin-bottom: 16px; }
-  .poll-option {
-    position: relative; border: 1px solid var(--border2);
-    border-radius: 10px; padding: 10px 14px; overflow: hidden;
-  }
-  .poll-fill { position: absolute; inset: 0 auto 0 0; background: var(--blue-glow); }
-  .poll-row { position: relative; display: flex; justify-content: space-between; gap: 12px; font-size: 14.5px; }
-  .poll-pct { color: var(--ink-soft); font-variant-numeric: tabular-nums; font-size: 13px; }
+/* ─── media ─── */
+.media { border-radius: 14px; overflow: hidden; margin-bottom: 14px; background: #000; }
+.media img { width: 100%; max-height: 520px; object-fit: cover; }
+.media video { width: 100%; max-height: 520px; }
+.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-radius: 14px; overflow: hidden; margin-bottom: 14px; }
+.media-grid img, .media-grid video { width: 100%; aspect-ratio: 1; object-fit: cover; background: #000; }
 
-  /* stats bar */
-  .stats {
-    display: flex; gap: 18px; align-items: center;
-    border-top: 1px solid var(--border);
-    padding: 13px 18px 14px;
-    color: var(--ink-soft); font-size: 13.5px;
-  }
-  .stat { display: flex; align-items: center; gap: 5px; }
-  .stat svg { width: 15px; height: 15px; flex: none; opacity: .7; }
-  .stat b { color: var(--ink); font-weight: 650; }
+/* ─── link card ─── */
+.linkcard {
+  display: block; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface);
+  margin-bottom: 14px;
+}
+.linkcard img { width: 100%; max-height: 180px; object-fit: cover; }
+.linkcard-body { padding: 9px 13px 11px; }
+.linkcard-site { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--blue); margin-bottom: 3px; }
+.linkcard-title { font-size: 13.5px; font-weight: 650; line-height: 1.35; }
+.linkcard-desc { font-size: 12.5px; color: var(--ink2); margin-top: 3px; }
 
-  /* section label */
-  .section-label {
-    font-size: 11.5px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .1em; color: var(--ink-muted);
-    margin: 24px 0 10px;
-  }
+/* ─── poll ─── */
+.poll { display: grid; gap: 7px; margin-bottom: 14px; }
+.poll-opt { position: relative; border: 1px solid var(--border); border-radius: 9px; padding: 9px 13px; overflow: hidden; }
+.poll-fill { position: absolute; inset: 0 auto 0 0; background: rgba(20,121,255,.13); }
+.poll-row { position: relative; display: flex; justify-content: space-between; font-size: 14px; }
+.poll-pct { color: var(--ink2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
-  /* comments */
-  .comments-card {
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--r-card); overflow: hidden;
-    box-shadow: 0 2px 24px rgba(0,0,0,0.4);
-  }
-  .cmt {
-    display: flex; gap: 11px; padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .cmt:last-child { border-bottom: 0; }
-  .cmt-av {
-    width: 34px; height: 34px; border-radius: 50%; flex: none;
-    font-size: 13px; font-weight: 700; color: var(--ink-soft);
-    background: var(--surface2); border: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center; overflow: hidden;
-  }
-  .cmt-av img { width: 34px; height: 34px; object-fit: cover; }
-  .cmt-body { min-width: 0; flex: 1; }
-  .cmt-head { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 4px; }
-  .cmt-author { font-weight: 700; font-size: 13.5px; }
-  .cmt-time { color: var(--ink-muted); font-size: 12px; }
-  .cmt-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8e8; }
-  .cmt-img { margin-top: 8px; border-radius: 10px; overflow: hidden; max-height: 200px; }
-  .cmt-img img { width: 100%; max-height: 200px; object-fit: cover; }
-  .cmt-likes { color: var(--ink-muted); font-size: 12px; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
-  .pill { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 100px; }
-  .pill-pinned { background: var(--blue-glow); color: var(--blue); }
-  .pill-owner  { background: rgba(255,75,75,.1); color: #ff6060; }
-  .replies { margin-top: 10px; padding-left: 13px; border-left: 2px solid var(--border2); display: flex; flex-direction: column; gap: 10px; }
-  .reply { display: flex; gap: 9px; }
-  .reply .cmt-av { width: 28px; height: 28px; font-size: 11px; }
-  .reply .cmt-av img { width: 28px; height: 28px; }
-  .reply .cmt-author { font-size: 13px; }
-  .reply .cmt-text  { font-size: 13.5px; }
+/* ─── stats ─── */
+.stats {
+  display: flex; gap: 16px; color: var(--ink2);
+  font-size: 13px; padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+.stat { display: flex; align-items: center; gap: 4px; }
+.stat svg { width: 14px; height: 14px; opacity: .6; }
 
-  /* download CTA */
-  .cta {
-    margin-top: 16px;
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--r-card);
-    padding: 28px 22px 26px;
-    text-align: center;
-    box-shadow: 0 2px 24px rgba(0,0,0,0.4);
-    position: relative; overflow: hidden;
-  }
-  .cta::before {
-    content: '';
-    position: absolute; inset: 0;
-    background: radial-gradient(ellipse 80% 60% at 50% -10%, var(--blue-glow), transparent 70%);
-    pointer-events: none;
-  }
-  .cta-logo { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px; display: block; position: relative; }
-  .cta h3 { font-size: 20px; font-weight: 800; letter-spacing: -.03em; margin-bottom: 7px; position: relative; }
-  .cta p { color: var(--ink-soft); font-size: 14px; margin-bottom: 22px; line-height: 1.5; max-width: 320px; margin-left: auto; margin-right: auto; position: relative; }
-  .stores { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; position: relative; }
-  .store-btn {
-    display: inline-flex; align-items: center; gap: 10px;
-    background: var(--surface2); color: var(--ink);
-    border: 1px solid var(--border2);
-    padding: 12px 22px; border-radius: 14px;
-    font-weight: 650; font-size: 14px; font-family: inherit;
-    transition: background .15s;
-  }
-  .store-btn:hover { background: #1e1e26; }
-  .store-btn svg { width: 20px; height: 20px; flex: none; }
-  .store-btn .lbl { display: flex; flex-direction: column; text-align: left; }
-  .store-btn .sub  { font-size: 10.5px; font-weight: 500; color: var(--ink-soft); line-height: 1; margin-bottom: 2px; }
-  .store-btn .name { font-size: 14.5px; font-weight: 750; line-height: 1; }
+/* ─── comments ─── */
+.comments-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink3); margin-bottom: 16px;
+}
+.comment { display: flex; gap: 10px; margin-bottom: 16px; }
+.comment .av { width: 32px; height: 32px; font-size: 13px; }
+.comment .av img { width: 32px; height: 32px; }
+.comment-body { flex: 1; min-width: 0; }
+.comment-meta { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+.comment-author { font-size: 13px; font-weight: 700; }
+.comment-time { font-size: 11.5px; color: var(--ink3); }
+.comment-text { font-size: 13.5px; line-height: 1.5; color: #c8c8d8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-img { margin-top: 7px; border-radius: 9px; overflow: hidden; }
+.comment-img img { max-height: 180px; object-fit: cover; }
+.comment-likes { font-size: 11.5px; color: var(--ink3); margin-top: 5px; display: flex; align-items: center; gap: 3px; }
+.pill { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 100px; }
+.pill-pin { background: rgba(20,121,255,.12); color: var(--blue); }
+.pill-owner { background: rgba(255,60,60,.1); color: #ff5555; }
+.replies { margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.reply { display: flex; gap: 8px; }
+.reply .av { width: 26px; height: 26px; font-size: 10px; }
+.reply .av img { width: 26px; height: 26px; }
 
-  /* footer */
-  footer { text-align: center; color: var(--ink-muted); font-size: 12px; margin-top: 32px; }
-  footer a { color: var(--ink-muted); margin: 0 8px; }
-  footer a:hover { color: var(--ink-soft); }
+/* ─── sticky open bar ─── */
+.open-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: rgba(9,9,11,.88);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--border);
+  padding: 12px 20px 28px;
+  display: flex; align-items: center; gap: 12px;
+  z-index: 100;
+}
+.open-bar img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+.open-bar-text { flex: 1; min-width: 0; }
+.open-bar-text strong { font-size: 14px; font-weight: 700; display: block; }
+.open-bar-text span { font-size: 12px; color: var(--ink2); }
+.open-bar-btn {
+  background: var(--blue); color: #fff;
+  border: none; font-family: inherit; cursor: pointer;
+  font-size: 14px; font-weight: 700; padding: 10px 18px;
+  border-radius: 100px; white-space: nowrap; flex: none;
+}
 
-  /* in-app browser hint */
-  .inapp-hint {
-    display: none;
-    background: #1a1a22; border: 1px solid var(--border2);
-    border-radius: 12px; padding: 12px 16px;
-    margin-top: 10px; font-size: 13.5px; color: var(--ink-soft);
-    line-height: 1.5; text-align: center;
-  }
-  .inapp-hint b { color: var(--ink); }
+/* ─── below-fold download (non-sticky fallback) ─── */
+.download-alt {
+  text-align: center; padding: 32px 0 8px; color: var(--ink2); font-size: 13.5px;
+}
+.download-alt p { margin-bottom: 16px; }
+.store-links { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.store-link {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 18px;
+  font-size: 13.5px; font-weight: 650;
+  transition: border-color .15s;
+}
+.store-link:hover { border-color: rgba(255,255,255,.2); }
+.store-link svg { width: 18px; height: 18px; flex: none; }
 
-  @media (max-width: 460px) {
-    .open-btn { padding: 9px 16px; font-size: 13px; }
-    .stores { flex-direction: column; align-items: stretch; }
-    .store-btn { justify-content: center; }
-    .cta h3 { font-size: 18px; }
-  }
+/* ─── footer ─── */
+footer { text-align: center; padding: 16px 0 4px; font-size: 11.5px; color: var(--ink3); }
+footer a { color: var(--ink3); margin: 0 6px; }
+
+@media (max-width: 400px) {
+  .open-bar-text span { display: none; }
+  .open-bar-btn { font-size: 13px; padding: 9px 14px; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<!-- Sticky open-in-app bar at the bottom -->
+<div class="open-bar">
+  <img src="/brand/logo-dark.png" alt="Neat" />
+  <div class="open-bar-text">
+    <strong>Άνοιξε στο Neat</strong>
+    <span>Δες το post απευθείας στην εφαρμογή</span>
+  </div>
+  <button class="open-bar-btn" onclick="openInApp()">Άνοιγμα</button>
+</div>
+
+<div class="page">
 
   <!-- Header -->
-  <header>
-    <a class="brand" href="/"><img src="/brand/logo-dark.png" alt="Neat" /></a>
-    <button class="open-btn" onclick="openInApp()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
-      Άνοιγμα στην εφαρμογή
-    </button>
+  <header class="header">
+    <a href="/"><img class="logo" src="/brand/logo-dark.png" alt="Neat" /></a>
+    <button class="header-open" onclick="openInApp()">Άνοιγμα στην εφαρμογή ↗</button>
   </header>
-  <div class="inapp-hint" id="inapp-hint">
-    Πάτα <b>···</b> ή <b>⋮</b> και μετά <b>«Άνοιγμα στο πρόγραμμα περιήγησης»</b> για να ανοίξεις απευθείας στην εφαρμογή.
-  </div>
 
-  <!-- Post card -->
-  <div class="card">
-    <div class="card-inner">
-
-      <!-- Byline -->
-      <div class="byline">
-        <div class="av-wrap">
-          {% if post.avatarUrl %}<img src="{{ post.avatarUrl }}" alt="" loading="lazy" />
-          {% else %}{{ post.author|first|upper }}{% endif %}
-        </div>
-        <div class="who">
-          <div class="author-row">
-            <span class="author">@{{ post.author }}</span>
-            {% if post.authorVerified %}
-              <svg class="v-badge" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
-                <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="var(--surface)"/>
-              </svg>
-            {% endif %}
-          </div>
-          <div class="meta">{{ post.created|greek_ago }}{% if post.city %}&thinsp;·&thinsp;{{ post.city }}{% endif %}</div>
-        </div>
-      </div>
-
-      <!-- Text -->
-      {% if post.text %}<div class="post-text">{{ post.text }}</div>{% endif %}
-
-      <!-- Poll -->
-      {% if post.poll %}
-        <div class="poll">
-          {% for option in post.poll.options %}
-            {% with pct=option|poll_percent:post.poll %}
-              <div class="poll-option">
-                <div class="poll-fill" style="width:{{ pct }}%"></div>
-                <div class="poll-row">
-                  <span>{{ option.text }}</span>
-                  <span class="poll-pct">{{ pct }}%</span>
-                </div>
-              </div>
-            {% endwith %}
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      <!-- Link preview -->
-      {% if post.link_preview %}
-        <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener" target="_blank">
-          {% if post.link_preview.image_url %}<img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />{% endif %}
-          <div class="linkcard-body">
-            {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
-            {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
-            {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:130 }}</div>{% endif %}
-          </div>
-        </a>
-      {% endif %}
-
-    </div><!-- /card-inner -->
-
-    <!-- Media (bleeds to card edges) -->
-    {% if post.media %}
-      <div class="media-wrap">
-        {% if post.media|length == 1 %}
-          <div class="media-single">
-            {% with item=post.media.0 %}
-              {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" controls playsinline preload="metadata"></video>
-              {% endif %}
-            {% endwith %}
-          </div>
-        {% else %}
-          <div class="media-grid">
-            {% for item in post.media %}
-              {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-              {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" playsinline preload="metadata"></video>
-              {% endif %}
-            {% endfor %}
-          </div>
+  <!-- Author -->
+  <div class="author-row">
+    <div class="av">
+      {% if post.avatarUrl %}<img src="{{ post.avatarUrl }}" alt="" loading="lazy" />
+      {% else %}{{ post.author|first|upper }}{% endif %}
+    </div>
+    <div class="av-info">
+      <div class="handle">
+        @{{ post.author }}
+        {% if post.authorVerified %}
+          <svg class="verified" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
+            <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="var(--bg)"/>
+          </svg>
         {% endif %}
       </div>
-    {% endif %}
-
-    <!-- Stats -->
-    <div class="stats">
-      <span class="stat">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
-        <b>{{ post.likes }}</b>
-      </span>
-      <span class="stat">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <b>{{ post.comment_count }}</b>
-      </span>
-      {% if post.shares %}<span class="stat">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l7 6-7 6v-3.5c-4 0-7 1-9 3.5.6-4.6 3.6-7.5 9-8z"/></svg>
-        <b>{{ post.shares }}</b>
-      </span>{% endif %}
+      <div class="meta">{{ post.created|greek_ago }}{% if post.city %} · {{ post.city }}{% endif %}</div>
     </div>
-  </div><!-- /card -->
+  </div>
 
-  <!-- Comments -->
-  {% if post.comments %}
-    <div class="section-label">Σχόλια</div>
-    <div class="comments-card">
-      {% for comment in post.comments %}
-        <div class="cmt">
-          <div class="cmt-av">
-            {% if comment.avatarUrl %}<img src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
-            {% else %}{{ comment.author|first|upper }}{% endif %}
+  <!-- Text -->
+  {% if post.text %}<div class="post-text">{{ post.text }}</div>{% endif %}
+
+  <!-- Poll -->
+  {% if post.poll %}
+    <div class="poll">
+      {% for option in post.poll.options %}
+        {% with pct=option|poll_percent:post.poll %}
+          <div class="poll-opt">
+            <div class="poll-fill" style="width:{{ pct }}%"></div>
+            <div class="poll-row"><span>{{ option.text }}</span><span class="poll-pct">{{ pct }}%</span></div>
           </div>
-          <div class="cmt-body">
-            <div class="cmt-head">
-              <span class="cmt-author">@{{ comment.author }}</span>
-              <span class="cmt-time">{{ comment.created|greek_ago }}</span>
-              {% if comment.pinned %}<span class="pill pill-pinned">Καρφιτσωμένο</span>{% endif %}
-              {% if comment.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
-            </div>
-            {% if comment.text %}<div class="cmt-text">{{ comment.text }}</div>{% endif %}
-            {% if comment.imageUrl %}<div class="cmt-img"><img src="{{ comment.imageUrl }}" alt="" loading="lazy" /></div>{% endif %}
-            {% if comment.likes %}<div class="cmt-likes"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ comment.likes }}</div>{% endif %}
-            {% if comment.replies %}
-              <div class="replies">
-                {% for reply in comment.replies %}
-                  <div class="reply">
-                    <div class="cmt-av">
-                      {% if reply.avatarUrl %}<img src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
-                      {% else %}{{ reply.author|first|upper }}{% endif %}
-                    </div>
-                    <div class="cmt-body">
-                      <div class="cmt-head">
-                        <span class="cmt-author">@{{ reply.author }}</span>
-                        <span class="cmt-time">{{ reply.created|greek_ago }}</span>
-                        {% if reply.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
-                      </div>
-                      {% if reply.text %}<div class="cmt-text">{{ reply.text }}</div>{% endif %}
-                      {% if reply.likes %}<div class="cmt-likes"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ reply.likes }}</div>{% endif %}
-                    </div>
-                  </div>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-        </div>
+        {% endwith %}
       {% endfor %}
     </div>
   {% endif %}
 
-  <!-- Download CTA -->
-  <div class="cta">
-    <img class="cta-logo" src="/brand/logo-dark.png" alt="Neat" />
-    <h3>Δες τι γίνεται γύρω σου</h3>
-    <p>Ανακάλυψε τοπικά νέα, events και ανθρώπους από την πόλη σου.</p>
-    <div class="stores">
-      <a class="store-btn" href="{{ app_store_url }}" rel="noopener">
+  <!-- Link preview -->
+  {% if post.link_preview %}
+    <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener" target="_blank">
+      {% if post.link_preview.image_url %}<img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />{% endif %}
+      <div class="linkcard-body">
+        {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
+        {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
+        {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:120 }}</div>{% endif %}
+      </div>
+    </a>
+  {% endif %}
+
+  <!-- Media -->
+  {% if post.media %}
+    {% if post.media|length == 1 %}
+      {% with item=post.media.0 %}
+        <div class="media">
+          {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
+          {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" controls playsinline preload="metadata"></video>
+          {% endif %}
+        </div>
+      {% endwith %}
+    {% else %}
+      <div class="media-grid">
+        {% for item in post.media %}
+          {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
+          {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" playsinline preload="metadata"></video>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endif %}
+
+  <!-- Stats -->
+  <div class="stats">
+    <span class="stat">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+      {{ post.likes }}
+    </span>
+    <span class="stat">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      {{ post.comment_count }}
+    </span>
+    {% if post.shares %}<span class="stat">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l7 6-7 6v-3.5c-4 0-7 1-9 3.5.6-4.6 3.6-7.5 9-8z"/></svg>
+      {{ post.shares }}
+    </span>{% endif %}
+  </div>
+
+  <!-- Comments -->
+  {% if post.comments %}
+    <div class="comments-title">Σχόλια</div>
+    {% for comment in post.comments %}
+      <div class="comment">
+        <div class="av">
+          {% if comment.avatarUrl %}<img src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
+          {% else %}{{ comment.author|first|upper }}{% endif %}
+        </div>
+        <div class="comment-body">
+          <div class="comment-meta">
+            <span class="comment-author">@{{ comment.author }}</span>
+            <span class="comment-time">{{ comment.created|greek_ago }}</span>
+            {% if comment.pinned %}<span class="pill pill-pin">Καρφιτσωμένο</span>{% endif %}
+            {% if comment.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
+          </div>
+          {% if comment.text %}<div class="comment-text">{{ comment.text }}</div>{% endif %}
+          {% if comment.imageUrl %}<div class="comment-img"><img src="{{ comment.imageUrl }}" alt="" loading="lazy" /></div>{% endif %}
+          {% if comment.likes %}<div class="comment-likes"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ comment.likes }}</div>{% endif %}
+          {% if comment.replies %}
+            <div class="replies">
+              {% for reply in comment.replies %}
+                <div class="reply">
+                  <div class="av">
+                    {% if reply.avatarUrl %}<img src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
+                    {% else %}{{ reply.author|first|upper }}{% endif %}
+                  </div>
+                  <div class="comment-body">
+                    <div class="comment-meta">
+                      <span class="comment-author">@{{ reply.author }}</span>
+                      <span class="comment-time">{{ reply.created|greek_ago }}</span>
+                      {% if reply.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
+                    </div>
+                    {% if reply.text %}<div class="comment-text">{{ reply.text }}</div>{% endif %}
+                    {% if reply.likes %}<div class="comment-likes"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ reply.likes }}</div>{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Download section (below-fold fallback for people without the app) -->
+  <div class="download-alt">
+    <p>Δεν έχεις το Neat;</p>
+    <div class="store-links">
+      <a class="store-link" href="{{ app_store_url }}" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-        <span class="lbl"><span class="sub">Κατέβασε στο</span><span class="name">App Store</span></span>
+        App Store
       </a>
-      <a class="store-btn" href="{{ play_store_url }}" rel="noopener">
+      <a class="store-link" href="{{ play_store_url }}" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 20.5v-17c0-.83.94-1.3 1.6-.8l14 8.5c.6.36.6 1.24 0 1.6l-14 8.5c-.66.5-1.6.03-1.6-.8z"/></svg>
-        <span class="lbl"><span class="sub">Κατέβασε στο</span><span class="name">Google Play</span></span>
+        Google Play
       </a>
     </div>
   </div>
 
   <footer>
-    <a href="/privacy">Απόρρητο</a>&ensp;·&ensp;<a href="/terms">Όροι χρήσης</a>
+    <a href="/privacy">Απόρρητο</a>&ensp;·&ensp;<a href="/terms">Όροι</a>
   </footer>
 
 </div>
 
 <script>
-  var POST_ID     = {{ post_id }};
-  var IOS_STORE   = '{{ app_store_url }}';
-  var PLAY_STORE  = '{{ play_store_url }}';
-  var ua          = navigator.userAgent || '';
-  var isIOS       = /iphone|ipad|ipod/i.test(ua);
-  var isAndroid   = /android/i.test(ua);
-  // Instagram, Facebook, Twitter, Snapchat, TikTok all run their own WebView
-  // on iOS and block custom-scheme navigation entirely.
-  var isInAppBrowser = /instagram|fban|fbav|fbios|twitter|snapchat|tiktok|musical/i.test(ua);
+var POST_ID   = {{ post_id }};
+var IOS_STORE = '{{ app_store_url }}';
+var AND_STORE = '{{ play_store_url }}';
+var ua        = navigator.userAgent || '';
+var isAndroid = /android/i.test(ua);
 
-  // Show "open in browser" hint immediately if we're inside an in-app browser,
-  // because nothing else will work there on iOS.
-  if (isInAppBrowser && isIOS) {
-    document.getElementById('inapp-hint').style.display = 'block';
+function openInApp() {
+  if (isAndroid) {
+    // Android Intent URL opens the app directly; falls back to Play Store
+    window.location.href =
+      'intent://post/' + POST_ID +
+      '#Intent;scheme=neat;package=gr.app.neat;' +
+      'S.browser_fallback_url=' + encodeURIComponent(AND_STORE) + ';end';
+    return;
   }
-
-  function openInApp() {
-    if (isInAppBrowser && isIOS) {
-      // Can't navigate out of Instagram/FB WebView programmatically on iOS.
-      // The hint above is already visible — just scroll to it.
-      document.getElementById('inapp-hint').scrollIntoView({ behavior: 'smooth' });
-      return;
+  // iOS / desktop: fire the custom scheme and fall back to App Store
+  // if the app doesn't take over within 1.5 s.
+  window.location.href = 'neat://post/' + POST_ID;
+  var t = Date.now();
+  setTimeout(function () {
+    if (!document.hidden && Date.now() - t < 2500) {
+      window.location.href = IOS_STORE;
     }
-
-    if (isAndroid) {
-      // Android Intent URL: launches the app directly; falls back to Play Store
-      // if the app is not installed (S.browser_fallback_url).
-      window.location.href =
-        'intent://post/' + POST_ID +
-        '#Intent;scheme=neat;package=gr.app.neat;' +
-        'S.browser_fallback_url=' + encodeURIComponent(PLAY_STORE) + ';end';
-      return;
-    }
-
-    // iOS Safari (or desktop): try the custom scheme.
-    // If the app is installed, iOS hands it off immediately.
-    // If not, the redirect fails silently — after 2 s we send them to the
-    // App Store (document.hidden guards against firing if they did switch apps).
-    window.location.href = 'neat://post/' + POST_ID;
-    var gone = Date.now();
-    setTimeout(function () {
-      if (!document.hidden && Date.now() - gone < 3000) {
-        window.location.href = IOS_STORE;
-      }
-    }, 2000);
-  }
+  }, 1500);
+}
 </script>
 </body>
 </html>
