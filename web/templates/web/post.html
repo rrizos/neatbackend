@@ -35,16 +35,17 @@
      the two state colours (a red heart, an amber bookmark) it actually uses. */
   :root {
     --bg: #000000;
-    --line: #242424;          /* the post card's border */
-    --line-soft: #2a2a2a;     /* the sheet's border, and avatar ground */
+    --line: #242424;
+    --line-soft: #2a2a2a;
     --ink: #ffffff;
-    --ink-mute: #b3b3b3;      /* post meta */
-    --ink-dim: #7a7a7a;       /* comment meta */
-    --blue: #3897f0;          /* mentions and links, as in the comment sheet */
-    --blue-badge: #0095f6;    /* the verified tick */
-    --accent: #4ea3ff;        /* ColorScheme.secondary */
-    --like: #f44336;          /* Colors.red */
+    --ink-mute: #b3b3b3;
+    --ink-dim: #7a7a7a;
+    --blue: #3897f0;
+    --blue-badge: #0095f6;
+    --accent: #4ea3ff;
+    --like: #f44336;
     --save: #ffb800;
+    --bar: calc(58px + env(safe-area-inset-bottom));
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
 
@@ -54,7 +55,8 @@
     margin: 0; background: var(--bg); color: var(--ink);
     font-family: var(--sans); line-height: 1.45;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    /* One screen, like the app: nothing here scrolls but the sheets. */
+    height: 100dvh; overflow: hidden;
   }
   a { color: inherit; text-decoration: none; }
   button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -62,8 +64,6 @@
   ol, ul { list-style: none; margin: 0; padding: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* The app's own button: no fill, a hairline of the current text colour,
-     an 8px radius. Used for follow, for the store link, for everything. */
   .btn {
     display: inline-flex; align-items: center; gap: 6px;
     border: 1px solid currentColor; border-radius: 8px;
@@ -77,26 +77,16 @@
   .topbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 40;
     display: flex; align-items: center; gap: 10px;
-    padding: 8px 12px;
-    padding-top: calc(8px + env(safe-area-inset-top));
-    background: linear-gradient(180deg, rgba(0, 0, 0, .78), rgba(0, 0, 0, 0));
-    border-bottom: 1px solid transparent;
+    padding: 6px 12px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(0, 0, 0, .7), rgba(0, 0, 0, 0));
   }
-  .topbar.solid { background: var(--bg); border-bottom-color: var(--line); }
-  .brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 17px; }
-  .brand img { width: 30px; height: 30px; }
+  .brand { display: flex; align-items: center; }
+  .brand img { width: 46px; height: 46px; }
   .topbar .spacer { flex: 1; }
 
-  /* ── layout ──────────────────────────────────────────────────────────── */
-  .wrap { padding-bottom: calc(60px + env(safe-area-inset-bottom) + 16px); }
-  .shell { max-width: 1100px; margin: 0 auto; }
-
   /* ── stage ───────────────────────────────────────────────────────────── */
-  .stage {
-    position: relative; background: #000; overflow: hidden;
-    height: min(74dvh, 680px); min-height: 320px;
-    touch-action: pan-y;
-  }
+  .stage { position: fixed; inset: 0; background: #000; overflow: hidden; touch-action: pan-y; }
   .deck {
     display: flex; height: 100%; overflow-x: auto; overflow-y: hidden;
     scroll-snap-type: x mandatory; scrollbar-width: none;
@@ -108,8 +98,6 @@
     scroll-snap-align: center; scroll-snap-stop: always;
     margin: 0; display: grid; place-items: center; overflow: hidden;
   }
-  /* Behind media that does not fill the frame. Dimmed hard so it reads as
-     wall, not as a second picture competing with the first. */
   .slide-bg {
     position: absolute; inset: -8%; z-index: 0;
     background-size: cover; background-position: center;
@@ -117,55 +105,45 @@
   }
   .slide-media {
     position: relative; z-index: 1;
-    max-width: 100%; max-height: 100%; width: auto; height: auto;
-    object-fit: contain;
+    max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;
   }
-  .slide.is-text { padding: 30px 24px; }
+  .slide.is-text { padding: 80px 24px calc(var(--bar) + 190px); }
   .slide.is-text .slide-bg { background: #000; filter: none; transform: none; inset: 0; }
   .bigtext {
-    position: relative; z-index: 1; max-width: 22ch;
+    position: relative; z-index: 1; max-width: 20ch;
     font-size: clamp(21px, 5vw, 30px); font-weight: 700; line-height: 1.3;
-    letter-spacing: -0.01em; text-align: center; text-wrap: balance;
+    text-align: center; text-wrap: balance;
     white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .bigtext .ln, .bigtext .tok { color: var(--blue); }
 
-  /* Only where controls sit, and only as far as they need. */
   .scrim-top, .scrim-bottom { position: absolute; left: 0; right: 0; z-index: 4; pointer-events: none; }
-  .scrim-top { top: 0; height: 110px; background: linear-gradient(180deg, rgba(0,0,0,.5), transparent); }
-  .scrim-bottom { bottom: 0; height: 170px; background: linear-gradient(0deg, rgba(0,0,0,.6), transparent); }
-  .stage.textonly .scrim-top, .stage.textonly .scrim-bottom { display: none; }
+  .scrim-top { top: 0; height: 120px; background: linear-gradient(180deg, rgba(0,0,0,.5), transparent); }
+  .scrim-bottom { bottom: 0; height: 300px; background: linear-gradient(0deg, rgba(0,0,0,.75), rgba(0,0,0,.35) 40%, transparent); }
 
   .processing {
     position: relative; z-index: 1; display: grid; gap: 10px; place-items: center;
     color: var(--ink-mute); font-size: 14px; text-align: center; padding: 20px;
   }
-  .spinner {
-    width: 24px; height: 24px; border-radius: 50%;
-    border: 2px solid #2a2a2a; border-top-color: #fff;
-    animation: spin .9s linear infinite;
-  }
+  .spinner { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #2a2a2a; border-top-color: #fff; animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* video chrome — bare glyphs, the way the app draws every icon */
   .playpause { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; pointer-events: none; }
   .playpause svg {
-    width: 68px; height: 68px; color: #fff;
-    filter: drop-shadow(0 2px 10px rgba(0,0,0,.55));
+    width: 68px; height: 68px; color: #fff; filter: drop-shadow(0 2px 10px rgba(0,0,0,.55));
     opacity: 0; transform: scale(.85); transition: opacity .2s ease, transform .2s ease;
   }
   .stage.paused .playpause svg { opacity: 1; transform: scale(1); }
   .mute {
-    position: absolute; left: 10px; bottom: 14px; z-index: 6;
+    position: absolute; right: 12px; top: calc(62px + env(safe-area-inset-top)); z-index: 6;
     width: 34px; height: 34px; display: grid; place-items: center; color: #fff;
     filter: drop-shadow(0 1px 4px rgba(0,0,0,.7));
   }
   .mute svg { width: 22px; height: 22px; }
-  .scrub { position: absolute; left: 0; right: 0; bottom: 0; z-index: 7; height: 2px; background: rgba(255,255,255,.22); }
+  .scrub { position: absolute; left: 0; right: 0; bottom: var(--bar); z-index: 7; height: 2px; background: rgba(255,255,255,.22); }
   .scrub i { display: block; height: 100%; width: 0; background: #fff; }
 
-  /* carousel */
-  .dots { position: absolute; left: 0; right: 0; bottom: 12px; z-index: 6; display: flex; gap: 5px; justify-content: center; pointer-events: none; }
+  .dots { position: absolute; left: 0; right: 0; bottom: calc(var(--bar) + 10px); z-index: 6; display: flex; gap: 5px; justify-content: center; pointer-events: none; }
   .dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); transition: background .2s ease; }
   .dots i.on { background: #fff; }
   .arrow {
@@ -188,14 +166,53 @@
     100% { opacity: 0; transform: scale(1.15); }
   }
 
+  /* ── who and what they said, over the media ──────────────────────────── */
+  .overlay {
+    position: absolute; left: 14px; right: 78px; bottom: calc(var(--bar) + 20px);
+    z-index: 9; max-height: 50dvh; overflow-y: auto; scrollbar-width: none;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+  }
+  .overlay::-webkit-scrollbar { display: none; }
+  .ov-author { display: flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 700; }
+  .verified { width: 15px; height: 15px; flex: none; color: var(--blue-badge); }
+  .ov-meta { color: var(--ink-mute); font-size: 13px; margin-top: 1px; }
+  .caption { font-size: 15px; line-height: 1.4; margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .caption.clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ln, .tok { color: #fff; font-weight: 700; }
+  .tok { cursor: pointer; }
+  .more { color: var(--ink-mute); font-size: 14px; font-weight: 600; margin-top: 2px; }
+
+  .linkcard {
+    display: flex; align-items: center; gap: 10px; margin-top: 10px; max-width: 300px;
+    border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 7px;
+    background: rgba(0, 0, 0, .45); text-shadow: none;
+  }
+  .linkcard img { width: 46px; height: 46px; border-radius: 7px; object-fit: cover; flex: none; }
+  .linkcard-body { min-width: 0; }
+  .linkcard-site { color: var(--ink-mute); font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .linkcard-title {
+    font-weight: 600; font-size: 13.5px; line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .poll { display: grid; gap: 7px; margin-top: 10px; max-width: 320px; text-shadow: none; }
+  .poll-option {
+    position: relative; height: 42px; display: flex; align-items: center;
+    border: 1px solid rgba(255,255,255,.28); border-radius: 12px; overflow: hidden; cursor: pointer;
+    background: rgba(0, 0, 0, .35);
+  }
+  .poll-fill { position: absolute; inset: 0 auto 0 0; z-index: 0; width: 0; background: rgba(255,255,255,.16); transition: width .45s cubic-bezier(0, 0, .58, 1); }
+  .poll-row { position: relative; z-index: 1; flex: 1; display: flex; justify-content: space-between; gap: 12px; padding: 0 13px; font-size: 14.5px; font-weight: 500; }
+  .poll-pct { color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+  .poll-total { color: var(--ink-mute); font-size: 12.5px; margin-top: 5px; }
+
   /* ── action rail ─────────────────────────────────────────────────────── */
-  /* The app's icons, at the app's sizes, with nothing drawn behind them. */
-  .rail { position: absolute; right: 6px; bottom: 20px; z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .stage.has-dots .overlay { bottom: calc(var(--bar) + 32px); }
+  .rail { position: absolute; right: 6px; bottom: calc(var(--bar) + 20px); z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 14px; }
   .rail-item { display: grid; justify-items: center; gap: 3px; }
   .rail-btn {
     width: 42px; height: 38px; display: grid; place-items: center; color: #fff;
-    filter: drop-shadow(0 1px 5px rgba(0,0,0,.75));
-    transition: transform .15s ease;
+    filter: drop-shadow(0 1px 5px rgba(0,0,0,.75)); transition: transform .15s ease;
   }
   .rail-btn:active { transform: scale(.9); }
   .rail-btn svg { width: 28px; height: 28px; }
@@ -203,128 +220,30 @@
   @keyframes pop { 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
   .rail-btn.on { color: var(--like); }
   .rail-btn.saved { color: var(--save); }
-  .rail-count {
-    font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums;
-    text-shadow: 0 1px 4px rgba(0,0,0,.75);
-  }
+  .rail-count { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px rgba(0,0,0,.75); }
   .rail-btn.on + .rail-count { color: var(--like); }
   .rail-avatar { position: relative; margin-bottom: 6px; }
   .rail-avatar .avatar { width: 44px; height: 44px; border: 1.5px solid #fff; }
   .rail-plus {
     position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
     width: 20px; height: 20px; border-radius: 50%;
-    background: var(--like); color: #fff; display: grid; place-items: center;
-    border: 1.5px solid #000;
+    background: var(--like); color: #fff; display: grid; place-items: center; border: 1.5px solid #000;
   }
   .rail-plus svg { width: 12px; height: 12px; }
 
-  /* ── panel ───────────────────────────────────────────────────────────── */
-  /* Both sides are black now, so without this the stage and the post below
-     it read as one undivided sheet. The app separates cards the same way. */
-  .phead { display: flex; align-items: center; gap: 12px; padding: 12px 14px 10px; border-top: 1px solid var(--line); }
-  .avatar {
-    width: 40px; height: 40px; border-radius: 50%; flex: none;
-    object-fit: cover; background: var(--line-soft);
-  }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; flex: none; object-fit: cover; background: var(--line-soft); }
   .avatar-fallback { display: grid; place-items: center; font-weight: 400; font-size: 16px; color: #fff; }
-  .who { min-width: 0; flex: 1; }
-  .name { display: flex; align-items: center; gap: 3px; font-weight: 700; font-size: 15px; }
-  .verified { width: 14px; height: 14px; flex: none; color: var(--blue-badge); }
-  .meta { color: var(--ink-mute); font-size: 12px; }
-
-  .pbody { padding: 0 16px; }
-
-  .caption { font-size: 15px; line-height: 1.5; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .caption.clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-  .ln, .tok { color: var(--blue); font-weight: 600; }
-  .tok { cursor: pointer; }
-  .more { color: var(--ink-dim); font-size: 14px; margin-top: 2px; }
-
-  .linkcard { display: block; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-top: 12px; }
-  .linkcard img { width: 100%; aspect-ratio: 1.91; object-fit: cover; }
-  .linkcard-body { padding: 10px 12px 12px; }
-  .linkcard-site { color: var(--ink-dim); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-  .linkcard-title { font-weight: 600; margin-top: 2px; font-size: 15px; }
-  .linkcard-desc { color: var(--ink-mute); font-size: 13px; margin-top: 2px; }
-
-  .poll { display: grid; gap: 8px; margin-top: 14px; }
-  .poll-option {
-    position: relative; height: 44px; display: flex; align-items: center;
-    border: 1px solid #333333; border-radius: 12px; overflow: hidden; cursor: pointer;
-  }
-  .poll-fill { position: absolute; inset: 0 auto 0 0; z-index: 0; width: 0; background: #222222; transition: width .45s cubic-bezier(0, 0, .58, 1); }
-  .poll-row { position: relative; z-index: 1; flex: 1; display: flex; justify-content: space-between; gap: 12px; padding: 0 14px; font-size: 15px; font-weight: 500; }
-  .poll-pct { color: #9a9a9a; font-variant-numeric: tabular-nums; font-weight: 500; }
-  .poll-total { color: var(--ink-dim); font-size: 13px; margin-top: 6px; }
-
-  .statline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink-mute); font-size: 13px; margin: 14px 0 0; }
-  .statline b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
-  .statline .sep { color: var(--ink-dim); }
-
-  /* ── comments ────────────────────────────────────────────────────────── */
-  .chead { font-size: 15px; font-weight: 700; margin: 18px 0 2px; padding-top: 14px; border-top: 1px solid var(--line); }
-  .chead span { color: var(--ink-dim); font-weight: 400; font-variant-numeric: tabular-nums; }
-
-  .comment { display: flex; gap: 10px; padding: 10px 0; }
-  .comment .avatar { width: 34px; height: 34px; font-size: 14px; }
-  .cbody { min-width: 0; flex: 1; }
-  .cauthor { font-weight: 700; font-size: 15px; line-height: 1.4; }
-  /* The app marks the author inline — " · Δημιουργός" in blue — rather than
-     with a coloured chip, and pinning reads the same way. */
-  .ctag { color: var(--blue); font-weight: 700; font-size: 13px; }
-  .cdot { color: var(--ink-dim); font-weight: 400; font-size: 13px; }
-  .ctext { font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .cimg { margin-top: 8px; border-radius: 12px; max-height: 260px; width: auto; }
-  .cfoot { display: flex; align-items: center; gap: 14px; color: var(--ink-dim); font-size: 12px; margin-top: 6px; }
-  .cfoot button { font-weight: 600; }
-  .cfoot button:hover { color: var(--ink-mute); }
-  .clike { display: grid; place-items: center; align-self: flex-start; margin-top: 4px; color: var(--ink); flex: none; }
-  .clike svg { width: 16px; height: 16px; }
-  .clike.on { color: var(--like); }
-
-  .replies { margin-top: 2px; }
-  .replies[hidden] { display: none; }
-  .replies .comment { padding: 8px 0; }
-  .replies .avatar { width: 27px; height: 27px; font-size: 12px; }
-  .replies .cauthor, .replies .ctext { font-size: 13.5px; }
-  .toggle-replies { display: flex; align-items: center; gap: 10px; color: var(--ink-dim); font-size: 12px; font-weight: 600; margin-top: 6px; }
-  .toggle-replies::before { content: ''; width: 24px; height: 1px; background: var(--line); }
-  .toggle-replies:hover { color: var(--ink-mute); }
-
-  .empty { color: var(--ink-dim); font-size: 14px; padding: 26px 0; text-align: center; white-space: pre-line; }
-
-  .composer {
-    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-    margin-top: 14px; padding: 12px 14px;
-    border: 1px solid var(--line); border-radius: 12px;
-    color: var(--ink-dim); font-size: 14px;
-  }
-  .composer .mark { width: 24px; height: 24px; border-radius: 6px; flex: none; }
-  .composer .ph { flex: 1; }
-  .composer b { color: var(--accent); font-weight: 600; font-size: 14px; }
-
-  /* ── footer ──────────────────────────────────────────────────────────── */
-  .footer-cta { margin: 24px 12px 0; padding: 26px 20px; text-align: center; border: 1px solid var(--line); border-radius: 18px; }
-  .footer-cta img.mark { width: 52px; height: 52px; border-radius: 13px; margin: 0 auto 12px; }
-  .footer-cta h3 { margin: 0 0 6px; font-size: 19px; font-weight: 700; }
-  .footer-cta p { margin: 0 auto 18px; color: var(--ink-mute); font-size: 14px; max-width: 32ch; }
-  .stores { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-  .store { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-weight: 600; font-size: 14px; }
-  .store svg { width: 18px; height: 18px; }
-
-  footer.legal { text-align: center; color: var(--ink-dim); font-size: 12px; margin-top: 20px; }
-  footer.legal a { margin: 0 8px; }
 
   /* ── sticky open-in-app bar ──────────────────────────────────────────── */
   .appbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
     background: var(--bg); border-top: 1px solid var(--line);
     transform: translateY(110%); transition: transform .35s ease;
   }
   .appbar.up { transform: translateY(0); }
-  .appbar .mark { width: 38px; height: 38px; border-radius: 10px; flex: none; }
+  .appbar .mark { width: 36px; height: 36px; border-radius: 10px; flex: none; }
   .appbar-copy { flex: 1; min-width: 0; }
   .appbar-copy b { display: block; font-size: 14px; font-weight: 700; }
   .appbar-copy span { display: block; color: var(--ink-mute); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -333,31 +252,89 @@
   .appbar .close { width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-dim); flex: none; }
   .appbar .close svg { width: 18px; height: 18px; }
 
-  /* ── open-in-app sheet ───────────────────────────────────────────────── */
-  /* Shaped like the app's own bottomSheetTheme: 28px top radius, black, and a
-     hairline so it does not vanish into the page behind it. */
-  .scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.65); opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  /* ── sheets ──────────────────────────────────────────────────────────── */
+  /* Shaped like the app's bottomSheetTheme: 28px top radius, black, hairline. */
+  .scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .25s ease; }
   .scrim.open { opacity: 1; pointer-events: auto; }
   .sheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
     background: var(--bg); border: 1px solid var(--line-soft); border-bottom: 0;
     border-radius: 28px 28px 0 0;
-    padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
     transform: translateY(102%); transition: transform .32s ease;
-    text-align: center;
   }
   .sheet.open { transform: translateY(0); }
-  .grabber { width: 36px; height: 4px; border-radius: 2px; background: var(--line-soft); margin: 0 auto 18px; }
-  .sheet .mark { width: 60px; height: 60px; border-radius: 15px; margin: 0 auto 14px; }
-  .sheet h4 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
-  .sheet p { margin: 0 auto 20px; color: var(--ink-mute); font-size: 14px; max-width: 30ch; }
-  .sheet .primary { display: block; width: 100%; background: var(--accent); color: #000; font-weight: 700; font-size: 15px; padding: 13px; border-radius: 10px; }
-  .sheet .primary:active { opacity: .7; }
-  .sheet .stores { margin-top: 10px; }
-  .sheet .ghost { display: block; width: 100%; margin-top: 14px; color: var(--ink-dim); font-size: 14px; padding: 6px; }
+  .grabber { width: 36px; height: 4px; border-radius: 2px; background: var(--line-soft); margin: 10px auto 0; flex: none; }
+
+  /* the comments sheet */
+  .csheet { display: flex; flex-direction: column; height: min(74dvh, 760px); }
+  .csheet-head {
+    position: relative; text-align: center; padding: 12px 44px 10px;
+    font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--line); flex: none;
+  }
+  .csheet-head span { color: var(--ink-dim); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .csheet-close { position: absolute; right: 14px; top: 10px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--ink); }
+  .csheet-close svg { width: 18px; height: 18px; }
+  .csheet-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 8px; }
+  .csheet-body::-webkit-scrollbar { width: 6px; }
+  .csheet-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+
+  .comment { display: flex; gap: 10px; padding: 10px 0; }
+  .comment .avatar { width: 34px; height: 34px; font-size: 14px; }
+  .cbody { min-width: 0; flex: 1; }
+  .cauthor { font-weight: 700; font-size: 15px; line-height: 1.4; }
+  .ctag { color: var(--blue); font-weight: 700; font-size: 13px; }
+  .cdot { color: var(--ink-dim); font-weight: 400; font-size: 13px; }
+  .ctext { font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ctext .ln, .ctext .tok { color: var(--blue); font-weight: 600; }
+  .cimg { margin-top: 8px; border-radius: 12px; max-height: 240px; width: auto; }
+  /* Four items rarely fit one line on a phone. Wrap between them, never
+     through them — "Αρέσει στον / δημιουργό" split across columns read as
+     two separate labels. */
+  .cfoot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-dim); font-size: 12px; margin-top: 6px; }
+  .cfoot > * { white-space: nowrap; }
+  .cfoot button { font-weight: 600; }
+  .clike { display: grid; place-items: center; align-self: flex-start; margin-top: 4px; color: var(--ink); flex: none; }
+  .clike svg { width: 16px; height: 16px; }
+  .clike.on { color: var(--like); }
+  .replies { margin-top: 2px; }
+  .replies[hidden] { display: none; }
+  .replies .comment { padding: 8px 0; }
+  .replies .avatar { width: 27px; height: 27px; font-size: 12px; }
+  .replies .cauthor, .replies .ctext { font-size: 13.5px; }
+  .toggle-replies { display: flex; align-items: center; gap: 10px; color: var(--ink-dim); font-size: 12px; font-weight: 600; margin-top: 6px; }
+  .toggle-replies::before { content: ''; width: 24px; height: 1px; background: var(--line); }
+  .empty { color: var(--ink-dim); font-size: 14px; padding: 40px 0; text-align: center; white-space: pre-line; }
+
+  .composer {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; flex: none;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); color: var(--ink-dim); font-size: 14px;
+  }
+  .composer .mark { width: 26px; height: 26px; border-radius: 7px; flex: none; }
+  .composer .ph { flex: 1; }
+  .composer b { color: var(--accent); font-weight: 600; font-size: 14px; }
+
+  /* the "you need the app" sheet */
+  .gsheet { padding: 0 20px calc(22px + env(safe-area-inset-bottom)); text-align: center; }
+  .gsheet .mark { width: 60px; height: 60px; border-radius: 15px; margin: 18px auto 14px; }
+  .gsheet h4 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
+  .gsheet p { margin: 0 auto 20px; color: var(--ink-mute); font-size: 14px; max-width: 30ch; }
+  .gsheet .primary { display: block; width: 100%; background: var(--accent); color: #000; font-weight: 700; font-size: 15px; padding: 13px; border-radius: 10px; }
+  .gsheet .primary:active { opacity: .7; }
+  .stores { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+  .store {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1px solid var(--line-soft); border-radius: 10px; padding: 11px 12px;
+    font-weight: 600; font-size: 14px;
+  }
+  .store svg { width: 20px; height: 20px; flex: none; }
+  .store:active { opacity: .7; }
+  .gsheet .ghost { display: block; width: 100%; margin-top: 14px; color: var(--ink-dim); font-size: 14px; padding: 6px; }
+  .gsheet .legal { margin-top: 12px; color: var(--ink-dim); font-size: 12px; }
+  .gsheet .legal a { margin: 0 7px; }
 
   .toast {
-    position: fixed; left: 50%; bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 70;
+    position: fixed; left: 50%; bottom: calc(var(--bar) + 16px); z-index: 70;
     transform: translate(-50%, 10px); opacity: 0; pointer-events: none;
     background: #1a1a1a; border: 1px solid var(--line); color: #fff;
     font-size: 14px; padding: 11px 18px; border-radius: 8px;
@@ -365,24 +342,22 @@
   }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-  /* ── desktop: the post card, two-up ──────────────────────────────────── */
-  @media (min-width: 1000px) {
-    .wrap { padding-top: 68px; }
-    .shell {
-      display: grid; grid-template-columns: minmax(0, 1fr) 400px;
-      border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+  /* ── desktop: the same screen, held to a phone's proportions ─────────── */
+  @media (min-width: 900px) {
+    .stage { left: 50%; transform: translateX(-50%); width: min(100vw, 520px); }
+    /* The bar belongs to the screen, not to the browser window — pinned to the
+       page edges it left the logo and the CTA stranded in the black. */
+    .topbar { left: 50%; transform: translateX(-50%); width: min(100vw, 520px); }
+    .stage::before {
+      content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+      border-left: 1px solid var(--line); border-right: 1px solid var(--line);
     }
-    .stage { height: min(78vh, 760px); min-height: 500px; }
-    .panel { display: flex; flex-direction: column; height: min(78vh, 760px); border-left: 1px solid var(--line); }
-    .phead { border-top: 0; border-bottom: 1px solid var(--line); }
-    .pbody { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 8px; }
-    .pbody::-webkit-scrollbar { width: 6px; }
-    .pbody::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
-    .composer { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 13px 16px; }
-    .rail { right: 10px; bottom: 18px; }
-    .footer-cta { margin: 22px auto 0; max-width: 560px; }
+    .sheet { left: 50%; transform: translate(-50%, 102%); width: min(100vw, 520px); }
+    .sheet.open { transform: translate(-50%, 0); }
+    .appbar { left: 50%; transform: translate(-50%, 110%); width: min(100vw, 520px); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+    .appbar.up { transform: translate(-50%, 0); }
+    .toast { bottom: calc(var(--bar) + 16px); }
   }
-  @media (min-width: 1000px) and (max-width: 1140px) { .shell { max-width: calc(100vw - 40px); } }
 
   @media (prefers-reduced-motion: reduce) {
     * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -392,7 +367,7 @@
 <body>
 
 <header class="topbar" id="topbar">
-  <a class="brand" href="/"><img src="/brand/logo-dark.png" alt="" width="30" height="30" />Neat</a>
+  <a class="brand" href="/" aria-label="Neat"><img src="/brand/logo-dark.png" alt="Neat" width="46" height="46" /></a>
   <div class="spacer"></div>
   <button class="btn" data-store="1">
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
@@ -400,282 +375,158 @@
   </button>
 </header>
 
-<div class="wrap">
-<main class="shell">
-
-  {# ── the stage: media if there is any, otherwise the caption as a poster ── #}
-  <section class="stage{% if not media_count %} textonly{% endif %}" id="stage" aria-label="Περιεχόμενο δημοσίευσης">
-    <div class="deck" id="deck">
-      {% if media_count %}
-        {% for item in post.media %}
-          <figure class="slide" data-type="{{ item.type }}">
-            {% if item.bgUrl %}<div class="slide-bg" style="background-image:url('{{ item.bgUrl }}')"></div>{% endif %}
-            {% if item.status == 'processing' %}
-              <div class="processing">
-                <div class="spinner"></div>
-                <div>Το βίντεο ετοιμάζεται… {{ item.progress }}%</div>
-              </div>
-            {% elif item.type == 'video' %}
-              <video class="slide-media" src="{{ item.url }}"
-                     {% if item.thumbUrl %}poster="{{ item.thumbUrl }}"{% endif %}
-                     muted loop playsinline preload="{% if forloop.first %}auto{% else %}none{% endif %}"
-                     disablepictureinpicture x-webkit-airplay="deny"></video>
-            {% else %}
-              <img class="slide-media" src="{{ item.url }}" alt="{{ og_title }}"
-                   loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
-                   {% if forloop.first %}fetchpriority="high"{% endif %} />
-            {% endif %}
-          </figure>
-        {% endfor %}
-      {% else %}
-        {# No media. A wall of small grey text would look broken, so the words
-           become the artwork — the way a text post reads in the app. #}
-        <figure class="slide is-text">
-          <div class="slide-bg"></div>
-          <div class="bigtext">{% if post.text %}{{ post.text|truncatechars:220|neat_rich }}{% else %}{{ post.author }}{% endif %}</div>
-        </figure>
-      {% endif %}
-    </div>
-
-    <div class="scrim-top" aria-hidden="true"></div>
-    <div class="scrim-bottom" aria-hidden="true"></div>
-
-    {% if media_count > 1 %}
-      <div class="dots" id="dots" aria-hidden="true">
-        {% for item in post.media %}<i class="{% if forloop.first %}on{% endif %}"></i>{% endfor %}
-      </div>
-      <button class="arrow prev" id="prev" aria-label="Προηγούμενο" hidden>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
-      </button>
-      <button class="arrow next" id="next" aria-label="Επόμενο">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
-      </button>
-    {% endif %}
-
-    {% if has_video %}
-      <div class="playpause" id="playpause" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </div>
-      <button class="mute" id="mute" aria-label="Ήχος">
-        <svg id="mute-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
-      </button>
-      <div class="scrub" id="scrub"><i></i></div>
-    {% endif %}
-
-    <div class="burst" id="burst" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-    </div>
-
-    {# The app's own icons — the outline heart, the round comment bubble with
-       its tail, the paper plane and the bookmark, at the app's colours. #}
-    <nav class="rail" aria-label="Ενέργειες">
-      <div class="rail-item">
-        <div class="rail-avatar">
-          {% if post.avatarUrl %}
-            <img class="avatar" src="{{ post.avatarUrl }}" alt="{{ post.author }}" />
-          {% else %}
-            <div class="avatar avatar-fallback">{{ post.author|first|upper }}</div>
-          {% endif %}
-          <button class="rail-plus" data-gate="1" aria-label="Ακολούθησε τον {{ post.author }}">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="rail-item">
-        <button class="rail-btn" data-gate="1" data-like="1" aria-label="Μου αρέσει">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
-        </button>
-        <span class="rail-count">{{ post.likes|neat_count }}</span>
-      </div>
-      <div class="rail-item">
-        <button class="rail-btn" id="to-comments" aria-label="Σχόλια">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.97" stroke-linecap="round" stroke-linejoin="round"><path d="M14.13 17.09a8.1 8.1 0 1 1 3.56-4.24l2.59 5.75z"/></svg>
-        </button>
-        <span class="rail-count">{{ post.comment_count|neat_count }}</span>
-      </div>
-      <div class="rail-item">
-        <button class="rail-btn" id="share-rail" aria-label="Κοινοποίηση">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12 3.27 3.13 21.5 12 3.27 20.88z"/><path d="M6 12h7.5"/></svg>
-        </button>
-        <span class="rail-count">{% if post.shares %}{{ post.shares|neat_count }}{% endif %}</span>
-      </div>
-      <div class="rail-item">
-        <button class="rail-btn" data-gate="1" data-save="1" aria-label="Αποθήκευση">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg>
-        </button>
-      </div>
-    </nav>
-  </section>
-
-  {# ── the panel: who, what they said, and the whole thread ─────────────── #}
-  <aside class="panel">
-    <div class="phead">
-      {% if post.avatarUrl %}
-        <img class="avatar" src="{{ post.avatarUrl }}" alt="" />
-      {% else %}
-        <div class="avatar avatar-fallback">{{ post.author|first|upper }}</div>
-      {% endif %}
-      <div class="who">
-        <div class="name">
-          {{ post.author }}
-          {% if post.authorVerified %}
-            <svg class="verified" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Επιβεβαιωμένος λογαριασμός">
-              <path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72l-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>
-            </svg>
-          {% endif %}
-        </div>
-        <div class="meta">
-          <time datetime="{{ post.created }}">{{ post.created|greek_ago }}</time>
-          {% if post.city %} · {{ post.city }}{% endif %}
-        </div>
-      </div>
-      <button class="btn" data-gate="1">Ακολούθησε</button>
-    </div>
-
-    <div class="pbody">
-      {% if post.text and media_count %}
-        <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
-        <button class="more" id="more" hidden>περισσότερα</button>
-      {% elif post.text %}
-        {# Already the artwork above; repeat it only when it was truncated. #}
-        {% if post.text|length > 220 %}
-          <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
-          <button class="more" id="more" hidden>περισσότερα</button>
-        {% endif %}
-      {% endif %}
-
-      {% if post.link_preview %}
-        <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener ugc" target="_blank">
-          {% if post.link_preview.image_url %}
-            <img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />
-          {% endif %}
-          <div class="linkcard-body">
-            {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
-            {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
-            {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:150 }}</div>{% endif %}
-          </div>
-        </a>
-      {% endif %}
-
-      {% if post.poll %}
-        <div class="poll">
-          {% for option in post.poll.options %}
-            {% with pct=option|poll_percent:post.poll %}
-              <div class="poll-option" data-gate="1">
-                <div class="poll-fill" data-pct="{{ pct }}"></div>
-                <div class="poll-row">
-                  <span>{{ option.text }}</span>
-                  <span class="poll-pct">{{ pct }}%</span>
-                </div>
-              </div>
-            {% endwith %}
-          {% endfor %}
-        </div>
-        <div class="poll-total">{{ post.poll|poll_total }}</div>
-      {% endif %}
-
-      <div class="statline">
-        <b>{{ post.likes|neat_count }}</b> {% if post.likes == 1 %}like{% else %}likes{% endif %}
-        <span class="sep">·</span>
-        <b>{{ post.comment_count|neat_count }}</b> {% if post.comment_count == 1 %}σχόλιο{% else %}σχόλια{% endif %}
-        {% if post.shares %}
-          <span class="sep">·</span>
-          <b>{{ post.shares|neat_count }}</b> {% if post.shares == 1 %}κοινοποίηση{% else %}κοινοποιήσεις{% endif %}
-        {% endif %}
-      </div>
-
-      <h2 class="chead" id="comments">Σχόλια <span>{{ post.comment_count }}</span></h2>
-
-      <ol class="thread">
-      {% for comment in post.comments %}
-        <li class="comment">
-          {% if comment.avatarUrl %}
-            <img class="avatar" src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
-          {% else %}
-            <div class="avatar avatar-fallback">{{ comment.author|first|upper }}</div>
-          {% endif %}
-          <div class="cbody">
-            <div class="cauthor">{{ comment.author }}{% if comment.author == post.author %}<span class="cdot"> · </span><span class="ctag">Δημιουργός</span>{% endif %}{% if comment.pinned %}<span class="cdot"> · Καρφιτσωμένο</span>{% endif %}</div>
-            {% if comment.text %}<div class="ctext">{{ comment.text|neat_rich }}</div>{% endif %}
-            {% if comment.imageUrl %}<img class="cimg" src="{{ comment.imageUrl }}" alt="" loading="lazy" />{% endif %}
-            <div class="cfoot">
-              <time datetime="{{ comment.created }}">{{ comment.created|greek_ago_long }}</time>
-              {% if comment.likes %}<span>{{ comment.likes|neat_count }} {% if comment.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
-              {% if comment.likedByOwner %}<span>Αρέσει στον δημιουργό</span>{% endif %}
-              <button data-gate="1">Απάντηση</button>
+<main class="stage{% if not media_count %} textonly{% endif %}{% if media_count > 1 %} has-dots{% endif %}" id="stage" aria-label="Δημοσίευση">
+  <div class="deck" id="deck">
+    {% if media_count %}
+      {% for item in post.media %}
+        <figure class="slide" data-type="{{ item.type }}">
+          {% if item.bgUrl %}<div class="slide-bg" style="background-image:url('{{ item.bgUrl }}')"></div>{% endif %}
+          {% if item.status == 'processing' %}
+            <div class="processing">
+              <div class="spinner"></div>
+              <div>Το βίντεο ετοιμάζεται… {{ item.progress }}%</div>
             </div>
-
-            {% if comment.replies %}
-              <button class="toggle-replies" data-target="r{{ comment.id }}" aria-expanded="false">
-                Προβολή {{ comment.replies|length }} {% if comment.replies|length == 1 %}απάντησης{% else %}απαντήσεων{% endif %}
-              </button>
-              <ol class="replies" id="r{{ comment.id }}" hidden>
-                {% for reply in comment.replies %}
-                  <li class="comment">
-                    {% if reply.avatarUrl %}
-                      <img class="avatar" src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
-                    {% else %}
-                      <div class="avatar avatar-fallback">{{ reply.author|first|upper }}</div>
-                    {% endif %}
-                    <div class="cbody">
-                      <div class="cauthor">{{ reply.author }}{% if reply.author == post.author %}<span class="cdot"> · </span><span class="ctag">Δημιουργός</span>{% endif %}</div>
-                      {% if reply.text %}<div class="ctext">{{ reply.text|neat_rich }}</div>{% endif %}
-                      <div class="cfoot">
-                        <time datetime="{{ reply.created }}">{{ reply.created|greek_ago_long }}</time>
-                        {% if reply.likes %}<span>{{ reply.likes|neat_count }} {% if reply.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
-                        <button data-gate="1">Απάντηση</button>
-                      </div>
-                    </div>
-                    <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
-                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
-                    </button>
-                  </li>
-                {% endfor %}
-              </ol>
-            {% endif %}
-          </div>
-          <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
-          </button>
-        </li>
-      {% empty %}
-        <li class="empty">Κανένα σχόλιο ακόμη.
-Γίνε ο πρώτος!</li>
+          {% elif item.type == 'video' %}
+            <video class="slide-media" src="{{ item.url }}"
+                   {% if item.thumbUrl %}poster="{{ item.thumbUrl }}"{% endif %}
+                   muted loop playsinline preload="{% if forloop.first %}auto{% else %}none{% endif %}"
+                   disablepictureinpicture x-webkit-airplay="deny"></video>
+          {% else %}
+            <img class="slide-media" src="{{ item.url }}" alt="{{ og_title }}"
+                 loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                 {% if forloop.first %}fetchpriority="high"{% endif %} />
+          {% endif %}
+        </figure>
       {% endfor %}
-      </ol>
+    {% else %}
+      {% comment %} No media. A wall of small grey text would look broken, so the words
+         become the artwork — the way a text post reads in the app. {% endcomment %}
+      <figure class="slide is-text">
+        <div class="slide-bg"></div>
+        <div class="bigtext">{% if post.text %}{{ post.text|truncatechars:200|neat_rich }}{% else %}{{ post.author }}{% endif %}</div>
+      </figure>
+    {% endif %}
+  </div>
+
+  <div class="scrim-top" aria-hidden="true"></div>
+  <div class="scrim-bottom" aria-hidden="true"></div>
+
+  {% if media_count > 1 %}
+    <div class="dots" id="dots" aria-hidden="true">
+      {% for item in post.media %}<i class="{% if forloop.first %}on{% endif %}"></i>{% endfor %}
+    </div>
+    <button class="arrow prev" id="prev" aria-label="Προηγούμενο" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+    </button>
+    <button class="arrow next" id="next" aria-label="Επόμενο">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    </button>
+  {% endif %}
+
+  {% if has_video %}
+    <div class="playpause" id="playpause" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    </div>
+    <button class="mute" id="mute" aria-label="Ήχος">
+      <svg id="mute-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
+    </button>
+    <div class="scrub" id="scrub"><i></i></div>
+  {% endif %}
+
+  <div class="burst" id="burst" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+  </div>
+
+  {% comment %} Who posted it and what they said, over the media — there is no second
+     row below for it, the same as the app's own full-screen view. {% endcomment %}
+  <div class="overlay">
+    <div class="ov-author">
+      {{ post.author }}
+      {% if post.authorVerified %}
+        <svg class="verified" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Επιβεβαιωμένος λογαριασμός">
+          <path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72l-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>
+        </svg>
+      {% endif %}
+    </div>
+    <div class="ov-meta">
+      <time datetime="{{ post.created }}">{{ post.created|greek_ago }}</time>{% if post.city %} · {{ post.city }}{% endif %}
     </div>
 
-    <button class="composer" data-gate="1">
-      <img class="mark" src="/icons/Icon-192.png" alt="" width="24" height="24" loading="lazy" />
-      <span class="ph">Πρόσθεσε σχόλιο…</span>
-      <b>Δημοσίευση</b>
-    </button>
-  </aside>
+    {% if post.text and media_count %}
+      <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
+      <button class="more" id="more" hidden>περισσότερα</button>
+    {% elif post.text and post.text|length > 200 %}
+      {# Already the artwork above; repeat it only when it was truncated. #}
+      <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
+      <button class="more" id="more" hidden>περισσότερα</button>
+    {% endif %}
+
+    {% if post.link_preview %}
+      <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener ugc" target="_blank">
+        {% if post.link_preview.image_url %}<img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />{% endif %}
+        <div class="linkcard-body">
+          {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
+          {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
+        </div>
+      </a>
+    {% endif %}
+
+    {% if post.poll %}
+      <div class="poll">
+        {% for option in post.poll.options %}
+          {% with pct=option|poll_percent:post.poll %}
+            <div class="poll-option" data-gate="1">
+              <div class="poll-fill" data-pct="{{ pct }}"></div>
+              <div class="poll-row"><span>{{ option.text }}</span><span class="poll-pct">{{ pct }}%</span></div>
+            </div>
+          {% endwith %}
+        {% endfor %}
+      </div>
+      <div class="poll-total">{{ post.poll|poll_total }}</div>
+    {% endif %}
+  </div>
+
+  <nav class="rail" aria-label="Ενέργειες">
+    <div class="rail-item">
+      <div class="rail-avatar">
+        {% if post.avatarUrl %}
+          <img class="avatar" src="{{ post.avatarUrl }}" alt="{{ post.author }}" />
+        {% else %}
+          <div class="avatar avatar-fallback">{{ post.author|first|upper }}</div>
+        {% endif %}
+        <button class="rail-plus" data-gate="1" aria-label="Ακολούθησε τον {{ post.author }}">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="rail-item">
+      <button class="rail-btn" data-gate="1" data-like="1" aria-label="Μου αρέσει">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
+      </button>
+      <span class="rail-count">{{ post.likes|neat_count }}</span>
+    </div>
+    <div class="rail-item">
+      <button class="rail-btn" id="to-comments" aria-label="Σχόλια" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.97" stroke-linecap="round" stroke-linejoin="round"><path d="M14.13 17.09a8.1 8.1 0 1 1 3.56-4.24l2.59 5.75z"/></svg>
+      </button>
+      <span class="rail-count">{{ post.comment_count|neat_count }}</span>
+    </div>
+    <div class="rail-item">
+      <button class="rail-btn" id="share-rail" aria-label="Κοινοποίηση">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12 3.27 3.13 21.5 12 3.27 20.88z"/><path d="M6 12h7.5"/></svg>
+      </button>
+      <span class="rail-count">{% if post.shares %}{{ post.shares|neat_count }}{% endif %}</span>
+    </div>
+    <div class="rail-item">
+      <button class="rail-btn" data-gate="1" data-save="1" aria-label="Αποθήκευση">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg>
+      </button>
+    </div>
+  </nav>
 </main>
 
-<section class="footer-cta">
-  <img class="mark" src="/icons/Icon-192.png" alt="" width="52" height="52" />
-  <h3>Κατέβασε την Neat</h3>
-  <p>Μία εφαρμογή, τα πάντα για την περιοχή σου.</p>
-  <div class="stores">
-    <a class="store" href="{{ app_store_url }}" rel="noopener">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.6 2.3 2.8 2.3 1.1 0 1.6-.7 2.9-.7 1.3 0 1.7.7 2.9.7 1.2 0 2-1.1 2.7-2.2.9-1.3 1.2-2.5 1.3-2.5-.1 0-2.4-1-2.4-3.7zM14.2 5.3c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.7-1.3z"/></svg>
-      App Store
-    </a>
-    <a class="store" href="{{ play_store_url }}" rel="noopener">
-      <svg viewBox="0 0 24 24"><path fill="#00d2ff" d="M4.5 2.5c-.4.3-.6.8-.6 1.4v16.2c0 .6.2 1.1.6 1.4l.1.1L14 12 4.6 2.4l-.1.1z"/><path fill="#ffd400" d="M17.3 15.3l-3.3-3.3v-.1l3.3-3.3.1.1 3.9 2.2c1.1.7 1.1 1.7 0 2.3l-3.9 2.1z"/><path fill="#ff3d51" d="M17.4 15.2L14 11.9 4.6 21.6c.4.4 1 .4 1.7.1l11.1-6.5z"/><path fill="#00e876" d="M17.4 8.7L6.3 2.3c-.7-.4-1.3-.3-1.7.1L14 11.9l3.4-3.2z"/></svg>
-      Google Play
-    </a>
-  </div>
-</section>
-
-<footer class="legal">
-  <a href="/">neatapp.gr</a>·<a href="/privacy">Απόρρητο</a>·<a href="/terms">Όροι</a>
-</footer>
-</div>
-
 <div class="appbar" id="appbar">
-  <img class="mark" src="/icons/Icon-192.png" alt="" width="38" height="38" />
+  <img class="mark" src="/icons/Icon-192.png" alt="" width="36" height="36" />
   <div class="appbar-copy">
     <b>Neat</b>
     <span>{{ post.author }}{% if post.city %} · {{ post.city }}{% endif %}</span>
@@ -687,18 +538,99 @@
 </div>
 
 <div class="scrim" id="scrim"></div>
-<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+
+{% comment %} The thread lives here, opened by the comment button — never a wall of it
+   under the post. It stays in the DOM so a crawler still reads it. {% endcomment %}
+<section class="sheet csheet" id="comments-sheet" role="dialog" aria-modal="true" aria-labelledby="csheet-title" aria-hidden="true">
+  <div class="grabber"></div>
+  <div class="csheet-head" id="csheet-title">
+    Σχόλια <span>{{ post.comment_count }}</span>
+    <button class="csheet-close" aria-label="Κλείσιμο">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  </div>
+  <ol class="csheet-body">
+  {% for comment in post.comments %}
+    <li class="comment">
+      {% if comment.avatarUrl %}
+        <img class="avatar" src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
+      {% else %}
+        <div class="avatar avatar-fallback">{{ comment.author|first|upper }}</div>
+      {% endif %}
+      <div class="cbody">
+        <div class="cauthor">{{ comment.author }}{% if comment.author == post.author %}<span class="cdot"> · </span><span class="ctag">Δημιουργός</span>{% endif %}{% if comment.pinned %}<span class="cdot"> · Καρφιτσωμένο</span>{% endif %}</div>
+        {% if comment.text %}<div class="ctext">{{ comment.text|neat_rich }}</div>{% endif %}
+        {% if comment.imageUrl %}<img class="cimg" src="{{ comment.imageUrl }}" alt="" loading="lazy" />{% endif %}
+        <div class="cfoot">
+          <time datetime="{{ comment.created }}">{{ comment.created|greek_ago_long }}</time>
+          {% if comment.likes %}<span>{{ comment.likes|neat_count }} {% if comment.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
+          {% if comment.likedByOwner %}<span>Αρέσει στον δημιουργό</span>{% endif %}
+          <button data-gate="1">Απάντηση</button>
+        </div>
+        {% if comment.replies %}
+          <button class="toggle-replies" data-target="r{{ comment.id }}" aria-expanded="false">
+            Προβολή {{ comment.replies|length }} {% if comment.replies|length == 1 %}απάντησης{% else %}απαντήσεων{% endif %}
+          </button>
+          <ol class="replies" id="r{{ comment.id }}" hidden>
+            {% for reply in comment.replies %}
+              <li class="comment">
+                {% if reply.avatarUrl %}
+                  <img class="avatar" src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
+                {% else %}
+                  <div class="avatar avatar-fallback">{{ reply.author|first|upper }}</div>
+                {% endif %}
+                <div class="cbody">
+                  <div class="cauthor">{{ reply.author }}{% if reply.author == post.author %}<span class="cdot"> · </span><span class="ctag">Δημιουργός</span>{% endif %}</div>
+                  {% if reply.text %}<div class="ctext">{{ reply.text|neat_rich }}</div>{% endif %}
+                  <div class="cfoot">
+                    <time datetime="{{ reply.created }}">{{ reply.created|greek_ago_long }}</time>
+                    {% if reply.likes %}<span>{{ reply.likes|neat_count }} {% if reply.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
+                    <button data-gate="1">Απάντηση</button>
+                  </div>
+                </div>
+                <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
+                </button>
+              </li>
+            {% endfor %}
+          </ol>
+        {% endif %}
+      </div>
+      <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
+      </button>
+    </li>
+  {% empty %}
+    <li class="empty">Κανένα σχόλιο ακόμη.
+Γίνε ο πρώτος!</li>
+  {% endfor %}
+  </ol>
+  <button class="composer" data-gate="1">
+    <img class="mark" src="/icons/Icon-192.png" alt="" width="26" height="26" loading="lazy" />
+    <span class="ph">Πρόσθεσε σχόλιο…</span>
+    <b>Δημοσίευση</b>
+  </button>
+</section>
+
+<section class="sheet gsheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-hidden="true">
   <div class="grabber"></div>
   <img class="mark" src="/icons/Icon-192.png" alt="" width="60" height="60" />
   <h4 id="sheet-title">Συνέχισε στη Neat</h4>
   <p>Το like, τα σχόλια και το προφίλ του <b>{{ post.author }}</b> ζουν μέσα στην εφαρμογή.</p>
   <button class="primary" data-open-app="1">Άνοιγμα στην εφαρμογή</button>
   <div class="stores">
-    <a class="store" id="store-ios" href="{{ app_store_url }}" rel="noopener">App Store</a>
-    <a class="store" id="store-android" href="{{ play_store_url }}" rel="noopener">Google Play</a>
+    <a class="store" id="store-ios" href="{{ app_store_url }}" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.6 2.3 2.8 2.3 1.1 0 1.6-.7 2.9-.7 1.3 0 1.7.7 2.9.7 1.2 0 2-1.1 2.7-2.2.9-1.3 1.2-2.5 1.3-2.5-.1 0-2.4-1-2.4-3.7zM14.2 5.3c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.7-1.3z"/></svg>
+      App Store
+    </a>
+    <a class="store" id="store-android" href="{{ play_store_url }}" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#00d2ff" d="M4.5 2.5c-.4.3-.6.8-.6 1.4v16.2c0 .6.2 1.1.6 1.4l.1.1L14 12 4.6 2.4l-.1.1z"/><path fill="#ffd400" d="M17.3 15.3l-3.3-3.3v-.1l3.3-3.3.1.1 3.9 2.2c1.1.7 1.1 1.7 0 2.3l-3.9 2.1z"/><path fill="#ff3d51" d="M17.4 15.2L14 11.9 4.6 21.6c.4.4 1 .4 1.7.1l11.1-6.5z"/><path fill="#00e876" d="M17.4 8.7L6.3 2.3c-.7-.4-1.3-.3-1.7.1L14 11.9l3.4-3.2z"/></svg>
+      Google Play
+    </a>
   </div>
   <button class="ghost" id="sheet-close">Συνέχεια στο web</button>
-</div>
+  <div class="legal"><a href="/privacy">Απόρρητο</a>·<a href="/terms">Όροι</a></div>
+</section>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -774,47 +706,80 @@
   }
 
   // ── the sheet everything logged-out funnels into ─────────────────────────
-  var scrim = $('#scrim'), sheet = $('#sheet');
+  var scrim = $('#scrim');
+  var sheet = $('#sheet');                 // the app gate
+  var commentsSheet = $('#comments-sheet'); // the thread
+  var openPanel = null;
   var lastFocus = null;
 
-  function openSheet() {
-    lastFocus = document.activeElement;
+  function anySheetOpen() { return openPanel !== null; }
+
+  function openPanelSheet(panel, focusSelector) {
+    if (openPanel === panel) return;
+    if (openPanel) openPanel.classList.remove('open');
+    lastFocus = lastFocus || document.activeElement;
+    openPanel = panel;
     scrim.classList.add('open');
-    sheet.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    pauseAll();
-    setTimeout(function () { sheet.querySelector('.primary').focus(); }, 260);
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+    // The video keeps playing behind the thread, the way it does in the app;
+    // only the gate — which is asking you to leave — stops it.
+    if (panel === sheet) pauseAll();
+    if (focusSelector) {
+      setTimeout(function () {
+        var target = panel.querySelector(focusSelector);
+        if (target) target.focus();
+      }, 260);
+    }
   }
+
+  function openSheet() { openPanelSheet(sheet, '.primary'); }
+  function openComments() { openPanelSheet(commentsSheet, '.csheet-close'); }
+
   function closeSheet() {
+    if (openPanel) {
+      openPanel.classList.remove('open');
+      openPanel.setAttribute('aria-hidden', 'true');
+    }
+    openPanel = null;
     scrim.classList.remove('open');
-    sheet.classList.remove('open');
-    document.body.style.overflow = '';
     resumeActive();
-    if (lastFocus) lastFocus.focus();
+    if (lastFocus) { lastFocus.focus(); lastFocus = null; }
   }
+
   scrim.addEventListener('click', closeSheet);
   $('#sheet-close').addEventListener('click', closeSheet);
+  $('.csheet-close').addEventListener('click', closeSheet);
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && sheet.classList.contains('open')) closeSheet();
+    if (e.key === 'Escape' && anySheetOpen()) closeSheet();
   });
 
   // The store that can actually install the app goes first.
   if (IS_ANDROID) $('#store-android').parentNode.insertBefore($('#store-android'), $('#store-ios'));
 
   // Swipe the sheet down to dismiss, the way a native one behaves.
-  var dragFrom = null;
-  sheet.addEventListener('touchstart', function (e) { dragFrom = e.touches[0].clientY; }, { passive: true });
-  sheet.addEventListener('touchmove', function (e) {
-    if (dragFrom === null) return;
-    var dy = e.touches[0].clientY - dragFrom;
-    if (dy > 0) sheet.style.transform = 'translateY(' + dy + 'px)';
-  }, { passive: true });
-  sheet.addEventListener('touchend', function (e) {
-    if (dragFrom === null) return;
-    var dy = (e.changedTouches[0].clientY - dragFrom);
-    sheet.style.transform = '';
-    dragFrom = null;
-    if (dy > 90) closeSheet();
+  [sheet, commentsSheet].forEach(function (panel) {
+    var dragFrom = null;
+    // Only from the grabber and the header, or a swipe while reading the
+    // thread would drag the whole sheet down instead of scrolling it.
+    var handle = panel.querySelector('.csheet-head') || panel;
+    var grabber = panel.querySelector('.grabber');
+    function start(e) { dragFrom = e.touches[0].clientY; }
+    [handle, grabber].forEach(function (el) {
+      if (el) el.addEventListener('touchstart', start, { passive: true });
+    });
+    panel.addEventListener('touchmove', function (e) {
+      if (dragFrom === null) return;
+      var dy = e.touches[0].clientY - dragFrom;
+      if (dy > 0) panel.style.transform = 'translateY(' + dy + 'px)';
+    }, { passive: true });
+    panel.addEventListener('touchend', function (e) {
+      if (dragFrom === null) return;
+      var dy = e.changedTouches[0].clientY - dragFrom;
+      panel.style.transform = '';
+      dragFrom = null;
+      if (dy > 90) closeSheet();
+    });
   });
 
   // ── the gate ─────────────────────────────────────────────────────────────
@@ -836,13 +801,8 @@
   });
 
   // Reading the thread is the one thing this page can do logged out, so the
-  // comment button goes to it instead of into the app.
-  var toComments = $('#to-comments');
-  if (toComments) {
-    toComments.addEventListener('click', function () {
-      $('#comments').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }
+  // comment button opens it rather than sending anyone to the store.
+  $('#to-comments').addEventListener('click', openComments);
 
   $$('[data-open-app]').forEach(function (btn) {
     btn.addEventListener('click', function () { launchApp(); });
@@ -891,12 +851,6 @@
     });
   });
 
-  // ── top bar goes solid once the media is behind it ───────────────────────
-  var topbar = $('#topbar');
-  var onScroll = function () { topbar.classList.toggle('solid', window.scrollY > 24); };
-  window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
-
   // ── carousel ─────────────────────────────────────────────────────────────
   var deck = $('#deck');
   var slides = $$('.slide');
@@ -928,7 +882,7 @@
   if (prev) prev.addEventListener('click', function () { goTo(index - 1); });
   if (next) next.addEventListener('click', function () { goTo(index + 1); });
   document.addEventListener('keydown', function (e) {
-    if (sheet.classList.contains('open')) return;
+    if (anySheetOpen()) return;
     if (e.key === 'ArrowRight') goTo(index + 1);
     if (e.key === 'ArrowLeft') goTo(index - 1);
   });
@@ -974,7 +928,7 @@
     else { video.pause(); stage.classList.add('paused'); }
   }
   document.addEventListener('keydown', function (e) {
-    if (e.code === 'Space' && !sheet.classList.contains('open') && current()) {
+    if (e.code === 'Space' && !anySheetOpen() && current()) {
       e.preventDefault();
       togglePlay();
     }
@@ -995,7 +949,7 @@
   if (stage && videos.length && 'IntersectionObserver' in window) {
     new IntersectionObserver(function (entries) {
       visible = entries[0].isIntersecting;
-      if (visible) { if (!sheet.classList.contains('open')) playOnly(index); }
+      if (visible) { if (!anySheetOpen()) playOnly(index); }
       else pauseAll();
     }, { threshold: 0.35 }).observe(stage);
   } else if (videos.length) {
@@ -1052,7 +1006,7 @@
   if (caption && more) {
     // Clamp only when there is something to hide, so the button never lies.
     caption.classList.add('clamped');
-    if (caption.scrollHeight - caption.clientHeight > 4) {
+    if (caption.scrollHeight - caption.clientHeight > 2) {
       more.hidden = false;
       more.addEventListener('click', function () {
         var open = caption.classList.toggle('clamped');
