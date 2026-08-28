@@ -21,31 +21,60 @@ _GREEK_MONTHS = [
 ]
 
 
-@register.filter
-def greek_ago(iso_string):
-    """"πριν 5 λ.", "πριν 3 ώ.", "5 Αυγ 2026" — matching the app's feed."""
+def _age_minutes(iso_string):
+    """Whole minutes since `iso_string`, or None if it cannot be read."""
     if not iso_string:
-        return ''
+        return None
     try:
         moment = datetime.fromisoformat(str(iso_string))
     except (TypeError, ValueError):
-        return ''
+        return None
     if timezone.is_naive(moment):
         moment = timezone.make_aware(moment, timezone.get_default_timezone())
+    return max(0, int((timezone.now() - moment).total_seconds() // 60))
 
-    seconds = (timezone.now() - moment).total_seconds()
-    if seconds < 60:
-        return 'μόλις τώρα'
-    minutes = int(seconds // 60)
+
+@register.filter
+def greek_ago(iso_string):
+    """"τώρα", "5λ", "3ω", "2εβδ" — postAge() in lib/src/core/post_card.dart.
+
+    Compact, unprefixed and using the same units the feed does, because this
+    page sits next to screenshots of the feed.
+    """
+    minutes = _age_minutes(iso_string)
+    if minutes is None:
+        return ''
+    if minutes < 1:
+        return 'τώρα'
     if minutes < 60:
-        return f'πριν {minutes} λ.'
-    hours = minutes // 60
-    if hours < 24:
-        return f'πριν {hours} ώ.'
-    days = hours // 24
-    if days < 7:
-        return f'πριν {days} ημ.'
-    return f'{moment.day} {_GREEK_MONTHS[moment.month - 1]} {moment.year}'
+        return f'{minutes}λ'
+    if minutes < 1440:
+        return f'{minutes // 60}ω'
+    if minutes < 10080:
+        return f'{minutes // 1440}η'
+    if minutes < 43200:
+        return f'{minutes // 10080}εβδ'
+    if minutes < 525600:
+        return f'{minutes // 43200}μήν'
+    return f'{minutes // 525600}χρ'
+
+
+@register.filter
+def greek_ago_long(iso_string):
+    """"τώρα", "5λ πριν", "3ω πριν", "2η πριν" — _timeAgo() in home_page.dart.
+
+    The comment sheet says it this way rather than the header's bare "5λ".
+    """
+    minutes = _age_minutes(iso_string)
+    if minutes is None:
+        return ''
+    if minutes < 1:
+        return 'τώρα'
+    if minutes < 60:
+        return f'{minutes}λ πριν'
+    if minutes < 1440:
+        return f'{minutes // 60}ω πριν'
+    return f'{minutes // 1440}η πριν'
 
 
 @register.filter
@@ -78,24 +107,21 @@ def _grouped(number):
 
 @register.filter
 def neat_count(value):
-    """999 · 12,5 χιλ. · 1,2 εκ. — the app's own way of shrinking a number."""
+    """999 · 12.5K · 1.2M — _formatCount() in lib/src/core/post_card.dart.
+
+    The app shows Latin K/M even in Greek, and drops the decimal when it is
+    zero ("1K", not "1.0K"), so the page does too.
+    """
     try:
         number = int(value or 0)
     except (TypeError, ValueError):
         return '0'
-    if number < 1000:
-        return str(number)
-    if number < 1_000_000:
-        scaled = number / 1000
-        unit = 'χιλ.'
-    else:
-        scaled = number / 1_000_000
-        unit = 'εκ.'
-    # A decimal while it still says something ("12,5 χιλ."), none once the
-    # number is big enough that it does not ("125 χιλ."). The comma is the
-    # Greek decimal mark.
-    text = f'{scaled:.1f}'.replace('.', ',') if scaled < 100 else str(int(scaled))
-    return f'{text.removesuffix(",0")} {unit}'
+    for divisor, suffix in ((1_000_000, 'M'), (1000, 'K')):
+        if number >= divisor:
+            scaled = number / divisor
+            whole = f'{scaled:.1f}'.removesuffix('.0')
+            return f'{whole}{suffix}'
+    return str(number)
 
 
 # What the app makes tappable inside a caption. Matched in one pass so a
