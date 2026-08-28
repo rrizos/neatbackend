@@ -17,7 +17,7 @@
 <meta name="twitter:description" content="{{ og_description }}" />
 <meta name="twitter:image" content="{{ og_image }}" />
 <link rel="canonical" href="{{ og_url }}" />
-<meta name="apple-itunes-app" content="app-id=6748038152, app-argument=neat://post/{{ post_id }}" />
+<meta name="apple-itunes-app" content="app-id=6748038152" />
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -389,7 +389,6 @@ footer a { color: var(--ink3); margin: 0 6px; }
 </div>
 
 <script>
-var POST_ID   = {{ post_id }};
 var IOS_STORE = '{{ app_store_url }}';
 var AND_STORE = '{{ play_store_url }}';
 var ua        = navigator.userAgent || '';
@@ -397,16 +396,15 @@ var isAndroid = /android/i.test(ua);
 
 function openInApp() {
   if (isAndroid) {
-    // Android Intent URL opens the app directly; falls back to Play Store
+    // Opens the app to its normal state; falls back to Play Store if not installed.
     window.location.href =
-      'intent://post/' + POST_ID +
-      '#Intent;scheme=neat;package=gr.app.neat;' +
+      'intent://#Intent;scheme=neat;package=gr.app.neat;' +
       'S.browser_fallback_url=' + encodeURIComponent(AND_STORE) + ';end';
     return;
   }
-  // iOS / desktop: fire the custom scheme and fall back to App Store
-  // if the app doesn't take over within 1.5 s.
-  window.location.href = 'neat://post/' + POST_ID;
+  // iOS: neat:// opens the app to wherever it was, no special navigation.
+  // Falls back to App Store after 1.5 s if the app is not installed.
+  window.location.href = 'neat://';
   var t = Date.now();
   setTimeout(function () {
     if (!document.hidden && Date.now() - t < 2500) {
