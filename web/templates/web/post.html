@@ -396,21 +396,33 @@ var isAndroid = /android/i.test(ua);
 
 function openInApp() {
   if (isAndroid) {
-    // Opens the app to its normal state; falls back to Play Store if not installed.
+    // Android Intent URL: OS handles the fallback to Play Store natively.
     window.location.href =
       'intent://#Intent;scheme=neat;package=gr.app.neat;' +
       'S.browser_fallback_url=' + encodeURIComponent(AND_STORE) + ';end';
     return;
   }
-  // iOS: neat:// opens the app to wherever it was, no special navigation.
-  // Falls back to App Store after 1.5 s if the app is not installed.
+
+  // iOS: fire the custom scheme, then wait.
+  // When the app IS installed, iOS switches to it immediately — the browser
+  // tab goes to the background and fires both `blur` and `visibilitychange`.
+  // We listen for either and cancel the App Store redirect the moment one fires.
+  // Only if neither fires within 2.5 s (app not installed) do we redirect.
+  var fallback = setTimeout(function () {
+    window.location.href = IOS_STORE;
+  }, 2500);
+
+  function cancel() {
+    clearTimeout(fallback);
+    window.removeEventListener('blur', cancel);
+    document.removeEventListener('visibilitychange', onVis);
+  }
+  function onVis() { if (document.hidden) cancel(); }
+
+  window.addEventListener('blur', cancel);
+  document.addEventListener('visibilitychange', onVis);
+
   window.location.href = 'neat://';
-  var t = Date.now();
-  setTimeout(function () {
-    if (!document.hidden && Date.now() - t < 2500) {
-      window.location.href = IOS_STORE;
-    }
-  }, 1500);
 }
 </script>
 </body>
