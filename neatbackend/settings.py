@@ -190,14 +190,32 @@ PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://63.181.201.175').rs
 # to somebody else's app would otherwise be accepted as proof of identity here.
 #
 # Apple: the app's bundle id (and the Services ID, if the web flow is ever added).
-# Google: every per-platform OAuth client id — iOS and Android each get their
-# own, and both appear as the audience of tokens from that platform.
+#
+# Google: the two platforms name *different* audiences, and both have to be
+# listed or one of them cannot sign in at all.
+#
+#   * iOS goes through Google's own SDK, which mints a token addressed to the
+#     iOS client id.
+#   * Android goes through Credential Manager, which has no Android-specific
+#     audience to use — the Android OAuth client exists only so Google can
+#     recognise the package name and signing certificate — so the token it
+#     mints is addressed to the *web* client id instead, the same value the app
+#     passes as its serverClientId.
+#
+# These are public identifiers, not secrets; they already ship inside the app
+# binary. They are defaulted rather than left to the environment because an
+# incomplete list fails as "that sign-in was not issued for this app" on one
+# platform only, which reads like an app bug rather than a missing variable.
 def _id_list(name, default=''):
     return tuple(v.strip() for v in os.environ.get(name, default).split(',') if v.strip())
 
 
 APPLE_CLIENT_IDS = _id_list('APPLE_CLIENT_IDS', 'NeatApp.Neat')
-GOOGLE_CLIENT_IDS = _id_list('GOOGLE_CLIENT_IDS')
+GOOGLE_CLIENT_IDS = _id_list(
+    'GOOGLE_CLIENT_IDS',
+    '449378002358-i3dlqsb7rmff8jf05ag6slk7o21k8laq.apps.googleusercontent.com,'
+    '449378002358-430tlsk1shjrk07mv4nbcsjibtk9437a.apps.googleusercontent.com',
+)
 
 
 # Password validation
