@@ -471,7 +471,7 @@ function openInApp() {
   window.addEventListener('blur', cancel);
   document.addEventListener('visibilitychange', onVis);
 
-  window.location.href = 'neat://';
+  window.location.href = 'neat://post/{{ post_id }}';
 }
 
 function closeHint() {
