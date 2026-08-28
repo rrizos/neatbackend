@@ -202,6 +202,47 @@ footer a { color: var(--ink3); margin: 0 6px; }
   .open-bar-text span { display: none; }
   .open-bar-btn { font-size: 13px; padding: 9px 14px; }
 }
+
+/* ─── safari-hint overlay (in-app browser) ─── */
+#safari-hint {
+  display: none;
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.72);
+  align-items: flex-end;
+  justify-content: center;
+}
+#safari-hint.visible { display: flex; }
+.hint-sheet {
+  background: #1a1a20;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px 20px 0 0;
+  padding: 28px 24px 44px;
+  width: 100%; max-width: 480px;
+  text-align: center;
+}
+.hint-dots {
+  display: inline-block;
+  background: rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 3px 12px;
+  font-size: 20px;
+  letter-spacing: 3px;
+  margin-bottom: 18px;
+  color: #e8e8ec;
+}
+.hint-sheet h2 { font-size: 18px; font-weight: 700; margin-bottom: 10px; color: #e8e8ec; }
+.hint-sheet p  { font-size: 14px; color: #aaa; line-height: 1.65; margin-bottom: 24px; }
+.hint-sheet p strong { color: #e8e8ec; }
+.hint-btns { display: flex; flex-direction: column; gap: 10px; }
+.hint-store-btn {
+  display: block; background: #1479ff; color: #fff;
+  border: none; border-radius: 12px; padding: 15px;
+  font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
+}
+.hint-close {
+  background: transparent; color: #666; border: none;
+  font-size: 14px; cursor: pointer; padding: 8px;
+}
 </style>
 </head>
 <body>
@@ -393,24 +434,32 @@ var IOS_STORE = '{{ app_store_url }}';
 var AND_STORE = '{{ play_store_url }}';
 var ua        = navigator.userAgent || '';
 var isAndroid = /android/i.test(ua);
+// Instagram, Facebook, TikTok in-app browsers block custom URL schemes.
+var isInApp   = /Instagram|FBAN|FBAV|FB_IAB|TikTok|Musical\.ly|Twitter/i.test(ua);
 
 function openInApp() {
   if (isAndroid) {
-    // Android Intent URL: OS handles the fallback to Play Store natively.
+    // Android Intent URL: OS handles app-installed check natively, no timer needed.
     window.location.href =
       'intent://#Intent;scheme=neat;package=gr.app.neat;' +
       'S.browser_fallback_url=' + encodeURIComponent(AND_STORE) + ';end';
     return;
   }
 
-  // iOS: fire the custom scheme, then wait.
-  // When the app IS installed, iOS switches to it immediately — the browser
-  // tab goes to the background and fires both `blur` and `visibilitychange`.
-  // We listen for either and cancel the App Store redirect the moment one fires.
-  // Only if neither fires within 2.5 s (app not installed) do we redirect.
+  if (isInApp) {
+    // In-app browsers block neat:// and don't fire blur/visibilitychange,
+    // so the fallback timer would always fire regardless. Show hint instead.
+    document.getElementById('safari-hint').classList.add('visible');
+    return;
+  }
+
+  // iOS Safari / Chrome: fire the custom scheme.
+  // The moment the app opens, iOS backgrounds the browser — blur fires —
+  // and we cancel the timer instantly. The 2s only elapses when the app is
+  // NOT installed (neither event fires), then we redirect to App Store.
   var fallback = setTimeout(function () {
     window.location.href = IOS_STORE;
-  }, 2500);
+  }, 2000);
 
   function cancel() {
     clearTimeout(fallback);
@@ -424,6 +473,28 @@ function openInApp() {
 
   window.location.href = 'neat://';
 }
+
+function closeHint() {
+  document.getElementById('safari-hint').classList.remove('visible');
+}
 </script>
+
+<!-- Safari hint overlay: shown for in-app browsers that block neat:// -->
+<div id="safari-hint" onclick="if(event.target===this)closeHint()">
+  <div class="hint-sheet">
+    <div class="hint-dots">&middot; &middot; &middot;</div>
+    <h2>&#913;&#957;&#959;&#953;&#958;&#949; &#963;&#964;&#959; Safari</h2>
+    <p>
+      &#932;&#959; Instagram &#949;&#956;&#960;&#959;&#948;&#943;&#950;&#949;&#953; &#964;&#959; &#940;&#957;&#959;&#953;&#947;&#956;&#945; &#949;&#966;&#945;&#961;&#956;&#959;&#947;&#974;&#957;.<br>
+      &#928;&#940;&#964;&#951;&#963;&#949; <strong>&middot;&middot;&middot;</strong> &#960;&#940;&#957;&#969; &#948;&#949;&#958;&#953;&#940;<br>
+      &#954;&#945;&#953; &#956;&#949;&#964;&#940; <strong>&laquo;Open in Safari&raquo;</strong>.
+    </p>
+    <div class="hint-btns">
+      <a href="{{ app_store_url }}" class="hint-store-btn">&#922;&#945;&#964;&#941;&#946;&#945;&#963;&#949; &#964;&#951; Neat &#945;&#960;&#972; &#964;&#959; App Store</a>
+      <button onclick="closeHint()" class="hint-close">&#922;&#955;&#949;&#943;&#963;&#953;&#956;&#959;</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
