@@ -2,423 +2,1259 @@
 <html lang="el">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>{{ og_title }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#08080b" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+
+<title>{{ og_title }} · Neat</title>
 <meta name="description" content="{{ og_description }}" />
+
 <meta property="og:type" content="article" />
 <meta property="og:site_name" content="Neat" />
 <meta property="og:locale" content="el_GR" />
 <meta property="og:title" content="{{ og_title }}" />
 <meta property="og:description" content="{{ og_description }}" />
 <meta property="og:image" content="{{ og_image }}" />
+<meta property="og:image:alt" content="{{ og_title }}" />
 <meta property="og:url" content="{{ og_url }}" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="{{ og_title }}" />
 <meta name="twitter:description" content="{{ og_description }}" />
 <meta name="twitter:image" content="{{ og_image }}" />
 <link rel="canonical" href="{{ og_url }}" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" href="/favicon.png" sizes="96x96" />
+<link rel="apple-touch-icon" href="/icons/Icon-192.png" />
 <meta name="apple-itunes-app" content="app-id=6748038152" />
+
+<script type="application/ld+json">{{ jsonld|safe }}</script>
+
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #08080b;
+    --surface: #101116;
+    --surface-2: #171922;
+    --ink: #f4f5f8;
+    --ink-soft: #9aa2b4;
+    --ink-dim: #6a7183;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-2: rgba(255, 255, 255, 0.17);
+    --blue: #4ea3ff;
+    --blue-deep: #1479ff;
+    --like: #ff2f56;
+    --coral: #ff8a81;
+    --radius: 22px;
+    --bar: calc(64px + env(safe-area-inset-bottom));
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
 
-:root {
-  --bg: #09090b;
-  --surface: #111114;
-  --border: rgba(255,255,255,0.09);
-  --ink: #e8e8ec;
-  --ink2: #888896;
-  --ink3: #44444f;
-  --blue: #1479ff;
-  --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
-}
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.45;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  img, video { max-width: 100%; display: block; }
+  ol, ul { list-style: none; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 8px; }
 
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--sans);
-  -webkit-font-smoothing: antialiased;
-  /* room for the sticky bar */
-  padding-bottom: 80px;
-}
+  /* The colour under everything. Cheap, image-free, and it keeps the page
+     from reading as a flat black rectangle on a wide screen. */
+  .glow {
+    position: fixed; inset: -20vh -10vw auto; height: 90vh; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(52vw 42vh at 22% 0%, rgba(78, 163, 255, 0.20), transparent 62%),
+      radial-gradient(46vw 40vh at 82% 8%, rgba(255, 138, 129, 0.13), transparent 64%);
+    filter: blur(10px);
+  }
 
-a { color: inherit; text-decoration: none; }
-img, video { display: block; max-width: 100%; }
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px calc(10px + 6px);
+    padding-top: calc(10px + env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+    transition: background .25s ease, backdrop-filter .25s ease, border-color .25s ease;
+    border-bottom: 1px solid transparent;
+  }
+  .topbar.solid {
+    background: rgba(8, 8, 11, 0.82);
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+    backdrop-filter: saturate(180%) blur(18px);
+    border-bottom-color: var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 17px; letter-spacing: -0.02em; }
+  .brand img { width: 30px; height: 30px; }
+  .topbar .spacer { flex: 1; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.10); color: #fff;
+    transition: background .18s ease, transform .18s ease;
+  }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.20); }
+  .icon-btn:active { transform: scale(0.92); }
+  .icon-btn svg { width: 19px; height: 19px; }
+  .top-cta {
+    display: none; align-items: center; gap: 7px;
+    background: var(--blue); color: #fff; font-weight: 700; font-size: 14.5px;
+    padding: 9px 16px; border-radius: 100px;
+  }
+  .top-cta:hover { background: #6fb4ff; }
 
-/* ─── page shell ─── */
-.page { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+  /* ── layout ──────────────────────────────────────────────────────────── */
+  .wrap { position: relative; z-index: 1; padding-bottom: calc(var(--bar) + 20px); }
+  .shell { max-width: 1140px; margin: 0 auto; }
 
-/* ─── header ─── */
-.header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 0 22px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
-}
-.logo { height: 50px; width: 50px; border-radius: 14px; object-fit: cover; }
+  /* ── stage ───────────────────────────────────────────────────────────── */
+  .stage {
+    position: relative; background: #000; overflow: hidden;
+    height: min(74dvh, 680px); min-height: 320px;
+    touch-action: pan-y;
+  }
+  .deck {
+    display: flex; height: 100%; overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory; scrollbar-width: none;
+    scroll-behavior: smooth; overscroll-behavior-x: contain;
+  }
+  .deck::-webkit-scrollbar { display: none; }
+  .slide {
+    position: relative; flex: 0 0 100%; width: 100%; height: 100%;
+    scroll-snap-align: center; scroll-snap-stop: always;
+    margin: 0; display: grid; place-items: center; overflow: hidden;
+  }
+  /* Blurred plate behind media that does not fill the frame. */
+  .slide-bg {
+    position: absolute; inset: -8%; z-index: 0;
+    background-size: cover; background-position: center;
+    filter: blur(38px) saturate(150%) brightness(0.55);
+    transform: scale(1.15);
+  }
+  .slide-media {
+    position: relative; z-index: 1;
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto; object-fit: contain;
+  }
+  .slide.is-text { display: grid; place-items: center; padding: 34px 26px; }
+  .slide.is-text .slide-bg {
+    background: radial-gradient(120% 90% at 20% 0%, #1a3f7d 0%, #101a33 45%, #0a0a12 100%);
+    filter: none; transform: none; inset: 0;
+  }
+  .bigtext {
+    position: relative; z-index: 1; max-width: 24ch;
+    font-size: clamp(22px, 5.2vw, 34px); font-weight: 700; line-height: 1.25;
+    letter-spacing: -0.02em; text-align: center; text-wrap: balance;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5);
+  }
+  .bigtext .ln, .bigtext .tok { color: #9ecbff; }
 
-.header-open {
-  font-size: 13px; font-weight: 650; color: var(--blue);
-  background: none; border: none; font-family: inherit;
-  cursor: pointer; padding: 6px 0; letter-spacing: -0.01em;
-}
+  /* the two gradients that let white controls sit on any photo */
+  .scrim-top, .scrim-bottom { position: absolute; left: 0; right: 0; z-index: 4; pointer-events: none; }
+  .scrim-top { top: 0; height: 130px; background: linear-gradient(180deg, rgba(0,0,0,.55), transparent); }
+  .scrim-bottom { bottom: 0; height: 190px; background: linear-gradient(0deg, rgba(0,0,0,.72), transparent); }
+  .stage.textonly .scrim-top { height: 100px; opacity: .5; }
+  .stage.textonly .scrim-bottom { height: 130px; opacity: .55; }
 
-/* ─── author row ─── */
-.author-row {
-  display: flex; align-items: center; gap: 11px;
-  margin-bottom: 14px;
-}
-.av {
-  width: 42px; height: 42px; border-radius: 50%; flex: none;
-  background: var(--surface); overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px; font-weight: 700; color: var(--ink2);
-}
-.av img { width: 42px; height: 42px; object-fit: cover; }
-.av-info .handle {
-  font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em;
-  display: flex; align-items: center; gap: 4px;
-}
-.av-info .meta { font-size: 12.5px; color: var(--ink2); margin-top: 1px; }
-.verified { color: var(--blue); width: 14px; height: 14px; }
+  .processing {
+    position: relative; z-index: 1; display: grid; gap: 10px; place-items: center;
+    color: var(--ink-soft); font-size: 14px; text-align: center; padding: 20px;
+  }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2.5px solid rgba(255,255,255,.18); border-top-color: var(--blue);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ─── post text ─── */
-.post-text {
-  font-size: 15px; line-height: 1.6;
-  color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
-  margin-bottom: 14px;
-}
+  /* video chrome */
+  .playpause {
+    position: absolute; inset: 0; z-index: 5; display: grid; place-items: center;
+    /* Indicator only: a button here would swallow every carousel swipe. */
+    pointer-events: none;
+  }
+  .playpause svg {
+    width: 74px; height: 74px; color: rgba(255,255,255,.94);
+    filter: drop-shadow(0 4px 16px rgba(0,0,0,.5));
+    opacity: 0; transform: scale(0.8); transition: opacity .22s ease, transform .22s ease;
+  }
+  .stage.paused .playpause svg { opacity: 1; transform: scale(1); }
+  .mute {
+    position: absolute; left: 12px; bottom: 20px; z-index: 6;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(0, 0, 0, 0.42); color: #fff;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .mute svg { width: 17px; height: 17px; }
+  .scrub {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 7;
+    height: 3px; background: rgba(255, 255, 255, 0.18);
+  }
+  .scrub i { display: block; height: 100%; width: 0; background: #fff; border-radius: 0 2px 2px 0; }
 
-/* ─── media ─── */
-.media { border-radius: 14px; overflow: hidden; margin-bottom: 14px; background: #000; }
-.media img { width: 100%; max-height: 520px; object-fit: cover; }
-.media video { width: 100%; max-height: 520px; }
-.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-radius: 14px; overflow: hidden; margin-bottom: 14px; }
-.media-grid img, .media-grid video { width: 100%; aspect-ratio: 1; object-fit: cover; background: #000; }
+  /* carousel affordances */
+  .dots {
+    position: absolute; left: 0; right: 0; bottom: 14px; z-index: 6;
+    display: flex; gap: 5px; justify-content: center; pointer-events: none;
+  }
+  .dots i {
+    width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.42);
+    transition: background .2s ease, width .2s ease;
+  }
+  .dots i.on { background: #fff; width: 18px; }
+  .counter {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
+    background: rgba(0, 0, 0, 0.55); color: #fff;
+    font-size: 12.5px; font-weight: 700; padding: 4px 10px; border-radius: 100px;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    font-variant-numeric: tabular-nums;
+  }
+  .arrow {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 6;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: none; place-items: center;
+    background: rgba(255, 255, 255, 0.92); color: #111;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  }
+  .arrow svg { width: 17px; height: 17px; }
+  .arrow.prev { left: 12px; } .arrow.next { right: 12px; }
+  .arrow[hidden] { display: none !important; }
+  @media (hover: hover) { .stage:hover .arrow { display: grid; } }
 
-/* ─── link card ─── */
-.linkcard {
-  display: block; border-radius: 12px; overflow: hidden;
-  border: 1px solid var(--border); background: var(--surface);
-  margin-bottom: 14px;
-}
-.linkcard img { width: 100%; max-height: 180px; object-fit: cover; }
-.linkcard-body { padding: 9px 13px 11px; }
-.linkcard-site { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--blue); margin-bottom: 3px; }
-.linkcard-title { font-size: 13.5px; font-weight: 650; line-height: 1.35; }
-.linkcard-desc { font-size: 12.5px; color: var(--ink2); margin-top: 3px; }
+  /* double-tap heart */
+  .burst {
+    position: absolute; inset: 0; z-index: 8; display: grid; place-items: center;
+    pointer-events: none; opacity: 0;
+  }
+  .burst svg { width: 108px; height: 108px; color: #fff; filter: drop-shadow(0 6px 20px rgba(0,0,0,.45)); }
+  .burst.go { animation: burst .85s cubic-bezier(.17,.89,.32,1.28) forwards; }
+  @keyframes burst {
+    0% { opacity: 0; transform: scale(0.3) rotate(-12deg); }
+    28% { opacity: 1; transform: scale(1.1) rotate(6deg); }
+    62% { opacity: 1; transform: scale(0.98) rotate(0deg); }
+    100% { opacity: 0; transform: scale(1.25); }
+  }
 
-/* ─── poll ─── */
-.poll { display: grid; gap: 7px; margin-bottom: 14px; }
-.poll-opt { position: relative; border: 1px solid var(--border); border-radius: 9px; padding: 9px 13px; overflow: hidden; }
-.poll-fill { position: absolute; inset: 0 auto 0 0; background: rgba(20,121,255,.13); }
-.poll-row { position: relative; display: flex; justify-content: space-between; font-size: 14px; }
-.poll-pct { color: var(--ink2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  /* ── action rail ─────────────────────────────────────────────────────── */
+  .rail {
+    position: absolute; right: 8px; bottom: 26px; z-index: 9;
+    display: flex; flex-direction: column; align-items: center; gap: 15px;
+  }
+  .rail-item { display: grid; justify-items: center; gap: 4px; }
+  .rail-btn {
+    width: 46px; height: 46px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(22, 22, 28, 0.5); color: #fff;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    transition: transform .18s cubic-bezier(.2,.8,.3,1.2), background .18s ease;
+  }
+  .rail-btn:active { transform: scale(0.88); }
+  .rail-btn svg { width: 25px; height: 25px; }
+  .rail-btn.pop { animation: pop .45s cubic-bezier(.2,.8,.3,1.4); }
+  @keyframes pop { 40% { transform: scale(1.28); } 100% { transform: scale(1); } }
+  .rail-btn.on { color: var(--like); }
+  .rail-btn.saved { color: var(--blue); }
+  .rail-count {
+    font-size: 12px; font-weight: 750; color: #fff; font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  }
+  .rail-avatar { position: relative; margin-bottom: 4px; }
+  .rail-avatar .avatar { width: 46px; height: 46px; border: 2px solid rgba(255,255,255,.9); }
+  .rail-plus {
+    position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+    width: 21px; height: 21px; border-radius: 50%;
+    background: var(--like); color: #fff; display: grid; place-items: center;
+    font-size: 15px; font-weight: 700; line-height: 1; border: 2px solid #000;
+  }
+  .rail-plus svg { width: 11px; height: 11px; }
 
-/* ─── stats ─── */
-.stats {
-  display: flex; gap: 20px; color: var(--ink2);
-  font-size: 14px; font-weight: 500;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--border);
-  margin-bottom: 32px;
-}
-.stat { display: flex; align-items: center; gap: 6px; }
-.stat svg { width: 22px; height: 22px; flex: none; }
-.stat-likes svg { color: #ff4d6a; }
-.stat-comments svg { color: #60a5fa; }
-.stat-shares svg { color: var(--ink2); }
+  /* ── panel ───────────────────────────────────────────────────────────── */
+  .panel { background: var(--bg); }
+  .phead {
+    display: flex; align-items: center; gap: 11px;
+    padding: 15px 16px 13px; border-bottom: 1px solid var(--line);
+  }
+  .avatar {
+    width: 42px; height: 42px; border-radius: 50%; flex: none;
+    object-fit: cover; background: var(--surface-2);
+  }
+  .avatar-fallback {
+    display: grid; place-items: center; font-weight: 800; font-size: 17px;
+    color: #fff; background: linear-gradient(140deg, var(--blue-deep), var(--coral));
+  }
+  .who { min-width: 0; flex: 1; }
+  .name { display: flex; align-items: center; gap: 5px; font-weight: 700; font-size: 15.5px; letter-spacing: -0.01em; }
+  .verified { width: 15px; height: 15px; flex: none; color: var(--blue); }
+  .meta { color: var(--ink-soft); font-size: 13px; }
+  .meta .dot { opacity: .55; margin: 0 5px; }
+  .follow {
+    background: var(--blue); color: #fff; font-weight: 700; font-size: 14px;
+    padding: 8px 17px; border-radius: 100px; flex: none;
+    transition: background .18s ease, transform .18s ease;
+  }
+  .follow:hover { background: #6fb4ff; }
+  .follow:active { transform: scale(0.95); }
 
-/* ─── comments ─── */
-.comments-title {
-  font-size: 11px; font-weight: 700; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--ink3); margin-bottom: 16px;
-}
-.comment { display: flex; gap: 10px; margin-bottom: 16px; }
-.comment .av { width: 32px; height: 32px; font-size: 13px; }
-.comment .av img { width: 32px; height: 32px; }
-.comment-body { flex: 1; min-width: 0; }
-.comment-meta { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
-.comment-author { font-size: 13px; font-weight: 700; }
-.comment-time { font-size: 11.5px; color: var(--ink3); }
-.comment-text { font-size: 13.5px; line-height: 1.5; color: #c8c8d8; white-space: pre-wrap; overflow-wrap: anywhere; }
-.comment-img { margin-top: 7px; border-radius: 9px; overflow: hidden; }
-.comment-img img { max-height: 180px; object-fit: cover; }
-.comment-likes { font-size: 11.5px; color: var(--ink3); margin-top: 5px; display: flex; align-items: center; gap: 3px; }
-.pill { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 100px; }
-.pill-pin { background: rgba(20,121,255,.12); color: var(--blue); }
-.pill-owner { background: rgba(255,60,60,.1); color: #ff5555; }
-.replies { margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
-.reply { display: flex; gap: 8px; }
-.reply .av { width: 26px; height: 26px; font-size: 10px; }
-.reply .av img { width: 26px; height: 26px; }
+  .pbody { padding: 0 16px; }
 
-/* ─── sticky open bar ─── */
-.open-bar {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  background: rgba(9,9,11,.88);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border-top: 1px solid var(--border);
-  padding: 12px 20px 28px;
-  display: flex; align-items: center; gap: 12px;
-  z-index: 100;
-}
-.open-bar img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
-.open-bar-text { flex: 1; min-width: 0; }
-.open-bar-text strong { font-size: 14px; font-weight: 700; display: block; }
-.open-bar-text span { font-size: 12px; color: var(--ink2); }
-.open-bar-btn {
-  background: var(--blue); color: #fff;
-  border: none; font-family: inherit; cursor: pointer;
-  font-size: 14px; font-weight: 700; padding: 10px 18px;
-  border-radius: 100px; white-space: nowrap; flex: none;
-}
+  .caption { font-size: 15.5px; margin: 15px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .caption.clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .ln { color: var(--blue); }
+  .ln:hover { text-decoration: underline; }
+  .tok { color: var(--blue); cursor: pointer; }
+  .more {
+    color: var(--ink-soft); font-size: 14.5px; font-weight: 650; margin-top: 4px;
+  }
+  .more:hover { color: var(--ink); }
 
-/* ─── below-fold download (non-sticky fallback) ─── */
-.download-alt {
-  text-align: center; padding: 32px 0 8px;
-}
-.download-alt p { font-size: 14px; color: var(--ink2); margin-bottom: 18px; }
-.store-links { display: flex; gap: 12px; flex-direction: column; }
-/* Match landing page .store-badge style exactly */
-.store-link {
-  display: inline-flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px; padding: 10px 18px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-  transition: transform .15s;
-}
-.store-link:hover { transform: translateY(-1px); }
-.store-link .store-icon { width: 26px; height: 26px; flex: none; color: var(--ink); }
-.store-link .store-text { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
-.store-link .store-text em { font-style: normal; font-size: 10px; color: var(--ink2); }
-.store-link .store-text b { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .linkcard {
+    display: block; border: 1px solid var(--line); border-radius: 14px;
+    overflow: hidden; margin-top: 14px; background: var(--surface);
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .linkcard:hover { border-color: var(--line-2); transform: translateY(-1px); }
+  .linkcard img { width: 100%; aspect-ratio: 1.91; object-fit: cover; }
+  .linkcard-body { padding: 11px 13px 13px; }
+  .linkcard-site { color: var(--ink-dim); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
+  .linkcard-title { font-weight: 650; margin-top: 3px; font-size: 15px; }
+  .linkcard-desc { color: var(--ink-soft); font-size: 13.5px; margin-top: 3px; }
 
-/* ─── footer ─── */
-footer { text-align: center; padding: 16px 0 4px; font-size: 11.5px; color: var(--ink3); }
-footer a { color: var(--ink3); margin: 0 6px; }
+  .poll { display: grid; gap: 8px; margin-top: 15px; }
+  .poll-option {
+    position: relative; border: 1px solid var(--line-2); border-radius: 12px;
+    padding: 11px 14px; overflow: hidden; cursor: pointer;
+  }
+  .poll-fill {
+    position: absolute; inset: 0 auto 0 0; z-index: 0; width: 0;
+    background: linear-gradient(90deg, rgba(78,163,255,.32), rgba(78,163,255,.16));
+    transition: width .9s cubic-bezier(.2,.8,.2,1);
+  }
+  .poll-row { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+  .poll-pct { color: var(--ink-soft); font-variant-numeric: tabular-nums; font-weight: 650; }
+  .poll-total { color: var(--ink-dim); font-size: 13px; margin-top: 2px; }
 
-@media (max-width: 400px) {
-  .open-bar-text span { display: none; }
-  .open-bar-btn { font-size: 13px; padding: 9px 14px; }
-}
+  .statline {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    color: var(--ink-soft); font-size: 13.5px; margin: 15px 0 2px;
+  }
+  .statline b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .statline .sep { opacity: .45; }
 
+  /* ── comments ────────────────────────────────────────────────────────── */
+  .chead {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 14px; font-weight: 700; letter-spacing: -0.01em;
+    margin: 22px 0 4px; padding-top: 16px; border-top: 1px solid var(--line);
+  }
+  .chead span { color: var(--ink-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .comment { display: flex; gap: 11px; padding: 12px 0; }
+  .comment .avatar { width: 34px; height: 34px; font-size: 14px; }
+  .cbody { min-width: 0; flex: 1; }
+  .chead-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .cauthor { font-weight: 700; font-size: 14px; }
+  .ctime { color: var(--ink-dim); font-size: 12.5px; }
+  .ctext { font-size: 14.8px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+  .cimg { margin-top: 8px; border-radius: 12px; max-height: 260px; width: auto; border: 1px solid var(--line); }
+  .cfoot { display: flex; align-items: center; gap: 14px; color: var(--ink-dim); font-size: 12.5px; margin-top: 5px; font-weight: 600; }
+  .cfoot button:hover { color: var(--ink-soft); }
+  .clike {
+    display: grid; place-items: center; align-self: flex-start; margin-top: 6px;
+    color: var(--ink-dim); flex: none;
+  }
+  .clike svg { width: 15px; height: 15px; }
+  .clike:hover, .clike.on { color: var(--like); }
+  .pill {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2.5px 8px; border-radius: 100px; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .pill svg { width: 10px; height: 10px; }
+  .pill-pinned { background: rgba(78, 163, 255, 0.16); color: var(--blue); }
+  .pill-owner { background: rgba(255, 47, 86, 0.15); color: #ff6b86; }
+
+  .replies { margin-top: 4px; }
+  .replies[hidden] { display: none; }
+  .replies .comment { padding: 9px 0; }
+  .replies .avatar { width: 27px; height: 27px; font-size: 12px; }
+  .toggle-replies {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--ink-soft); font-size: 12.5px; font-weight: 700; margin-top: 6px;
+  }
+  .toggle-replies::before { content: ''; width: 26px; height: 1px; background: var(--line-2); }
+  .toggle-replies:hover { color: var(--ink); }
+
+  .empty {
+    color: var(--ink-dim); font-size: 14.5px; text-align: center;
+    padding: 26px 10px; border: 1px dashed var(--line); border-radius: 14px; margin-top: 12px;
+  }
+
+  .composer {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    margin: 16px 0 0; padding: 11px 14px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 100px;
+    color: var(--ink-dim); font-size: 14.5px;
+    transition: border-color .18s ease;
+  }
+  .composer:hover { border-color: var(--line-2); }
+  .composer .mark { width: 24px; height: 24px; border-radius: 7px; flex: none; }
+  .composer .ph { flex: 1; }
+  .composer b { color: var(--blue); font-weight: 700; font-size: 14px; }
+
+  /* ── footer ──────────────────────────────────────────────────────────── */
+  .footer-cta {
+    margin: 30px 16px 0; padding: 30px 22px; text-align: center;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background:
+      radial-gradient(90% 130% at 50% 0%, rgba(78, 163, 255, 0.13), transparent 70%),
+      var(--surface);
+  }
+  .footer-cta img.mark { width: 54px; height: 54px; border-radius: 14px; margin: 0 auto 12px; }
+  .footer-cta h3 { margin: 0 0 6px; font-size: 21px; letter-spacing: -0.025em; }
+  .footer-cta p { margin: 0 auto 18px; color: var(--ink-soft); font-size: 14.5px; max-width: 34ch; }
+  .stores { display: flex; gap: 9px; justify-content: center; flex-wrap: wrap; }
+  .store {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line-2); border-radius: 13px;
+    padding: 10px 16px; font-weight: 650; font-size: 14px;
+    transition: border-color .18s ease, background .18s ease;
+  }
+  .store:hover { border-color: var(--blue); background: rgba(78, 163, 255, 0.08); }
+  .store svg { width: 18px; height: 18px; }
+
+  footer.legal { text-align: center; color: var(--ink-dim); font-size: 12.5px; margin-top: 22px; }
+  footer.legal a { margin: 0 8px; }
+  footer.legal a:hover { color: var(--ink-soft); }
+
+  /* ── sticky open-in-app bar ──────────────────────────────────────────── */
+  .appbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(12, 12, 16, 0.86);
+    -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid var(--line);
+    transform: translateY(110%); transition: transform .42s cubic-bezier(.2,.9,.25,1);
+  }
+  .appbar.up { transform: translateY(0); }
+  .appbar .mark { width: 40px; height: 40px; border-radius: 11px; flex: none; }
+  .appbar-copy { flex: 1; min-width: 0; }
+  .appbar-copy b { display: block; font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }
+  .appbar-copy span {
+    display: block; color: var(--ink-soft); font-size: 12.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .appbar .go {
+    background: var(--blue); color: #fff; font-weight: 700; font-size: 14.5px;
+    padding: 10px 18px; border-radius: 100px; flex: none;
+    transition: background .18s ease, transform .18s ease;
+  }
+  .appbar .go:hover { background: #6fb4ff; }
+  .appbar .go:active { transform: scale(0.95); }
+  .appbar .close { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--ink-dim); flex: none; }
+  .appbar .close:hover { color: var(--ink); background: rgba(255,255,255,.08); }
+  .appbar .close svg { width: 13px; height: 13px; }
+
+  /* ── open-in-app sheet ───────────────────────────────────────────────── */
+  .scrim {
+    position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.6);
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    opacity: 0; pointer-events: none; transition: opacity .28s ease;
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
+    background: var(--surface); border-radius: 26px 26px 0 0;
+    border-top: 1px solid var(--line-2);
+    padding: 10px 20px calc(26px + env(safe-area-inset-bottom));
+    transform: translateY(102%); transition: transform .38s cubic-bezier(.2,.9,.25,1);
+    text-align: center;
+  }
+  .sheet.open { transform: translateY(0); }
+  .grabber { width: 38px; height: 4px; border-radius: 100px; background: var(--line-2); margin: 0 auto 18px; }
+  .sheet .mark { width: 62px; height: 62px; border-radius: 16px; margin: 0 auto 14px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .sheet h4 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.02em; }
+  .sheet p { margin: 0 auto 20px; color: var(--ink-soft); font-size: 14.5px; max-width: 32ch; }
+  .sheet .primary {
+    display: block; width: 100%; background: var(--blue); color: #fff;
+    font-weight: 700; font-size: 15.5px; padding: 14px; border-radius: 100px;
+    transition: background .18s ease;
+  }
+  .sheet .primary:hover { background: #6fb4ff; }
+  .sheet .stores { margin-top: 10px; }
+  .sheet .ghost { display: block; width: 100%; margin-top: 14px; color: var(--ink-dim); font-size: 14px; font-weight: 600; padding: 6px; }
+  .sheet .ghost:hover { color: var(--ink-soft); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(var(--bar) + 18px); z-index: 70;
+    transform: translate(-50%, 14px); opacity: 0; pointer-events: none;
+    background: rgba(244, 245, 248, 0.96); color: #101116;
+    font-size: 14px; font-weight: 650; padding: 11px 18px; border-radius: 100px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ── desktop: the two-up post view ───────────────────────────────────── */
+  @media (min-width: 1000px) {
+    .wrap { padding-top: 78px; }
+    .top-cta { display: inline-flex; }
+    .shell {
+      display: grid; grid-template-columns: minmax(0, 1fr) 412px;
+      border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+      background: var(--surface); box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+      margin: 0 auto;
+    }
+    .stage { height: min(80vh, 780px); min-height: 520px; }
+    .panel { display: flex; flex-direction: column; height: min(80vh, 780px); border-left: 1px solid var(--line); }
+    .pbody { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 6px; }
+    .pbody::-webkit-scrollbar { width: 7px; }
+    .pbody::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 100px; }
+    .composer { margin: 0; border-radius: 0; border: 0; border-top: 1px solid var(--line); padding: 14px 16px; background: transparent; }
+    .rail { right: 14px; bottom: 22px; }
+    .dots { bottom: 16px; }
+    .footer-cta { margin: 26px auto 0; max-width: 620px; }
+    .caption { margin-top: 16px; }
+  }
+
+  @media (min-width: 1000px) and (max-width: 1180px) {
+    .shell { max-width: calc(100vw - 40px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .deck { scroll-behavior: auto; }
+  }
 </style>
 </head>
 <body>
+<div class="glow" aria-hidden="true"></div>
 
-<!-- Sticky open-in-app bar at the bottom -->
-<div class="open-bar">
-  <img src="/brand/logo-dark.png" alt="Neat" />
-  <div class="open-bar-text">
-    <strong>Άνοιξε στη Neat</strong>
-    <span>Δες το post απευθείας στην εφαρμογή</span>
-  </div>
-  <button class="open-bar-btn" onclick="openInApp()">Άνοιγμα</button>
-</div>
+<header class="topbar" id="topbar">
+  <a class="brand" href="/"><img src="/brand/logo-dark.png" alt="" width="30" height="30" />Neat</a>
+  <div class="spacer"></div>
+  <button class="icon-btn" id="share-top" aria-label="Κοινοποίηση">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 16V4M12 4 7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/>
+    </svg>
+  </button>
+  <button class="top-cta" data-open-app="1">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+    Άνοιγμα στην εφαρμογή
+  </button>
+</header>
 
-<div class="page">
+<div class="wrap">
+<main class="shell">
 
-  <!-- Header -->
-  <header class="header">
-    <a href="/"><img class="logo" src="/brand/logo-dark.png" alt="Neat" /></a>
-    <button class="header-open" onclick="openInApp()">Άνοιγμα στην εφαρμογή ↗</button>
-  </header>
-
-  <!-- Author -->
-  <div class="author-row">
-    <div class="av">
-      {% if post.avatarUrl %}<img src="{{ post.avatarUrl }}" alt="" loading="lazy" />
-      {% else %}{{ post.author|first|upper }}{% endif %}
+  {# ── the stage: media if there is any, otherwise the caption as a poster ── #}
+  <section class="stage{% if not media_count %} textonly{% endif %}" id="stage" aria-label="Περιεχόμενο δημοσίευσης">
+    <div class="deck" id="deck">
+      {% if media_count %}
+        {% for item in post.media %}
+          <figure class="slide" data-type="{{ item.type }}" data-index="{{ forloop.counter0 }}">
+            {% if item.bgUrl %}<div class="slide-bg" style="background-image:url('{{ item.bgUrl }}')"></div>{% endif %}
+            {% if item.status == 'processing' %}
+              <div class="processing">
+                <div class="spinner"></div>
+                <div>Το βίντεο ετοιμάζεται…<br /><span style="opacity:.6">{{ item.progress }}%</span></div>
+              </div>
+            {% elif item.type == 'video' %}
+              <video class="slide-media" src="{{ item.url }}"
+                     {% if item.thumbUrl %}poster="{{ item.thumbUrl }}"{% endif %}
+                     muted loop playsinline preload="{% if forloop.first %}auto{% else %}none{% endif %}"
+                     disablepictureinpicture x-webkit-airplay="deny"></video>
+            {% else %}
+              <img class="slide-media" src="{{ item.url }}" alt="{{ og_title }}"
+                   loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                   {% if forloop.first %}fetchpriority="high"{% endif %} />
+            {% endif %}
+          </figure>
+        {% endfor %}
+      {% else %}
+        {# No media. A wall of small grey text would look broken, so the words
+           become the artwork — the way a text post reads in the app. #}
+        <figure class="slide is-text">
+          <div class="slide-bg"></div>
+          <div class="bigtext">{% if post.text %}{{ post.text|truncatechars:220|neat_rich }}{% else %}@{{ post.author }}{% endif %}</div>
+        </figure>
+      {% endif %}
     </div>
-    <div class="av-info">
-      <div class="handle">
-        @{{ post.author }}
-        {% if post.authorVerified %}
-          <svg class="verified" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
-            <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="var(--bg)"/>
-          </svg>
+
+    <div class="scrim-top" aria-hidden="true"></div>
+    <div class="scrim-bottom" aria-hidden="true"></div>
+
+    {% if media_count > 1 %}
+      <div class="counter" id="counter">1/{{ media_count }}</div>
+      <div class="dots" id="dots" aria-hidden="true">
+        {% for item in post.media %}<i class="{% if forloop.first %}on{% endif %}"></i>{% endfor %}
+      </div>
+      <button class="arrow prev" id="prev" aria-label="Προηγούμενο" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <button class="arrow next" id="next" aria-label="Επόμενο">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    {% endif %}
+
+    {% if has_video %}
+      <div class="playpause" id="playpause" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5-11-6.5z"/></svg>
+      </div>
+      <button class="mute" id="mute" aria-label="Ήχος">
+        <svg id="mute-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2-3.7v7.4a4.5 4.5 0 0 0 2-3.7z" opacity=".55"/><path d="M3 3l18 18-1.4 1.4L1.6 4.4 3 3z"/></svg>
+      </button>
+      <div class="scrub" id="scrub"><i></i></div>
+    {% endif %}
+
+    <div class="burst" id="burst" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+    </div>
+
+    {# TikTok's rail, on every breakpoint: the post's own numbers, and every
+       tap lands in the app because none of this is doable logged out. #}
+    <nav class="rail" aria-label="Ενέργειες">
+      <div class="rail-item">
+        <div class="rail-avatar">
+          {% if post.avatarUrl %}
+            <img class="avatar" src="{{ post.avatarUrl }}" alt="@{{ post.author }}" />
+          {% else %}
+            <div class="avatar avatar-fallback">{{ post.author|first|upper }}</div>
+          {% endif %}
+          <button class="rail-plus" data-gate="1" aria-label="Ακολούθησε τον @{{ post.author }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="rail-item">
+        <button class="rail-btn" data-gate="1" data-like="1" aria-label="Μου αρέσει">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+        </button>
+        <span class="rail-count">{{ post.likes|neat_count }}</span>
+      </div>
+      <div class="rail-item">
+        <button class="rail-btn" id="to-comments" aria-label="Σχόλια">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c5 0 9 3.3 9 7.4 0 4.1-4 7.4-9 7.4-.9 0-1.8-.1-2.6-.3L4 20l1.3-3.4C3.9 15.2 3 13 3 10.4 3 6.3 7 3 12 3z"/></svg>
+        </button>
+        <span class="rail-count">{{ post.comment_count|neat_count }}</span>
+      </div>
+      <div class="rail-item">
+        <button class="rail-btn" data-gate="1" data-save="1" aria-label="Αποθήκευση">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.2L5 21V4a1 1 0 0 1 1-1z"/></svg>
+        </button>
+        <span class="rail-count">Αποθ.</span>
+      </div>
+      <div class="rail-item">
+        <button class="rail-btn" id="share-rail" aria-label="Κοινοποίηση">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 3.5 22 10l-8 6.5V13c-4.6.1-7.8 1.5-10 4.6.5-6 3.9-9.7 10-10.4V3.5z"/></svg>
+        </button>
+        <span class="rail-count">{% if post.shares %}{{ post.shares|neat_count }}{% else %}Κοιν.{% endif %}</span>
+      </div>
+    </nav>
+  </section>
+
+  {# ── the panel: who, what they said, and the whole thread ─────────────── #}
+  <aside class="panel">
+    <div class="phead">
+      {% if post.avatarUrl %}
+        <img class="avatar" src="{{ post.avatarUrl }}" alt="" />
+      {% else %}
+        <div class="avatar avatar-fallback">{{ post.author|first|upper }}</div>
+      {% endif %}
+      <div class="who">
+        <div class="name">
+          @{{ post.author }}
+          {% if post.authorVerified %}
+            <svg class="verified" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Επιβεβαιωμένος λογαριασμός">
+              <path d="M12 2l2.4 1.8 3-.2.9 2.9 2.5 1.7-1.1 2.8 1.1 2.8-2.5 1.7-.9 2.9-3-.2L12 22l-2.4-1.8-3 .2-.9-2.9L3.2 15.8 4.3 13 3.2 10.2l2.5-1.7.9-2.9 3 .2z"/>
+              <path d="M10.6 15.2l-2.9-2.9 1.1-1.1 1.8 1.8 4-4 1.1 1.1z" fill="#08080b"/>
+            </svg>
+          {% endif %}
+        </div>
+        <div class="meta">
+          <time datetime="{{ post.created }}">{{ post.created|greek_ago }}</time>
+          {% if post.city %}<span class="dot">·</span>{{ post.city }}{% endif %}
+        </div>
+      </div>
+      <button class="follow" data-gate="1">Ακολούθησε</button>
+    </div>
+
+    <div class="pbody">
+      {% if post.text and media_count %}
+        <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
+        <button class="more" id="more" hidden>περισσότερα</button>
+      {% elif post.text %}
+        {# Already the artwork above; repeat it only when it was truncated. #}
+        {% if post.text|length > 220 %}
+          <div class="caption" id="caption">{{ post.text|neat_rich }}</div>
+          <button class="more" id="more" hidden>περισσότερα</button>
+        {% endif %}
+      {% endif %}
+
+      {% if post.link_preview %}
+        <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener ugc" target="_blank">
+          {% if post.link_preview.image_url %}
+            <img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />
+          {% endif %}
+          <div class="linkcard-body">
+            {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
+            {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
+            {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:150 }}</div>{% endif %}
+          </div>
+        </a>
+      {% endif %}
+
+      {% if post.poll %}
+        <div class="poll">
+          {% for option in post.poll.options %}
+            {% with pct=option|poll_percent:post.poll %}
+              <div class="poll-option" data-gate="1">
+                <div class="poll-fill" data-pct="{{ pct }}"></div>
+                <div class="poll-row">
+                  <span>{{ option.text }}</span>
+                  <span class="poll-pct">{{ pct }}%</span>
+                </div>
+              </div>
+            {% endwith %}
+          {% endfor %}
+        </div>
+        <div class="poll-total">{{ post.poll|poll_total }}</div>
+      {% endif %}
+
+      <div class="statline">
+        <b>{{ post.likes|neat_count }}</b> {% if post.likes == 1 %}like{% else %}likes{% endif %}
+        <span class="sep">·</span>
+        <b>{{ post.comment_count|neat_count }}</b> {% if post.comment_count == 1 %}σχόλιο{% else %}σχόλια{% endif %}
+        {% if post.shares %}
+          <span class="sep">·</span>
+          <b>{{ post.shares|neat_count }}</b> {% if post.shares == 1 %}κοινοποίηση{% else %}κοινοποιήσεις{% endif %}
         {% endif %}
       </div>
-      <div class="meta">{{ post.created|greek_ago }}{% if post.city %} · {{ post.city }}{% endif %}</div>
-    </div>
-  </div>
 
-  <!-- Text -->
-  {% if post.text %}<div class="post-text">{{ post.text }}</div>{% endif %}
+      <h2 class="chead" id="comments">Σχόλια <span>{{ post.comment_count }}</span></h2>
 
-  <!-- Poll -->
-  {% if post.poll %}
-    <div class="poll">
-      {% for option in post.poll.options %}
-        {% with pct=option|poll_percent:post.poll %}
-          <div class="poll-opt">
-            <div class="poll-fill" style="width:{{ pct }}%"></div>
-            <div class="poll-row"><span>{{ option.text }}</span><span class="poll-pct">{{ pct }}%</span></div>
-          </div>
-        {% endwith %}
-      {% endfor %}
-    </div>
-  {% endif %}
-
-  <!-- Link preview -->
-  {% if post.link_preview %}
-    <a class="linkcard" href="{{ post.link_preview.url }}" rel="nofollow noopener" target="_blank">
-      {% if post.link_preview.image_url %}<img src="{{ post.link_preview.image_url }}" alt="" loading="lazy" />{% endif %}
-      <div class="linkcard-body">
-        {% if post.link_preview.site_name %}<div class="linkcard-site">{{ post.link_preview.site_name }}</div>{% endif %}
-        {% if post.link_preview.title %}<div class="linkcard-title">{{ post.link_preview.title }}</div>{% endif %}
-        {% if post.link_preview.description %}<div class="linkcard-desc">{{ post.link_preview.description|truncatechars:120 }}</div>{% endif %}
-      </div>
-    </a>
-  {% endif %}
-
-  <!-- Media -->
-  {% if post.media %}
-    {% if post.media|length == 1 %}
-      {% with item=post.media.0 %}
-        <div class="media">
-          {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-          {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" controls playsinline preload="metadata"></video>
+      <ol class="thread">
+      {% for comment in post.comments %}
+        <li class="comment">
+          {% if comment.avatarUrl %}
+            <img class="avatar" src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
+          {% else %}
+            <div class="avatar avatar-fallback">{{ comment.author|first|upper }}</div>
           {% endif %}
-        </div>
-      {% endwith %}
-    {% else %}
-      <div class="media-grid">
-        {% for item in post.media %}
-          {% if item.type == 'image' %}<img src="{{ item.url }}" alt="" loading="lazy" />
-          {% elif item.type == 'video' %}<video src="{{ item.url }}" poster="{{ item.thumbUrl }}" playsinline preload="metadata"></video>
-          {% endif %}
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endif %}
-
-  <!-- Stats -->
-  <div class="stats">
-    <span class="stat stat-likes">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-      </svg>
-      {{ post.likes }}
-    </span>
-    <span class="stat stat-comments">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-      </svg>
-      {{ post.comment_count }}
-    </span>
-    {% if post.shares %}<span class="stat stat-shares">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-      </svg>
-      {{ post.shares }}
-    </span>{% endif %}
-  </div>
-
-  <!-- Comments -->
-  {% if post.comments %}
-    <div class="comments-title">Σχόλια</div>
-    {% for comment in post.comments %}
-      <div class="comment">
-        <div class="av">
-          {% if comment.avatarUrl %}<img src="{{ comment.avatarUrl }}" alt="" loading="lazy" />
-          {% else %}{{ comment.author|first|upper }}{% endif %}
-        </div>
-        <div class="comment-body">
-          <div class="comment-meta">
-            <span class="comment-author">@{{ comment.author }}</span>
-            <span class="comment-time">{{ comment.created|greek_ago }}</span>
-            {% if comment.pinned %}<span class="pill pill-pin">Καρφιτσωμένο</span>{% endif %}
-            {% if comment.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
-          </div>
-          {% if comment.text %}<div class="comment-text">{{ comment.text }}</div>{% endif %}
-          {% if comment.imageUrl %}<div class="comment-img"><img src="{{ comment.imageUrl }}" alt="" loading="lazy" /></div>{% endif %}
-          {% if comment.likes %}<div class="comment-likes"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ comment.likes }}</div>{% endif %}
-          {% if comment.replies %}
-            <div class="replies">
-              {% for reply in comment.replies %}
-                <div class="reply">
-                  <div class="av">
-                    {% if reply.avatarUrl %}<img src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
-                    {% else %}{{ reply.author|first|upper }}{% endif %}
-                  </div>
-                  <div class="comment-body">
-                    <div class="comment-meta">
-                      <span class="comment-author">@{{ reply.author }}</span>
-                      <span class="comment-time">{{ reply.created|greek_ago }}</span>
-                      {% if reply.likedByOwner %}<span class="pill pill-owner">♥ δημιουργού</span>{% endif %}
-                    </div>
-                    {% if reply.text %}<div class="comment-text">{{ reply.text }}</div>{% endif %}
-                    {% if reply.likes %}<div class="comment-likes"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg> {{ reply.likes }}</div>{% endif %}
-                  </div>
-                </div>
-              {% endfor %}
+          <div class="cbody">
+            <div class="chead-row">
+              <span class="cauthor">@{{ comment.author }}</span>
+              <time class="ctime" datetime="{{ comment.created }}">{{ comment.created|greek_ago }}</time>
+              {% if comment.pinned %}
+                <span class="pill pill-pinned">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2l8 8-3 1-3.5 3.5L14 22l-4-6-6.5 3L8 12l-3-3 1-3 8-4z"/></svg>
+                  Καρφιτσωμένο
+                </span>
+              {% endif %}
+              {% if comment.likedByOwner %}
+                <span class="pill pill-owner">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+                  δημιουργού
+                </span>
+              {% endif %}
             </div>
-          {% endif %}
-        </div>
-      </div>
-    {% endfor %}
-  {% endif %}
+            {% if comment.text %}<div class="ctext">{{ comment.text|neat_rich }}</div>{% endif %}
+            {% if comment.imageUrl %}<img class="cimg" src="{{ comment.imageUrl }}" alt="" loading="lazy" />{% endif %}
+            <div class="cfoot">
+              {% if comment.likes %}<span>{{ comment.likes|neat_count }} {% if comment.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
+              <button data-gate="1">Απάντηση</button>
+            </div>
 
-  <!-- Download section (below-fold fallback for people without the app) -->
-  <div class="download-alt">
-    <p>Δεν έχεις τη Neat;</p>
-    <div class="store-links">
-      <a class="store-link" href="{{ app_store_url }}" rel="noopener noreferrer">
-        <svg class="store-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.462 2.15-1.223 2.9-.84.83-2.13 1.47-3.2 1.38-.14-1.09.45-2.24 1.19-2.96.8-.8 2.17-1.42 3.16-1.32zM20.6 17.14c-.5 1.15-.74 1.67-1.38 2.68-.9 1.42-2.16 3.19-3.73 3.2-1.4.02-1.76-.92-3.66-.91-1.9.01-2.3.93-3.7.92-1.57-.02-2.77-1.62-3.67-3.04C1.68 16.9 1 12.99 2.6 10.4c1.13-1.83 2.9-2.9 4.56-2.9 1.7 0 2.77.94 4.18.94 1.36 0 2.2-.94 4.18-.94 1.48 0 3.05.81 4.17 2.2-3.67 2-3.08 7.24 1.11 9.44-.35.94-.55 1.36-1 2z"/></svg>
-        <span class="store-text"><em>Download on the</em><b>App Store</b></span>
-      </a>
-      <a class="store-link" href="{{ play_store_url }}" rel="noopener noreferrer">
-        <svg class="store-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="#00d2ff" d="M4.5 2.5c-.4.3-.6.8-.6 1.4v16.2c0 .6.2 1.1.6 1.4l.1.1L14 12 4.6 2.4l-.1.1z"/>
-          <path fill="#ffd400" d="M17.3 15.3l-3.3-3.3v-.1l3.3-3.3.1.1 3.9 2.2c1.1.7 1.1 1.7 0 2.3l-3.9 2.1z"/>
-          <path fill="#ff3d51" d="M17.4 15.2L14 11.9 4.6 21.6c.4.4 1 .4 1.7.1l11.1-6.5z"/>
-          <path fill="#00e876" d="M17.4 8.7L6.3 2.3c-.7-.4-1.3-.3-1.7.1L14 11.9l3.4-3.2z"/>
-        </svg>
-        <span class="store-text"><em>GET IT ON</em><b>Google Play</b></span>
-      </a>
+            {% if comment.replies %}
+              <button class="toggle-replies" data-target="r{{ comment.id }}" aria-expanded="false">
+                Προβολή {{ comment.replies|length }} {% if comment.replies|length == 1 %}απάντησης{% else %}απαντήσεων{% endif %}
+              </button>
+              <ol class="replies" id="r{{ comment.id }}" hidden>
+                {% for reply in comment.replies %}
+                  <li class="comment">
+                    {% if reply.avatarUrl %}
+                      <img class="avatar" src="{{ reply.avatarUrl }}" alt="" loading="lazy" />
+                    {% else %}
+                      <div class="avatar avatar-fallback">{{ reply.author|first|upper }}</div>
+                    {% endif %}
+                    <div class="cbody">
+                      <div class="chead-row">
+                        <span class="cauthor">@{{ reply.author }}</span>
+                        <time class="ctime" datetime="{{ reply.created }}">{{ reply.created|greek_ago }}</time>
+                        {% if reply.likedByOwner %}
+                          <span class="pill pill-owner">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+                            δημιουργού
+                          </span>
+                        {% endif %}
+                      </div>
+                      {% if reply.text %}<div class="ctext">{{ reply.text|neat_rich }}</div>{% endif %}
+                      <div class="cfoot">
+                        {% if reply.likes %}<span>{{ reply.likes|neat_count }} {% if reply.likes == 1 %}like{% else %}likes{% endif %}</span>{% endif %}
+                        <button data-gate="1">Απάντηση</button>
+                      </div>
+                    </div>
+                    <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+                    </button>
+                  </li>
+                {% endfor %}
+              </ol>
+            {% endif %}
+          </div>
+          <button class="clike" data-gate="1" aria-label="Μου αρέσει το σχόλιο">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.1 12 21 12 21z"/></svg>
+          </button>
+        </li>
+      {% empty %}
+        <li class="empty">Κανένα σχόλιο ακόμα. Γίνε ο πρώτος στην εφαρμογή.</li>
+      {% endfor %}
+      </ol>
     </div>
+
+    <button class="composer" data-gate="1">
+      <img class="mark" src="/icons/Icon-192.png" alt="" width="24" height="24" loading="lazy" />
+      <span class="ph">Πρόσθεσε σχόλιο…</span>
+      <b>Δημοσίευση</b>
+    </button>
+  </aside>
+</main>
+
+<section class="footer-cta">
+  <img class="mark" src="/icons/Icon-192.png" alt="" width="54" height="54" />
+  <h3>Δες το στο Neat</h3>
+  <p>Κάνε like, σχολίασε και δες τι συμβαίνει τώρα στην πόλη σου.</p>
+  <div class="stores">
+    <a class="store" href="{{ app_store_url }}" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.6 2.3 2.8 2.3 1.1 0 1.6-.7 2.9-.7 1.3 0 1.7.7 2.9.7 1.2 0 2-1.1 2.7-2.2.9-1.3 1.2-2.5 1.3-2.5-.1 0-2.4-1-2.4-3.7zM14.2 5.3c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.7-1.3z"/></svg>
+      App Store
+    </a>
+    <a class="store" href="{{ play_store_url }}" rel="noopener">
+      <svg viewBox="0 0 24 24"><path fill="#00d2ff" d="M4.5 2.5c-.4.3-.6.8-.6 1.4v16.2c0 .6.2 1.1.6 1.4l.1.1L14 12 4.6 2.4l-.1.1z"/><path fill="#ffd400" d="M17.3 15.3l-3.3-3.3v-.1l3.3-3.3.1.1 3.9 2.2c1.1.7 1.1 1.7 0 2.3l-3.9 2.1z"/><path fill="#ff3d51" d="M17.4 15.2L14 11.9 4.6 21.6c.4.4 1 .4 1.7.1l11.1-6.5z"/><path fill="#00e876" d="M17.4 8.7L6.3 2.3c-.7-.4-1.3-.3-1.7.1L14 11.9l3.4-3.2z"/></svg>
+      Google Play
+    </a>
   </div>
+</section>
 
-  <footer>
-    <a href="/privacy">Απόρρητο</a>&ensp;·&ensp;<a href="/terms">Όροι</a>
-  </footer>
-
+<footer class="legal">
+  <a href="/">neatapp.gr</a>·<a href="/privacy">Απόρρητο</a>·<a href="/terms">Όροι</a>
+</footer>
 </div>
 
+<div class="appbar" id="appbar">
+  <img class="mark" src="/icons/Icon-192.png" alt="" width="40" height="40" />
+  <div class="appbar-copy">
+    <b>Neat</b>
+    <span>@{{ post.author }}{% if post.city %} · {{ post.city }}{% endif %}</span>
+  </div>
+  <button class="go" data-open-app="1">Άνοιγμα</button>
+  <button class="close" id="appbar-close" aria-label="Κλείσιμο">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>
+  </button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="grabber"></div>
+  <img class="mark" src="/icons/Icon-192.png" alt="" width="62" height="62" />
+  <h4 id="sheet-title">Συνέχισε στο Neat</h4>
+  <p>Το like, τα σχόλια και το προφίλ του <b>@{{ post.author }}</b> ζουν μέσα στην εφαρμογή.</p>
+  <button class="primary" data-open-app="1">Άνοιγμα στην εφαρμογή</button>
+  <div class="stores">
+    <a class="store" id="store-ios" href="{{ app_store_url }}" rel="noopener">App Store</a>
+    <a class="store" id="store-android" href="{{ play_store_url }}" rel="noopener">Google Play</a>
+  </div>
+  <button class="ghost" id="sheet-close">Συνέχεια στο web</button>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+
 <script>
-var IOS_STORE = '{{ app_store_url }}';
-var AND_STORE = '{{ play_store_url }}';
-var ua        = navigator.userAgent || '';
-var isAndroid = /android/i.test(ua);
+(function () {
+  'use strict';
 
-function openInApp() {
-  if (isAndroid) {
-    window.location.href =
-      'intent://#Intent;scheme=neat;package=gr.app.neat;' +
-      'S.browser_fallback_url=' + encodeURIComponent(AND_STORE) + ';end';
-    return;
+  var DEEP_LINK   = '{{ deep_link|escapejs }}';
+  var POST_ID     = '{{ post_id|escapejs }}';
+  var PAGE_URL    = '{{ og_url|escapejs }}';
+  var SHARE_TITLE = '{{ og_title|escapejs }}';
+  var APP_STORE   = '{{ app_store_url|escapejs }}';
+  var PLAY_STORE  = '{{ play_store_url|escapejs }}';
+
+  var ua = navigator.userAgent || '';
+  var IS_IOS = /iPad|iPhone|iPod/.test(ua) ||
+               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var IS_ANDROID = /Android/.test(ua);
+  var IS_MOBILE = IS_IOS || IS_ANDROID;
+  var STORE = IS_IOS ? APP_STORE : (IS_ANDROID ? PLAY_STORE : '');
+
+  var $  = function (sel) { return document.querySelector(sel); };
+  var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+
+  // ── toast ────────────────────────────────────────────────────────────────
+  var toastEl = $('#toast');
+  var toastTimer;
+  function toast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2200);
   }
-  // iOS: attempt to open the app. When it opens the browser loses focus
-  // immediately and blur/visibilitychange fires — we cancel the timer.
-  // If neither fires within 2 s the app is not installed -> App Store.
-  var fallback = setTimeout(function () {
-    window.location.href = IOS_STORE;
-  }, 2000);
-  function cancel() {
-    clearTimeout(fallback);
-    window.removeEventListener('blur', cancel);
-    document.removeEventListener('visibilitychange', onVis);
+
+  // ── open in app ──────────────────────────────────────────────────────────
+  //
+  // The custom scheme either hands the tab to the app or does nothing at all;
+  // there is no event for "it worked". So: fire it, and if we are still here
+  // and still visible a beat later, the app is not installed — send them to
+  // the store. The visibility check is what stops the store opening *behind*
+  // the app for everyone who does have it.
+  function launchApp() {
+    if (!IS_MOBILE) { openSheet(); return; }
+
+    // Android does this properly on its own: Chrome opens the app if it is
+    // installed and follows browser_fallback_url if it is not, so there is no
+    // timer here to lose a race against.
+    if (IS_ANDROID) {
+      window.location.href =
+        'intent://post/' + POST_ID + '#Intent;scheme=neat;package=gr.app.neat;' +
+        'S.browser_fallback_url=' + encodeURIComponent(PLAY_STORE) + ';end';
+      return;
+    }
+
+    var left = false;
+    function onHide() { if (document.hidden) left = true; }
+    function onBlur() { left = true; }
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    // Not every iOS browser fires visibilitychange when it hands off to an
+    // app, but they all blur — without this the App Store opens behind the
+    // app for someone who already has it.
+    window.addEventListener('blur', onBlur);
+
+    window.location.href = DEEP_LINK;
+
+    setTimeout(function () {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('blur', onBlur);
+      if (!left && !document.hidden && STORE) window.location.href = STORE;
+    }, 1600);
   }
-  function onVis() { if (document.hidden) cancel(); }
-  window.addEventListener('blur', cancel);
-  document.addEventListener('visibilitychange', onVis);
-  window.location.href = 'neat://post/{{ post_id }}';
-}
+
+  // ── the sheet everything logged-out funnels into ─────────────────────────
+  var scrim = $('#scrim'), sheet = $('#sheet');
+  var lastFocus = null;
+
+  function openSheet() {
+    lastFocus = document.activeElement;
+    scrim.classList.add('open');
+    sheet.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    pauseAll();
+    setTimeout(function () { sheet.querySelector('.primary').focus(); }, 260);
+  }
+  function closeSheet() {
+    scrim.classList.remove('open');
+    sheet.classList.remove('open');
+    document.body.style.overflow = '';
+    resumeActive();
+    if (lastFocus) lastFocus.focus();
+  }
+  scrim.addEventListener('click', closeSheet);
+  $('#sheet-close').addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sheet.classList.contains('open')) closeSheet();
+  });
+
+  // The store that can actually install the app goes first.
+  if (IS_ANDROID) $('#store-android').parentNode.insertBefore($('#store-android'), $('#store-ios'));
+
+  // Swipe the sheet down to dismiss, the way a native one behaves.
+  var dragFrom = null;
+  sheet.addEventListener('touchstart', function (e) { dragFrom = e.touches[0].clientY; }, { passive: true });
+  sheet.addEventListener('touchmove', function (e) {
+    if (dragFrom === null) return;
+    var dy = e.touches[0].clientY - dragFrom;
+    if (dy > 0) sheet.style.transform = 'translateY(' + dy + 'px)';
+  }, { passive: true });
+  sheet.addEventListener('touchend', function (e) {
+    if (dragFrom === null) return;
+    var dy = (e.changedTouches[0].clientY - dragFrom);
+    sheet.style.transform = '';
+    dragFrom = null;
+    if (dy > 90) closeSheet();
+  });
+
+  // ── the gate ─────────────────────────────────────────────────────────────
+  //
+  // Every like / save / follow / reply on this page is a thing you cannot do
+  // logged out. Rather than a dead button or a login wall, the control reacts
+  // like the real one and then offers the app.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-gate]') : null;
+    if (!el) return;
+    e.preventDefault();
+
+    if (el.dataset.like) { el.classList.add('on', 'pop'); }
+    else if (el.dataset.save) { el.classList.add('saved', 'pop'); }
+    else if (el.classList.contains('clike')) { el.classList.add('on'); }
+    setTimeout(function () { el.classList.remove('pop'); }, 460);
+
+    openSheet();
+  });
+
+  // Reading the thread is the one thing this page can do logged out, so the
+  // comment button goes to it instead of into the app.
+  var toComments = $('#to-comments');
+  if (toComments) {
+    toComments.addEventListener('click', function () {
+      $('#comments').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  $$('[data-open-app]').forEach(function (btn) {
+    btn.addEventListener('click', function () { launchApp(); });
+  });
+
+  // ── share ────────────────────────────────────────────────────────────────
+  function share() {
+    if (navigator.share) {
+      navigator.share({ title: SHARE_TITLE, url: PAGE_URL }).catch(function (err) {
+        if (!err || err.name !== 'AbortError') copyLink();
+      });
+      return;
+    }
+    copyLink();
+  }
+
+  function copyLink() {
+    var done = function () { toast('Ο σύνδεσμος αντιγράφηκε'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(PAGE_URL).then(done, function () { toast(PAGE_URL); });
+    } else {
+      var field = document.createElement('input');
+      field.value = PAGE_URL;
+      document.body.appendChild(field);
+      field.select();
+      try { document.execCommand('copy'); done(); } catch (err) { toast(PAGE_URL); }
+      document.body.removeChild(field);
+    }
+  }
+  $('#share-top').addEventListener('click', share);
+  var shareRail = $('#share-rail');
+  if (shareRail) shareRail.addEventListener('click', share);
+
+  // ── top bar goes solid once the media is behind it ───────────────────────
+  var topbar = $('#topbar');
+  var onScroll = function () { topbar.classList.toggle('solid', window.scrollY > 24); };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // ── carousel ─────────────────────────────────────────────────────────────
+  var deck = $('#deck');
+  var slides = $$('.slide');
+  var dots = $('#dots');
+  var counter = $('#counter');
+  var prev = $('#prev'), next = $('#next');
+  var index = 0;
+
+  function goTo(i) {
+    var target = Math.max(0, Math.min(slides.length - 1, i));
+    deck.scrollTo({ left: target * deck.clientWidth, behavior: 'smooth' });
+  }
+
+  function syncIndex() {
+    var at = Math.round(deck.scrollLeft / Math.max(1, deck.clientWidth));
+    if (at === index) return;
+    index = at;
+    if (dots) $$('#dots i').forEach(function (dot, i) { dot.classList.toggle('on', i === index); });
+    if (counter) counter.textContent = (index + 1) + '/' + slides.length;
+    if (prev) prev.hidden = index === 0;
+    if (next) next.hidden = index === slides.length - 1;
+    playOnly(index);
+  }
+  deck.addEventListener('scroll', function () {
+    clearTimeout(deck._t);
+    deck._t = setTimeout(syncIndex, 60);
+  }, { passive: true });
+
+  if (prev) prev.addEventListener('click', function () { goTo(index - 1); });
+  if (next) next.addEventListener('click', function () { goTo(index + 1); });
+  document.addEventListener('keydown', function (e) {
+    if (sheet.classList.contains('open')) return;
+    if (e.key === 'ArrowRight') goTo(index + 1);
+    if (e.key === 'ArrowLeft') goTo(index - 1);
+  });
+
+  // ── video ────────────────────────────────────────────────────────────────
+  var stage = $('#stage');
+  var videos = $$('.slide video');
+  var muted = true;
+  var muteBtn = $('#mute'), muteIcon = $('#mute-icon'), scrub = $('#scrub');
+  var scrubFill = scrub && scrub.querySelector('i');
+
+  var ICON_MUTED = '<path d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2-3.7v7.4a4.5 4.5 0 0 0 2-3.7z" opacity=".55"/><path d="M3 3l18 18-1.4 1.4L1.6 4.4 3 3z"/>';
+  var ICON_LOUD  = '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 12a4.5 4.5 0 0 0-2-3.7v7.4a4.5 4.5 0 0 0 2-3.7zm2.5 0a7 7 0 0 0-3-5.7v2a5.1 5.1 0 0 1 0 7.4v2a7 7 0 0 0 3-5.7z"/>';
+
+  function current() { return slides[index] ? slides[index].querySelector('video') : null; }
+
+  function pauseAll() { videos.forEach(function (v) { v.pause(); }); }
+  function playOnly(i) {
+    videos.forEach(function (v) {
+      if (slides[i] && slides[i].contains(v)) {
+        v.play().catch(function () {});
+      } else {
+        v.pause();
+        v.currentTime = 0;
+      }
+    });
+    if (stage) stage.classList.remove('paused');
+  }
+  function resumeActive() { if (visible) playOnly(index); }
+
+  videos.forEach(function (video) {
+    video.muted = true;
+    video.addEventListener('timeupdate', function () {
+      if (!scrubFill || video !== current() || !video.duration) return;
+      scrubFill.style.width = (video.currentTime / video.duration * 100) + '%';
+    });
+  });
+
+  function togglePlay() {
+    var video = current();
+    if (!video) return;
+    if (video.paused) { video.play().catch(function () {}); stage.classList.remove('paused'); }
+    else { video.pause(); stage.classList.add('paused'); }
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' && !sheet.classList.contains('open') && current()) {
+      e.preventDefault();
+      togglePlay();
+    }
+  });
+
+  if (muteBtn) {
+    muteBtn.addEventListener('click', function () {
+      muted = !muted;
+      videos.forEach(function (v) { v.muted = muted; });
+      muteIcon.innerHTML = muted ? ICON_MUTED : ICON_LOUD;
+      if (!muted) { var v = current(); if (v && v.paused) v.play().catch(function () {}); }
+    });
+  }
+
+  // Nothing plays while it is off screen — this page is often a tab someone
+  // left open, and a looping video there is pure battery.
+  var visible = true;
+  if (stage && videos.length && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      visible = entries[0].isIntersecting;
+      if (visible) { if (!sheet.classList.contains('open')) playOnly(index); }
+      else pauseAll();
+    }, { threshold: 0.35 }).observe(stage);
+  } else if (videos.length) {
+    playOnly(0);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) pauseAll(); else resumeActive();
+  });
+
+  // ── tap to pause, double-tap to like ─────────────────────────────────────
+  //
+  // Both gestures live on the stage, so a single tap has to wait out the
+  // double-tap window before it acts — and a tap that moved is a swipe on the
+  // carousel, which neither of them should claim.
+  var burst = $('#burst');
+  var lastTap = 0, singleTimer = null, startX = 0, startY = 0;
+
+  if (stage) {
+    stage.addEventListener('pointerdown', function (e) {
+      startX = e.clientX; startY = e.clientY;
+    });
+    stage.addEventListener('pointerup', function (e) {
+      if (e.target.closest('button, a')) return;
+      if (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12) return;
+
+      var now = Date.now();
+      if (now - lastTap < 320) {
+        lastTap = 0;
+        clearTimeout(singleTimer);
+        likeBurst();
+      } else {
+        lastTap = now;
+        clearTimeout(singleTimer);
+        singleTimer = setTimeout(function () {
+          if (videos.length) togglePlay();
+        }, 330);
+      }
+    });
+  }
+
+  function likeBurst() {
+    if (burst) {
+      burst.classList.remove('go');
+      void burst.offsetWidth;
+      burst.classList.add('go');
+    }
+    var heart = document.querySelector('[data-like]');
+    if (heart) heart.classList.add('on');
+    setTimeout(openSheet, 700);
+  }
+
+  // ── caption "more" ───────────────────────────────────────────────────────
+  var caption = $('#caption'), more = $('#more');
+  if (caption && more) {
+    // Clamp only when there is something to hide, so the button never lies.
+    caption.classList.add('clamped');
+    if (caption.scrollHeight - caption.clientHeight > 4) {
+      more.hidden = false;
+      more.addEventListener('click', function () {
+        var open = caption.classList.toggle('clamped');
+        more.textContent = open ? 'περισσότερα' : 'λιγότερα';
+      });
+    } else {
+      caption.classList.remove('clamped');
+    }
+  }
+
+  // ── replies ──────────────────────────────────────────────────────────────
+  $$('.toggle-replies').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var list = document.getElementById(btn.dataset.target);
+      var open = list.hidden;
+      list.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+      var count = list.children.length;
+      btn.textContent = open
+        ? 'Απόκρυψη απαντήσεων'
+        : 'Προβολή ' + count + (count === 1 ? ' απάντησης' : ' απαντήσεων');
+    });
+  });
+
+  // ── poll bars fill on arrival ────────────────────────────────────────────
+  requestAnimationFrame(function () {
+    $$('.poll-fill').forEach(function (bar) { bar.style.width = bar.dataset.pct + '%'; });
+  });
+
+  // ── the bar they came for ────────────────────────────────────────────────
+  var appbar = $('#appbar');
+  var DISMISSED = 'neat.appbar.dismissed';
+  var dismissed = false;
+  try { dismissed = sessionStorage.getItem(DISMISSED) === '1'; } catch (err) {}
+
+  if (!dismissed) {
+    // A beat of the post first; the bar slides in over it, not before it.
+    setTimeout(function () { appbar.classList.add('up'); }, 700);
+  }
+  $('#appbar-close').addEventListener('click', function () {
+    appbar.classList.remove('up');
+    try { sessionStorage.setItem(DISMISSED, '1'); } catch (err) {}
+  });
+})();
 </script>
-
 </body>
 </html>

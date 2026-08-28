@@ -8,6 +8,7 @@ SPA to do it.
 """
 
 import base64
+import json
 import logging
 import os
 import re
@@ -79,20 +80,82 @@ def _social_text(data, post_id):
     return title, description
 
 
+def _decorate_media(data, card_url):
+    """Give every media item what the page needs to draw it.
+
+    `bgUrl` is the blurred plate behind a photo that does not fill the frame —
+    the trick Instagram uses so a portrait shot in a landscape slot still looks
+    deliberate. A base64 item points its plate at the og-image endpoint
+    instead: repeating the same data: URI in a CSS background would send the
+    whole picture down the wire twice.
+    """
+    for index, item in enumerate(data.get('media') or []):
+        if item.get('type') == 'video':
+            source = item.get('thumbUrl') or ''   # a video's plate is its poster
+        else:
+            source = item.get('url') or ''
+        if source.startswith('data:'):
+            source = card_url if index == 0 else ''
+        item['bgUrl'] = source
+    return data.get('media') or []
+
+
+def _structured_data(data, title, image, url):
+    """Schema.org for the post, so search and chat apps read it as a post."""
+    payload = {
+        '@context': 'https://schema.org',
+        '@type': 'SocialMediaPosting',
+        '@id': url,
+        'url': url,
+        'headline': title[:110],
+        'datePublished': data.get('created') or '',
+        'author': {'@type': 'Person', 'name': f"@{data.get('author') or ''}"},
+        'image': image,
+        'publisher': {'@type': 'Organization', 'name': 'Neat'},
+        'interactionStatistic': [
+            {
+                '@type': 'InteractionCounter',
+                'interactionType': 'https://schema.org/LikeAction',
+                'userInteractionCount': data.get('likes') or 0,
+            },
+            {
+                '@type': 'InteractionCounter',
+                'interactionType': 'https://schema.org/CommentAction',
+                'userInteractionCount': data.get('comment_count') or 0,
+            },
+        ],
+    }
+    if data.get('text'):
+        payload['articleBody'] = data['text'][:600]
+    # </script> inside a JSON-LD block would end the block early.
+    return json.dumps(payload, ensure_ascii=False).replace('<', r'\u003c')
+
+
 def post_page(request, post_id):
     post, data = _post_payload(post_id)
     title, description = _social_text(data, post_id)
 
     origin = f"{request.scheme}://{request.get_host()}"
+    page_url = f'{origin}/post/{post_id}'
+    card_url = f'{page_url}/og-image'
+    media = _decorate_media(data, card_url)
+
     return render(request, 'web/post.html', {
         'post': data,
         'post_id': post_id,
         'og_title': title,
         'og_description': description,
-        'og_image': f'{origin}/post/{post_id}/og-image',
-        'og_url': f'{origin}/post/{post_id}',
+        'og_image': card_url,
+        'og_url': page_url,
         'app_store_url': APP_STORE_URL,
         'play_store_url': PLAY_STORE_URL,
+        # The custom scheme, not the page's own https URL: a universal link
+        # followed from a page already on that domain is ignored by iOS, so
+        # tapping "open in app" would have done nothing at all.
+        'deep_link': f'neat://post/{post_id}',
+        'media_count': len(media),
+        'has_video': any(m.get('type') == 'video' for m in media),
+        'jsonld': _structured_data(data, title, card_url, page_url),
     })
 
 
