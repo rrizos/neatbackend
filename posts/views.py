@@ -17,8 +17,7 @@ from linkpreview import service as linkpreview_service
 from accounts.models import Follow, Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 from django.db.models import Count, ExpressionWrapper, F, FloatField, Q
-from neatbackend.cdn import cdn
-from .images import store_post_image, store_comment_image, store_comment_image_data
+from .images import store_comment_image, store_comment_image_data
 from .models import (
     Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
     Poll, PollOption, PollVote, StagedUpload,
@@ -292,14 +291,12 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
         data["media"] = [
             {
                 "type": m.media_type,
-                # Sent through the CDN when one is configured; unchanged
-                # otherwise. See neatbackend/cdn.py.
-                "url": cdn(m.url),
+                "url": m.url,
                 "duration": m.duration,
                 # '' until the worker has produced one, and for every video
                 # that predates posters — clients fall back to their old
                 # behaviour when it is empty.
-                "thumbUrl": cdn(m.thumb_url),
+                "thumbUrl": m.thumb_url,
                 # Clients that know this key draw a processing tile while a
                 # video is queued; ones that don't play `url`, which is the
                 # original upload and works. Only ever "processing" or absent,
@@ -312,8 +309,7 @@ def _post_to_dict(post, viewer=None, viewer_following_ids=None, light=False,
     elif data.get("imageUrl"):
         # Backward-compat: old single-image posts surface as a one-item media array
         data["media"] = [
-            {"type": "image", "url": cdn(data["imageUrl"]), "duration": None,
-             "status": "ready"}
+            {"type": "image", "url": data["imageUrl"], "duration": None, "status": "ready"}
         ]
     else:
         data["media"] = []
@@ -540,22 +536,10 @@ def stage_upload(request):
                 {'error': "That doesn't look like a valid image."}, status=400))
         uploaded.seek(0)
 
-    if is_video:
-        # Left exactly as uploaded; the transcode worker owns what happens to
-        # it from here.
-        path = default_storage.save(f'posts/{uuid.uuid4()}.mp4', uploaded)
-        url = default_storage.url(path)
-    else:
-        # Re-encoded rather than stored as sent. A camera JPEG arrives near
-        # lossless — measured at 2 MB for 828x1792, against 200 KB for the same
-        # pixels at quality 85 — and that difference is most of the time a cold
-        # feed spends loading.
-        url = store_post_image(uploaded)
-        if not url:
-            return _cors_json(JsonResponse(
-                {'error': 'Could not store that image.'}, status=400))
+    ext = 'mp4' if is_video else 'jpg'
+    path = default_storage.save(f'posts/{uuid.uuid4()}.{ext}', uploaded)
     staged = StagedUpload.objects.create(
-        user=user, url=url, media_type=media_type,
+        user=user, url=default_storage.url(path), media_type=media_type,
     )
     return _cors_json(JsonResponse({
         'id': str(staged.id),
@@ -759,22 +743,13 @@ def posts_list(request):
                                 status=400,
                             ))
                         uploaded.seek(0)
-                    if is_video:
-                        # Left as uploaded; the transcode worker owns it from
-                        # here. Saved directly (it streams via .chunks())
-                        # rather than buffered into a bytes object first.
-                        path = default_storage.save(
-                            f"posts/{uuid.uuid4()}.mp4", uploaded)
-                        url = default_storage.url(path)
-                    else:
-                        # Re-encoded rather than stored as sent — the same
-                        # saving as the staged path; see posts/images.py.
-                        url = store_post_image(uploaded)
-                        if not url:
-                            return _cors_json(JsonResponse(
-                                {"error": "Could not store that image."},
-                                status=400,
-                            ))
+                    ext = "mp4" if is_video else "jpg"
+                    filename = f"posts/{uuid.uuid4()}.{ext}"
+                    # Save the UploadedFile directly (it streams via .chunks()
+                    # internally) instead of buffering the whole file into a
+                    # Python bytes object first via ContentFile(uploaded.read()).
+                    path = default_storage.save(filename, uploaded)
+                    url = default_storage.url(path)
                     # Videos are queued, not encoded here. Running ffmpeg
                     # inline held a gunicorn request slot for the whole encode,
                     # so a dozen simultaneous uploads could occupy every slot
@@ -1012,6 +987,7 @@ def post_comment(request, post_id):
     elif image_url.startswith("data:"):
         image_url = store_comment_image_data(image_url) or image_url
     parent_id = body.get("parentId")
+    reply_to_username = (body.get("replyToUsername") or "").strip()[:150]
 
     if not text and not image_url:
         return _cors_json(JsonResponse({"error": "Missing text or image"}, status=400))
@@ -1023,7 +999,11 @@ def post_comment(request, post_id):
         except (PostComment.DoesNotExist, ValueError):
             return _cors_json(JsonResponse({"error": "Parent comment not found"}, status=404))
 
-    comment = PostComment.objects.create(post=post, user=user, text=text, image_url=image_url, parent=parent)
+    comment = PostComment.objects.create(
+        post=post, user=user, text=text, image_url=image_url,
+        parent=parent,
+        reply_to_username=reply_to_username if parent_id else '',
+    )
     if parent is None:
         _notify(post.user, user, 'commented on your post', post, comment=comment)
     else:

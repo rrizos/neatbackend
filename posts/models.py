@@ -5,7 +5,6 @@ from accounts.avatars import avatar_for as _avatar_for
 from django.utils import timezone
 import json
 import uuid
-from neatbackend.timefmt import local_iso
 
 
 class Post(models.Model):
@@ -42,7 +41,7 @@ class Post(models.Model):
             'city': self.city,
             'text': self.text,
             'imageUrl': self.image_url,
-            'created': local_iso(self.created),
+            'created': self.created.isoformat(),
             'minutesAgo': minutes_ago,
             'likes': self.likes,
             'shares': self.shares,
@@ -78,6 +77,7 @@ class PostComment(models.Model):
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
     text = models.TextField()
     image_url = models.TextField(blank=True, default='')
+    reply_to_username = models.CharField(max_length=150, blank=True, default='')
     pinned = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
 
@@ -109,7 +109,8 @@ class PostComment(models.Model):
             'text': self.text,
             'imageUrl': self.image_url,
             'parentId': self.parent_id,
-            'created': local_iso(self.created),
+            'replyToUsername': self.reply_to_username or None,
+            'created': self.created.isoformat(),
             'avatarUrl': _avatar_for(getattr(self.user, 'profile', None)),
             'likes': self.comment_likes.count(),
             'liked': liked,
