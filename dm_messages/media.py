@@ -44,6 +44,23 @@ except Exception:
 # on a 3x screen. Matches what the client already sends.
 MAX_PX = 1080
 
+# An animated image is stored exactly as it arrived, because there is no way to
+# resize one here without decoding and re-encoding every frame — and the
+# alternative, which is what this used to do, was to flatten it to a JPEG.
+# That kept the first frame and threw the rest away: a GIF sent in a chat
+# animated once in the sender's own bubble, off the bytes still in memory, and
+# then went still for everyone the moment the stored copy replaced it.
+#
+# The cap is the price of skipping the resize. Giphy's fixed-width renditions,
+# which is what the picker sends, are far below it; an original-size GIF can
+# run to tens of megabytes, and one of those is worth a still frame rather than
+# a chat that will not load.
+MAX_ANIMATED_BYTES = 8 * 1024 * 1024
+
+# Formats that can carry animation, and the extension each is stored under so
+# nginx serves it with the right content type.
+_ANIMATED_FORMATS = {'GIF': 'gif', 'WEBP': 'webp', 'PNG': 'png'}
+
 
 def split_payload(text):
     """('image'|'voice', base64, suffix) for a media message, else None.
@@ -87,14 +104,25 @@ def store_message_media(text):
         if kind == 'image':
             if not _PIL_OK:
                 return None, text
-            img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
-            img.thumbnail((MAX_PX, MAX_PX), Image.LANCZOS)
-            out = io.BytesIO()
-            img.convert('RGB').save(
-                out, format='JPEG', quality=82, optimize=True, progressive=True
-            )
-            name = f'{STORAGE_DIR}/{uuid.uuid4()}.jpg'
-            data = out.getvalue()
+            src = Image.open(io.BytesIO(raw))
+            ext = _ANIMATED_FORMATS.get((src.format or '').upper())
+            if (
+                ext
+                and getattr(src, 'is_animated', False)
+                and len(raw) <= MAX_ANIMATED_BYTES
+            ):
+                # Byte-for-byte, frames and timing intact.
+                name = f'{STORAGE_DIR}/{uuid.uuid4()}.{ext}'
+                data = raw
+            else:
+                img = ImageOps.exif_transpose(src)
+                img.thumbnail((MAX_PX, MAX_PX), Image.LANCZOS)
+                out = io.BytesIO()
+                img.convert('RGB').save(
+                    out, format='JPEG', quality=82, optimize=True, progressive=True
+                )
+                name = f'{STORAGE_DIR}/{uuid.uuid4()}.jpg'
+                data = out.getvalue()
         else:
             # Voice notes are already compressed; re-encoding would only lose
             # quality, so the bytes are written exactly as they arrived.
