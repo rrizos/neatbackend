@@ -119,7 +119,25 @@ if _redis_url:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {'hosts': [_redis_url]},
+            # socket_timeout is not tuning — without it the DM socket dies
+            # every five seconds.
+            #
+            # channels_redis waits for messages with `BZPOPMIN <key> 5`, a
+            # blocking pop that returns empty after five seconds so the layer
+            # can loop. Handed a plain URL, the connection ends up with a read
+            # deadline of that same five seconds, so the deadline and the
+            # server's empty reply race — and the deadline keeps winning. The
+            # read raises, the exception travels up through await_many_dispatch
+            # and kills the consumer, the client reconnects, and five seconds
+            # later it happens again. Thousands of tracebacks a day, and a
+            # realtime layer that was never up for longer than one pop.
+            #
+            # Any explicit value cures it; 30 is chosen to sit well clear of
+            # the five-second pop while still being short enough that a
+            # genuinely wedged connection is noticed rather than waited on
+            # forever. Verified against this Redis: idle for 75 seconds across
+            # both boundaries without an error, still delivering afterwards.
+            'CONFIG': {'hosts': [{'address': _redis_url, 'socket_timeout': 30}]},
         }
     }
 else:
