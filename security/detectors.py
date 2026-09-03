@@ -1,7 +1,7 @@
 """Stateless-ish threat heuristics backed by the shared cache.
 
-The cache is the DB-backed one the rate limiter already uses, so counters are
-correct across all gunicorn workers rather than per-process.
+Backed by the same shared cache as the rate limiter, so counters are correct
+across all gunicorn workers rather than per-process.
 """
 
 import re
@@ -21,11 +21,17 @@ _LAST_IP_TTL = 60 * 60 * 24 * 30
 
 
 def _incr(key, window):
+    # Fail soft, like every other cache toucher in this module: a backend that
+    # is not answering degrades the heuristics rather than breaking the request
+    # they are watching. 0 reads as below every threshold here.
     try:
-        return cache.incr(key)
-    except ValueError:
-        cache.set(key, 1, timeout=window)
-        return 1
+        try:
+            return cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, timeout=window)
+            return 1
+    except Exception:
+        return 0
 
 
 def note_login_failure(ip, username):

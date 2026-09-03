@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import dj_database_url
 
@@ -282,14 +283,39 @@ STATIC_URL = 'static/'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-# DB-backed so rate-limit counters (accounts/ratelimit.py) are shared
-# correctly across all gunicorn worker processes, not just per-process.
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-        'LOCATION': 'django_cache_table',
+# Redis when it is there, the database when it is not — the same shape as
+# CHANNEL_LAYERS above, so `manage.py runserver` still works without Redis.
+#
+# Either backend keeps the property the database one was originally chosen for:
+# rate-limit counters (accounts/ratelimit.py, security/detectors.py) are shared
+# across gunicorn workers rather than being per-process. What Redis adds is that
+# a rate-limit check stops costing a write to the managed MySQL. The endpoints
+# carrying a limit today are the auth ones, so that write load lands on the
+# smallest, least redundant thing we own at exactly the moment signups spike.
+#
+# A different database index from the channel layer, so the two can never share
+# a key and the cache can be flushed without touching a live DM socket.
+#
+# incr() raises ValueError for a missing key on both backends — that is what the
+# try/except in both callers depends on, so the swap does not change behaviour.
+_REDIS_CACHE_DB = 1
+
+if _redis_url:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': urlunsplit(
+                urlsplit(_redis_url)._replace(path=f'/{_REDIS_CACHE_DB}')
+            ),
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'django_cache_table',
+        }
+    }
 
 # Security headers/cookie flags. The app is served over both HTTP (:80) and
 # HTTPS (:443) for now — the Netlify-hosted web build's server-side proxy

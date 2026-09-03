@@ -112,9 +112,7 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
         if still_online:
             return  # another device for this user is (or was) still connected
         # Re-check after the grace period in case a reconnect landed during it.
-        reconnected = await database_sync_to_async(
-            lambda: cache.get(_online_key(self.user.id), 0) > 0
-        )()
+        reconnected = await database_sync_to_async(self._is_online)()
         if reconnected:
             return
         last_active = await self._touch_last_active()
@@ -127,12 +125,27 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
         for user_id in partner_ids:
             await apush_to_user(user_id, 'presence', payload)
 
+    # Presence lives in the cache, which is Redis in production and can fail
+    # independently of the database. It is a nicety — a dot next to a name — so
+    # a backend that is not answering degrades presence rather than raising
+    # into the consumer and taking the DM socket down with it.
+
+    def _is_online(self):
+        try:
+            return cache.get(_online_key(self.user.id), 0) > 0
+        except Exception:
+            logger.warning('presence read failed', exc_info=True)
+            return False
+
     def _incr_online_count(self):
         key = _online_key(self.user.id)
         try:
-            cache.incr(key)
-        except ValueError:
-            cache.set(key, 1, timeout=None)
+            try:
+                cache.incr(key)
+            except ValueError:
+                cache.set(key, 1, timeout=None)
+        except Exception:
+            logger.warning('presence increment failed', exc_info=True)
 
     def _decr_online_count(self):
         """Returns True if at least one other connection for this user is
@@ -142,8 +155,14 @@ class MessagingConsumer(AsyncJsonWebsocketConsumer):
             remaining = cache.decr(key)
         except ValueError:
             return False
+        except Exception:
+            logger.warning('presence decrement failed', exc_info=True)
+            return False
         if remaining <= 0:
-            cache.delete(key)
+            try:
+                cache.delete(key)
+            except Exception:
+                logger.warning('presence clear failed', exc_info=True)
             return False
         return True
 
