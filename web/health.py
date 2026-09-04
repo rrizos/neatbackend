@@ -396,6 +396,11 @@ def _traffic():
     total = legacy = 0
     per_ip, per_min, rts, statuses = {}, {}, [], {}
     api_legacy_ips = {}
+    # The lean/legacy split needs $http_x_neat_client in the log format. Until
+    # nginx is emitting it, every feed request would parse as header-less and
+    # raise a false alarm about a scraper, so the whole analysis is withheld
+    # rather than guessed at.
+    have_client_field = False
 
     for line in raw.splitlines():
         m = _LOG_RE.match(line)
@@ -423,7 +428,9 @@ def _traffic():
         # serialises far more and costs roughly 5x a lean request.
         req = m.group('req') or ''
         nc = m.group('nc')
-        if '/api/posts/' in req and req.startswith('GET'):
+        if nc is not None:
+            have_client_field = True
+        if nc is not None and '/api/posts/' in req and req.startswith('GET'):
             try:
                 modern = int(nc) >= 2 if nc else False
             except (TypeError, ValueError):
@@ -465,7 +472,13 @@ def _traffic():
             f'  sudo iptables -I INPUT -s {ip} -j DROP\n'
             'That is reversible (-D instead of -I) and takes effect instantly.'))
 
-    if legacy and total and legacy / max(total, 1) > 0.15:
+    if not have_client_field and total:
+        f.append(_finding(
+            NOTE, 'Legacy-feed detection is off',
+            'nginx is not logging X-Neat-Client',
+            'Add the neat log_format to /etc/nginx/nginx.conf and reload to see '
+            'which share of traffic is hitting the unauthenticated feed path.'))
+    elif legacy and total and legacy / max(total, 1) > 0.15:
         who = ', '.join(f'{ip} ({n})' for ip, n in top_legacy) or 'unknown'
         f.append(_finding(
             CRIT, 'Unauthenticated legacy feed is being hit hard',
@@ -484,13 +497,14 @@ def _traffic():
             f'in the last {TRAFFIC_WINDOW_MIN} min',
             'Check: sudo journalctl -u gunicorn -n 100'))
 
-    if p95 is not None and p95 > 2.0:
+    if p95 is not None and rts and p95 > 2.0:
         f.append(_finding(CRIT, 'Responses are slow', f'p95 {p95:.2f}s',
                           'Users are feeling this. See CPU and Traffic above.'))
     elif p95 is not None and p95 > 0.7:
         f.append(_finding(WARN, 'Responses slower than usual', f'p95 {p95:.2f}s'))
 
     return {'total': total, 'rps': rps, 'pct_ceiling': pct_ceiling, 'legacy': legacy,
+            'have_client_field': have_client_field,
             'p50': p50, 'p95': p95, 'top_ips': top, 'statuses': statuses,
             'window_min': TRAFFIC_WINDOW_MIN, 'findings': f}
 
