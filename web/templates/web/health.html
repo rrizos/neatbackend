@@ -126,7 +126,7 @@
       <div class="tile"><div class="k">p95 latency</div><div class="v">{% if t.p95 %}{{ t.p95|floatformat:2 }}s{% else %}—{% endif %}</div>
         <div class="s">idle baseline 0.08s</div></div>
       <div class="tile"><div class="k">Legacy feed hits</div><div class="v">{{ t.legacy }}</div>
-        <div class="s">~5x cost each</div></div>
+        <div class="s">~11x cost each</div></div>
     </div>
     {% if t.top_ips %}
       <h2 style="margin-top:16px">Top IPs</h2>

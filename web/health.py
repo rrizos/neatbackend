@@ -424,8 +424,10 @@ def _traffic():
                 rts.append(float(m.group('rt')))
             except ValueError:
                 pass
-        # The expensive path: /api/posts/ without a modern X-Neat-Client header
-        # serialises far more and costs roughly 5x a lean request.
+        # The expensive path. Measured on this box 2026-09-04, same endpoint,
+        # same moment: a lean request is 13 KB and 0.031s, the legacy one is
+        # 980 KB and 0.335s — 74x the bytes and 11x the CPU. At that cost only
+        # ~6 legacy req/s saturates both cores, so one scraper is enough.
         req = m.group('req') or ''
         nc = m.group('nc')
         if nc is not None:
@@ -483,8 +485,9 @@ def _traffic():
         f.append(_finding(
             CRIT, 'Unauthenticated legacy feed is being hit hard',
             f'{legacy} of {total} requests, from {who}',
-            'Each of these costs roughly 5x a normal feed request and needs no '
-            'login. Block the IP above, and install the nginx rate limit.'))
+            'Each costs ~11x a normal feed request (0.335s vs 0.031s, measured) '
+            'and needs no login, so roughly 6 per second saturates the box. '
+            'Block the IP above, and install the nginx rate limit.'))
     elif legacy:
         # A trickle is normal — old installs still exist. Only the ratio matters.
         f.append(_finding(NOTE, 'Some legacy feed requests',
