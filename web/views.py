@@ -419,6 +419,44 @@ def health(request):
     return render(request, 'web/health.html', snapshot)
 
 
+@csrf_protect
+@require_http_methods(['GET', 'POST'])
+def runbook(request):
+    """What to do when the app is slow or down.
+
+    Behind the admin login, and noindex, because it names the server, the
+    recovery procedure, and — the part that actually matters — that the feed
+    needs no login, carries no rate limit, and that roughly six requests a
+    second to it will saturate the box. Public, that is not documentation but
+    a set of instructions for taking the app down.
+    """
+    from django.contrib.auth import authenticate
+
+    from accounts.serializers import ensure_profile
+
+    error = ''
+    if request.method == 'POST' and not _analytics_admin(request):
+        if rate_limited(f'runbook:{client_ip(request)}', limit=8, window_seconds=900):
+            error = 'Too many attempts. Try again later.'
+        else:
+            user = authenticate(
+                username=(request.POST.get('username') or '').strip(),
+                password=request.POST.get('password') or '',
+            )
+            if user is not None and ensure_profile(user).is_admin:
+                request.session[ANALYTICS_SESSION_KEY] = True
+                request.session.set_expiry(60 * 60 * 8)
+                return redirect('runbook')
+            error = 'Those details are not valid here.'
+
+    if not _analytics_admin(request):
+        return render(request, 'web/analytics_login.html', {'error': error}, status=200)
+
+    resp = render(request, 'web/runbook.html')
+    resp['X-Robots-Tag'] = 'noindex, nofollow'
+    return resp
+
+
 def _liveness_response(strict):
     from web import health as probes
 

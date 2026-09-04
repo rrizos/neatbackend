@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>neat · incident runbook</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme:light dark;
+    --paper:#F6F7F9; --raised:#FFFFFF; --sunk:#EDEFF3;
+    --ink:#12171D; --body:#39434E; --dim:#6B7683; --faint:#98A2AE;
+    --line:#DDE2E8; --line-strong:#C3CBD4;
+    --accent:#1F6F80; --accent-soft:#E4F0F2;
+    --calm:#2E7D53; --calm-soft:#E3F1E8;
+    --watch:#A8681A; --watch-soft:#F8EEDC;
+    --act:#B23A34;  --act-soft:#F9E6E4;
+    --display:'Archivo',system-ui,sans-serif;
+    --sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#10151A; --raised:#171E25; --sunk:#0B0F13;
+      --ink:#EDF1F5; --body:#B4BFCA; --dim:#8492A0; --faint:#5F6C79;
+      --line:#252E37; --line-strong:#36424E;
+      --accent:#5FB6C8; --accent-soft:#14303650;
+      --calm:#5FBE8A; --calm-soft:#12291D50;
+      --watch:#DCA34A; --watch-soft:#2B210F50;
+      --act:#E4736C;  --act-soft:#2E141350;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#10151A; --raised:#171E25; --sunk:#0B0F13;
+    --ink:#EDF1F5; --body:#B4BFCA; --dim:#8492A0; --faint:#5F6C79;
+    --line:#252E37; --line-strong:#36424E;
+    --accent:#5FB6C8; --accent-soft:#14303650;
+    --calm:#5FBE8A; --calm-soft:#12291D50;
+    --watch:#DCA34A; --watch-soft:#2B210F50;
+    --act:#E4736C;  --act-soft:#2E141350;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--body);
+       font-family:var(--sans);font-size:16px;line-height:1.6;
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:36px 20px 96px}
+  h1,h2,h3{font-family:var(--display);color:var(--ink);text-wrap:balance;margin:0}
+  code,kbd{font-family:var(--mono)}
+  a{color:var(--accent)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  /* Masthead */
+  .mast{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+  h1{font-size:clamp(30px,7vw,44px);font-weight:800;letter-spacing:-.025em;line-height:1.05}
+  .standfirst{margin-top:12px;font-size:16.5px;color:var(--body);max-width:60ch}
+
+  /* The rule */
+  .rule{background:var(--raised);border:1px solid var(--line-strong);
+        border-top:4px solid var(--accent);border-radius:4px;
+        padding:22px 22px 20px;margin:0 0 34px}
+  .rule h2{font-size:19px;font-weight:700;letter-spacing:-.01em}
+  .rule p{margin:10px 0 0;font-size:15.5px}
+  .rule p:last-child{margin-bottom:0}
+  .rule .measured{font-family:var(--mono);font-size:13px;color:var(--dim);
+                  margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+
+  /* Jump table */
+  .jump{margin:0 0 40px}
+  .jump h2{font-size:12px;font-family:var(--mono);font-weight:600;letter-spacing:.13em;
+           text-transform:uppercase;color:var(--dim);margin-bottom:12px}
+  .jump ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;
+           background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .jump li{background:var(--raised);display:flex;gap:14px;align-items:baseline;
+           padding:12px 15px;font-size:15px}
+  .jump .sym{color:var(--ink);font-weight:500;flex:1}
+  .jump a{font-family:var(--mono);font-size:13px;white-space:nowrap;text-decoration:none;
+          border-bottom:1px solid currentColor}
+
+  /* Steps */
+  .step{margin:0 0 40px;scroll-margin-top:20px}
+  .step-head{display:flex;gap:14px;align-items:baseline;margin-bottom:14px}
+  .num{font-family:var(--display);font-weight:800;font-size:15px;color:var(--paper);
+       background:var(--ink);width:28px;height:28px;flex:0 0 28px;border-radius:50%;
+       display:flex;align-items:center;justify-content:center;line-height:1;
+       transform:translateY(3px)}
+  .step h2{font-size:23px;font-weight:700;letter-spacing:-.018em;line-height:1.2}
+  .step > p{margin:0 0 14px;max-width:62ch}
+  .step > p:last-child{margin-bottom:0}
+
+  /* Command blocks */
+  pre{background:var(--sunk);border:1px solid var(--line);border-left:3px solid var(--accent);
+      border-radius:3px;padding:13px 15px;margin:14px 0;overflow-x:auto;
+      font-family:var(--mono);font-size:13.5px;line-height:1.65;color:var(--ink)}
+  pre .c{color:var(--dim)}
+  p code{background:var(--sunk);border:1px solid var(--line);border-radius:3px;
+         padding:1px 5px;font-size:13.5px;color:var(--ink)}
+
+  /* Branch cards */
+  .branch{border:1px solid var(--line);border-radius:4px;background:var(--raised);
+          padding:18px 20px;margin:0 0 14px;border-left:4px solid var(--line-strong)}
+  .branch.act{border-left-color:var(--act)}
+  .branch.watch{border-left-color:var(--watch)}
+  .branch.calm{border-left-color:var(--calm)}
+  .branch h3{font-size:17px;font-weight:700;letter-spacing:-.01em;margin-bottom:4px}
+  .sig{font-family:var(--mono);font-size:12.5px;color:var(--dim);margin:0 0 12px}
+  .sig b{color:var(--ink);font-weight:600}
+  .branch p{margin:10px 0 0;font-size:15px}
+  .branch pre{margin:12px 0 0}
+  .verdict{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+           letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;
+           margin-bottom:9px}
+  .verdict.act{background:var(--act-soft);color:var(--act)}
+  .verdict.watch{background:var(--watch-soft);color:var(--watch)}
+  .verdict.calm{background:var(--calm-soft);color:var(--calm)}
+
+  /* Never list */
+  .never{border:1px solid var(--act);background:var(--act-soft);border-radius:4px;
+         padding:20px 22px;margin:0 0 40px}
+  .never h2{font-size:19px;font-weight:700;color:var(--act);margin-bottom:12px}
+  .never ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
+  .never li{font-size:15px;padding-left:20px;position:relative;color:var(--body)}
+  .never li::before{content:"×";position:absolute;left:2px;top:-1px;color:var(--act);
+                    font-weight:700;font-family:var(--mono);font-size:16px}
+  .never b{color:var(--ink);font-weight:600}
+
+  /* Cofounder */
+  .cofounder{border:2px solid var(--ink);border-radius:4px;padding:22px;margin:0 0 40px;
+             background:var(--raised)}
+  .cofounder h2{font-size:19px;font-weight:700;margin-bottom:6px}
+  .cofounder .who{font-family:var(--mono);font-size:12px;color:var(--dim);
+                  letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+  .two{display:grid;gap:12px}
+  @media(min-width:560px){.two{grid-template-columns:1fr 1fr}}
+  .two > div{border:1px solid var(--line);border-radius:3px;padding:14px 16px;background:var(--paper)}
+  .two h3{font-size:15px;font-weight:700;margin-bottom:6px}
+  .two p{margin:0;font-size:14.5px}
+
+  /* Baselines */
+  table{width:100%;border-collapse:collapse;font-size:14.5px;margin-top:14px}
+  .scroller{overflow-x:auto}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--dim);font-weight:600;border-bottom:1px solid var(--line-strong)}
+  td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+  td.w{color:var(--dim);font-size:13.5px}
+
+  h2.sec{font-size:12px;font-family:var(--mono);font-weight:600;letter-spacing:.13em;
+         text-transform:uppercase;color:var(--dim);margin:0 0 14px;
+         padding-bottom:8px;border-bottom:1px solid var(--line)}
+  footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+         font-size:13.5px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="mast">
+    <div class="eyebrow">neat backend · Lightsail eu-central-1 · 63.181.201.175</div>
+    <h1>If the app gets slow or falls over</h1>
+    <p class="standfirst">Work down this page in order. Every threshold here was
+      measured on the box, not estimated — so "normal" below is genuinely normal.</p>
+  </header>
+
+  <div class="rule">
+    <h2>Read this before you touch anything</h2>
+    <p><b>Slow does not turn into down.</b> Under a deliberate load test this box
+      reached load 17.65 on 2 vCPU and still answered every single request — zero
+      server errors — then returned to normal the moment the load stopped. It
+      degrades by making people wait, not by falling over.</p>
+    <p>So the instinct to restart gunicorn because the app feels sluggish is
+      wrong, and it makes things worse: you drop every request in flight, pay a
+      cold start, and the traffic is still there when you come back. Restarting
+      fixes a <em>stuck</em> process, not a <em>busy</em> one.</p>
+    <p class="measured">Measured 3 Sep 2026 · 4 → 32 concurrent requests · throughput
+      flat at ~19 req/s · 0 errors</p>
+  </div>
+
+  <nav class="jump">
+    <h2>Start from the symptom</h2>
+    <ol>
+      <li><span class="sym">Everything feels slow, but it works</span><a href="#triage">Step 1</a></li>
+      <li><span class="sym">Site won't load at all / 502</span><a href="#down">Service down</a></li>
+      <li><span class="sym">Photos and videos won't load</span><a href="#disk">Disk</a></li>
+      <li><span class="sym">Nobody can post, sign up, or send</span><a href="#db">Database</a></li>
+      <li><span class="sym">Uploads stay stuck on "processing"</span><a href="#queue">Queue</a></li>
+      <li><span class="sym">The whole server is unreachable</span><a href="#lost">Box lost</a></li>
+    </ol>
+  </nav>
+
+  <section class="step" id="triage">
+    <div class="step-head"><span class="num">1</span><h2>Open the health page</h2></div>
+    <p>It does this entire triage for you and names the fix. Log in with your
+      normal app admin account.</p>
+    <pre>https://neatapp.gr/health</pre>
+    <p>Read the word at the top. <code>ok</code> means the server is fine and the
+      problem is somewhere else — the phone network, the app build, one user.
+      Anything else, read the <b>Do this</b> list underneath: it is ordered by
+      severity and every entry carries the exact command.</p>
+    <p>If the health page itself won't load, the box is not answering at all —
+      skip to <a href="#down">Service down</a>.</p>
+  </section>
+
+  <section class="step" id="confirm">
+    <div class="step-head"><span class="num">2</span><h2>Confirm it is really the server</h2></div>
+    <p>Thirty seconds, from anywhere, no login:</p>
+    <pre>curl -o /dev/null -w "%{time_total}\n" \
+  -H "X-Neat-Client: 3" https://neatapp.gr/api/posts/</pre>
+    <p><b>Under 0.30s</b> — the server is healthy. Believe this over a complaint;
+      the problem is on the reporting user's side.<br>
+      <b>0.3s to 2s</b> — busy but serving. Real, not urgent.<br>
+      <b>Over 2s</b> — genuinely saturated. Continue to step 3.</p>
+  </section>
+
+  <section class="step" id="cause">
+    <div class="step-head"><span class="num">3</span><h2>Find which one it is</h2></div>
+    <p>Only one of these is usually true at a time. The health page tells you
+      which; these are the same branches with the reasoning, if you'd rather
+      look yourself.</p>
+
+    <div class="branch act">
+      <span class="verdict act">Fix immediately</span>
+      <h3>One IP is hammering you</h3>
+      <p class="sig">Signature: <b>load high</b>, one address dominating the log,
+        many requests to <code>/api/posts/</code> with <code>nc="-"</code></p>
+      <p>This is the most likely cause of a sudden slowdown and the cheapest to
+        fix. The feed needs no login and has no rate limit, and a request without
+        the app's header costs <b>980 KB and 0.335s</b> against 13 KB and 0.031s
+        for a normal one. Roughly six of those per second occupies both cores.
+        One scraper is genuinely enough.</p>
+      <pre><span class="c"># who is it</span>
+sudo awk '{print $1}' /var/log/nginx/access.log \
+  | sort | uniq -c | sort -rn | head -5
+
+<span class="c"># block them — instant, and reversible with -D</span>
+sudo iptables -I INPUT -s <b>THE_IP</b> -j DROP
+
+<span class="c"># undo later</span>
+sudo iptables -D INPUT -s <b>THE_IP</b> -j DROP</pre>
+    </div>
+
+    <div class="branch watch">
+      <span class="verdict watch">Ride it out</span>
+      <h3>Real traffic, at the ceiling</h3>
+      <p class="sig">Signature: <b>load high</b>, many different IPs, requests
+        carrying <code>nc="3"</code></p>
+      <p>The box tops out near <b>19 requests/second</b>, and CPU is the only
+        wall — memory and database connections were nowhere near their limits
+        even at full saturation. There is nothing to fix in the moment. It stays
+        up and gets slower; that is the designed behaviour.</p>
+      <p>If it stays there for hours rather than minutes, that is the case for
+        resizing the instance — and it must add <b>vCPU, not RAM</b>. Do not
+        attempt a resize during an incident: it is a snapshot-and-restore onto a
+        new machine, it needs the nginx SSL key carried across by hand, and the
+        static IP reattached.</p>
+    </div>
+
+    <div class="branch act" id="disk">
+      <span class="verdict act">Fix immediately</span>
+      <h3>The disk is full</h3>
+      <p class="sig">Signature: <code>df -h /</code> above 90%, uploads failing,
+        possibly 500s</p>
+      <p>This is the only failure here that does <em>not</em> heal itself. When
+        the disk fills, MySQL writes and nginx both stop, and nothing recovers
+        until space exists. Normally 12% of 59 GB, so it takes something unusual
+        — but check it first whenever things are broken rather than merely slow.</p>
+      <pre>df -h /
+du -sh ~/deploy-backups/*        <span class="c"># old deploy copies, safe to delete</span>
+sudo journalctl --vacuum-size=100M</pre>
+    </div>
+
+    <div class="branch watch">
+      <span class="verdict watch">Restart is correct here</span>
+      <h3>Memory exhausted, or a stuck process</h3>
+      <p class="sig">Signature: available memory under 200 MB, <b>or</b> swap in
+        use, <b>or</b> high load with almost no requests arriving</p>
+      <p>This is the one case where restarting is the right move rather than the
+        reflex. Normal is ~1,100 MB available and essentially zero swap — this
+        box used 512 KB of its 2 GB in 43 days, so any real swap usage means
+        something is wrong.</p>
+      <pre>free -m
+sudo systemctl restart gunicorn gunicorn-asgi</pre>
+    </div>
+
+    <div class="branch act" id="db">
+      <span class="verdict act">Fix immediately</span>
+      <h3>The database stopped taking writes</h3>
+      <p class="sig">Signature: nobody can post, sign up or send messages, but
+        reading works</p>
+      <p>The health page reports three separate causes here, because the fix
+        differs. <b>Read-only</b> means a failover left the instance half-switched
+        — check it in the Lightsail console; nothing on the web server will fix
+        it. <b>Connections refused</b> means the 61-connection ceiling was hit;
+        restart gunicorn to drop stale connections. <b>A long-running query</b>
+        holds locks and queues everything behind it — the page gives you the
+        exact <code>KILL</code> line.</p>
+      <p>For reference, normal is 9–11 connections of 61, peak ever 23, and zero
+        refusals — so this has never actually happened.</p>
+    </div>
+
+    <div class="branch calm" id="queue">
+      <span class="verdict calm">Not an outage</span>
+      <h3>Uploads stuck on "processing"</h3>
+      <p class="sig">Signature: health page shows the transcode queue backing up</p>
+      <p>Videos are encoded by a separate worker. If it wedges, uploads stay on
+        "processing" but nothing else breaks — and posts still play, because a
+        failed encode falls back to the original file.</p>
+      <p>Worth fixing promptly for a second reason: while anything is processing,
+        every viewer looking at that feed re-requests it every 5 seconds, which
+        roughly triples the load per user.</p>
+      <pre>sudo systemctl restart neat-transcode</pre>
+    </div>
+  </section>
+
+  <section class="step" id="down">
+    <div class="step-head"><span class="num">4</span><h2>If nothing loads at all</h2></div>
+    <p>Connection refused, 502, or a blank page. Check what is actually running
+      before restarting anything — systemd already restarts these automatically
+      (3 seconds for the web processes, 5 for the worker), so a service found
+      dead usually means it is failing repeatedly rather than that it simply
+      stopped.</p>
+    <pre>ssh -i ~/Desktop/LightsailDefaultKey-eu-central-1-2.pem bitnami@63.181.201.175
+
+systemctl is-active gunicorn gunicorn-asgi neat-transcode nginx redis-server
+sudo journalctl -u gunicorn -n 100 --no-pager
+
+sudo systemctl restart gunicorn gunicorn-asgi</pre>
+    <p>If a service comes back and dies again within seconds, stop restarting it
+      and read the journal — something in the code or config is wrong, and
+      restarting in a loop only hides the message you need.</p>
+  </section>
+
+  <section class="step" id="lost">
+    <div class="step-head"><span class="num">5</span><h2>If the box is gone entirely</h2></div>
+    <p>SSH times out, nothing responds, the Lightsail console shows the instance
+      unhealthy. The database lives on a separate managed instance, so <b>no user
+      data is lost</b> — only whatever photos and videos were uploaded since the
+      last snapshot, because those sit on this disk and nothing backs them up.</p>
+    <p>Recovery is done entirely in the Lightsail console, with no shell:</p>
+    <pre>1. Snapshots  →  create a new instance from the most recent one
+2. Networking →  detach static IP 63.181.201.175 from the dead instance
+3. Networking →  attach that same static IP to the new instance</pre>
+    <p>The static IP is what carries <code>neatapp.gr</code>, so DNS needs no
+      change and the certificate keeps working. Roughly ten minutes. Older
+      installed app builds connect to that IP directly, which is the other
+      reason it has to move rather than be replaced.</p>
+  </section>
+
+  <div class="cofounder">
+    <h2>The short version</h2>
+    <div class="who">For whoever is covering while you're away</div>
+    <div class="two">
+      <div>
+        <h3>Site is slow</h3>
+        <p>Do nothing. Report it. It will not fall over — it has been tested well
+          past this and stayed up.</p>
+      </div>
+      <div>
+        <h3>Site is fully down</h3>
+        <p>Run one command:<br>
+          <code>sudo systemctl restart gunicorn gunicorn-asgi</code><br>
+          Then say so.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="never">
+    <h2>Never do these</h2>
+    <ul>
+      <li><b>Don't restart because it feels slow.</b> It drops live requests and
+        the load returns immediately.</li>
+      <li><b>Don't deploy anything during an incident</b> — and note the box
+        cannot <code>git pull</code> at all: it has no GitHub credentials, so
+        code only reaches it by file copy.</li>
+      <li><b>Don't run <code>certbot --nginx</code>.</b> It rewrites the server
+        blocks and breaks the bare-IP site that older app builds still depend on.</li>
+      <li><b>Don't resize the instance under pressure.</b> It is a
+        snapshot-and-restore onto a new machine; the nginx SSL key has to be
+        carried over by hand or every older installed app stops connecting.</li>
+      <li><b>Don't delete anything under <code>media/</code>.</b> Those files are
+        the only copy — there is no backup and no object storage.</li>
+    </ul>
+  </div>
+
+  <section>
+    <h2 class="sec">What normal looks like</h2>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Signal</th><th>Normal</th><th>Worry at</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Load average</td><td class="n">0.00 – 0.05</td><td class="n">&gt; 1.4</td><td class="w">2 vCPU</td></tr>
+          <tr><td>Feed response</td><td class="n">0.084s</td><td class="n">&gt; 2s</td><td class="w">13 KB, lean path</td></tr>
+          <tr><td>Throughput</td><td class="n">&lt; 1 req/s</td><td class="n">~19 req/s</td><td class="w">measured ceiling</td></tr>
+          <tr><td>Memory free</td><td class="n">~1,100 MB</td><td class="n">&lt; 400 MB</td><td class="w">of 1,941 MB</td></tr>
+          <tr><td>Swap used</td><td class="n">0 MB</td><td class="n">&gt; 100 MB</td><td class="w">2 GB available</td></tr>
+          <tr><td>Disk</td><td class="n">12%</td><td class="n">&gt; 80%</td><td class="w">59 GB total</td></tr>
+          <tr><td>DB connections</td><td class="n">9 – 11</td><td class="n">&gt; 40</td><td class="w">61 maximum</td></tr>
+          <tr><td>DB latency</td><td class="n">~10 ms</td><td class="n">&gt; 50 ms</td><td class="w">managed instance</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Thresholds measured on the box, 3–4 September 2026. The health page applies
+    all of them automatically and states the action —
+    <span style="font-family:var(--mono)">neatapp.gr/health</span>. Two monitors
+    can watch it without logging in:
+    <span style="font-family:var(--mono)">/health/live</span> fails on real
+    problems, <span style="font-family:var(--mono)">/health/ready</span> also
+    fails on warnings.
+  </footer>
+
+</div>
+</body>
+</html>

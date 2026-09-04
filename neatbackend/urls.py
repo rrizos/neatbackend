@@ -25,6 +25,10 @@ urlpatterns = [
     path('health/', web_views.health),
     path('health/live', web_views.health_live, name='health_live'),
     path('health/ready', web_views.health_ready, name='health_ready'),
+    # What to do when it is slow or down. Admin-gated for the same reason
+    # /health is: it spells out exactly how little it takes to overwhelm the box.
+    path('runbook', web_views.runbook, name='runbook'),
+    path('runbook/', web_views.runbook),
     # Data and account pages. Served by Django rather than as static files
     # because the deletion form has to POST somewhere and send mail.
     path('safetyportal', web_views.safety_portal, name='safety_portal'),

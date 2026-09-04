@@ -136,3 +136,19 @@ class AnalyticsLaunchScopeTests(TestCase):
             analytics.collect(launch_scoped=False)
             data = analytics.collect(launch_scoped=True)
         self.assertEqual(data['head']['total_users'], 1)
+
+
+class RunbookViewTests(TestCase):
+    def test_requires_admin_and_leaks_no_operational_detail(self):
+        """It names the server, the recovery steps, and how little traffic it
+        takes to saturate the box. Unauthenticated, none of that may appear."""
+        resp = self.client.get('/runbook')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        for secret in ('63.181.201.175', 'iptables', 'LightsailDefaultKey',
+                       'req/s', 'systemctl', 'bitnami'):
+            self.assertNotIn(secret, body, f'{secret!r} leaked to anonymous visitor')
+
+    def test_is_not_indexable(self):
+        resp = self.client.get('/runbook')
+        self.assertIn('noindex', resp.content.decode().lower())
