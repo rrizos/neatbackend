@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+from django.core.cache import cache
 import os
 import re
 import uuid
@@ -1306,20 +1307,23 @@ def post_report(request, post_id):
     return _cors_json(JsonResponse({"ok": True}))
 
 
-# How far above its own normal a city has to run to read as fully hot. At 2.0,
-# twice the usual hourly traffic saturates the pin at red.
-_HEAT_HOT_MULTIPLE = 2.0
-# Days of history the per-city hourly average is taken over.
+# Days of complete history used for the per-city hourly baseline.
+# Today is always excluded so today's activity can't inflate its own average.
 _HEAT_BASELINE_DAYS = 7
-# Added to every denominator so heat means something in a quiet town.
-#
-# On a purely relative scale a village averaging 0.2 events an hour goes solid
-# red the moment two people do anything, and its pin then spends most of its
-# life red for no real reason. This is the absolute floor that a burst has to
-# clear before it can register, so small cities still warm up when something is
-# genuinely happening but don't flicker on background noise. It also removes
-# the divide-by-zero for a city with no history at all.
-_HEAT_SMOOTHING = 3.0
+
+# A city must average at least this many actions per hour over the baseline
+# period before its pin can turn yellow or orange. Below this floor the city
+# is always green — avoids launch-period noise lighting up small towns when
+# the app has no real traffic yet.
+_HEAT_MIN_AVG = 20
+
+# How many times a city's hourly average it must exceed to change pin colour.
+# These are applied on the client against the raw ratio the API returns.
+#   ratio < 1.75  → green  (normal or quiet)
+#   ratio 1.75–2.5 → yellow (meaningfully above average)
+#   ratio ≥ 2.5   → orange  (well above average — at least 2.5× typical hour)
+_HEAT_YELLOW_MULTIPLE = 1.75
+_HEAT_ORANGE_MULTIPLE = 2.5
 
 
 def _activity_by_city(since, until=None):
@@ -1352,40 +1356,80 @@ def _activity_by_city(since, until=None):
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def city_heat(request):
-    """Per-city hotness, 0.0–1.0, for the map pins.
+    """Per-city heat ratio for the map pins, stable for a full clock-hour.
 
-    Heat is relative, not absolute: each city is measured against its own
-    hourly average rather than against Athens. An absolute scale would leave
-    every pin outside the two biggest cities permanently green no matter what
-    was happening there, which is the opposite of what the map is for.
+    Each city is compared against its own 7-day baseline so a burst that is
+    remarkable *for that city* lights up its pin, regardless of size relative
+    to Athens.
 
-    Cities with no activity are simply absent from the response — the client
-    treats a missing city as cold, so there is no reason to send zeroes for
-    every town in Greece.
+    Windows
+    -------
+    Current  — the completed hour that just ended (XX-1:00 → XX:00 UTC).
+               Using a fixed, closed window instead of a rolling one means the
+               value is identical for every caller within the same clock-hour
+               and can be cached with a single key.
+    Baseline — the 7 complete days ending at midnight today (168 hourly slots).
+               Today is excluded so today's traffic cannot inflate the average
+               it is being judged against.
+
+    Return value
+    ------------
+    A dict of {city_name: ratio} where ratio = current_hour_actions /
+    baseline_hourly_average. Only cities whose ratio is at or above
+    _HEAT_YELLOW_MULTIPLE are included; the client treats a missing city as
+    green. The ratio is NOT clamped to 1.0 — the client checks the raw value
+    against its own thresholds (1.75 for yellow, 2.5 for orange).
+
+    Caching
+    -------
+    The result is cached keyed by the previous-hour timestamp. A new clock-hour
+    produces a new key, so the cache entry for the old hour is simply orphaned
+    and expires on its own TTL. This means the six underlying DB queries run at
+    most once per clock-hour regardless of how many users open the app.
     """
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
 
     _ensure_posts_table()
     now = timezone.now()
-    hour_ago = now - datetime.timedelta(hours=1)
-    baseline_start = now - datetime.timedelta(days=_HEAT_BASELINE_DAYS)
 
-    current = _activity_by_city(hour_ago)
+    # Completed-hour window: the hour that just finished.
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    prev_hour    = current_hour - datetime.timedelta(hours=1)
+
+    # Cache is keyed by the window start so it is automatically invalidated
+    # when the clock rolls over to the next hour.
+    cache_key = f'city_heat_{prev_hour.strftime("%Y%m%d%H")}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return _cors_json(JsonResponse(cached))
+
+    # 7 complete days ending at midnight today; today itself is excluded.
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    baseline_start = today_midnight - datetime.timedelta(days=_HEAT_BASELINE_DAYS)
+    baseline_hours = _HEAT_BASELINE_DAYS * 24  # 168 slots
+
+    current = _activity_by_city(prev_hour, until=current_hour)
     if not current:
+        cache.set(cache_key, {}, timeout=7200)
         return _cors_json(JsonResponse({}))
 
-    # Baseline excludes the live hour, so a busy hour doesn't inflate the very
-    # average it is being judged against.
-    history = _activity_by_city(baseline_start, until=hour_ago)
-    hours = _HEAT_BASELINE_DAYS * 24 - 1
+    history = _activity_by_city(baseline_start, until=today_midnight)
 
     heat = {}
     for city, count in current.items():
-        average = (history.get(city, 0) / hours) if hours else 0.0
-        ratio = count / (average * _HEAT_HOT_MULTIPLE + _HEAT_SMOOTHING)
-        value = max(0.0, min(1.0, ratio))
-        if value > 0:
-            heat[city] = round(value, 3)
+        avg = history.get(city, 0) / baseline_hours
+        # Cities below the minimum average are always cold. This prevents
+        # small towns from lighting up on launch-period noise and ensures
+        # yellow/orange only appear where the app already has real traffic.
+        if avg < _HEAT_MIN_AVG:
+            continue
+        ratio = count / avg
+        # Only ship cities that will actually change a pin colour.
+        if ratio >= _HEAT_YELLOW_MULTIPLE:
+            heat[city] = round(ratio, 3)
 
+    # TTL of 2 hours: the entry is only served for at most one hour (until the
+    # key changes), then it idles and expires cleanly on its own.
+    cache.set(cache_key, heat, timeout=7200)
     return _cors_json(JsonResponse(heat))
