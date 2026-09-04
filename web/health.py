@@ -32,6 +32,7 @@ from django.db import connection
 VCPUS = os.cpu_count() or 2
 MEASURED_CEILING_RPS = 19.0        # see module docstring
 FEED_BASELINE_MS = 84.0            # single-request feed latency when idle
+DB_PLAN_GB = 40                    # storage on the Lightsail micro database plan
 
 UNITS = ('gunicorn', 'gunicorn-asgi', 'neat-transcode', 'nginx', 'redis-server')
 ACCESS_LOG = '/var/log/nginx/access.log'
@@ -230,6 +231,10 @@ def _services():
 # ── Database ────────────────────────────────────────────────────────────────
 
 def _database():
+    """The managed MySQL, which is the piece with no redundancy: a single-AZ
+    micro instance. Most of what matters here is not the size of anything but
+    whether it is still accepting writes, whether the connection ceiling has
+    ever actually been hit, and whether one stuck query is holding up the rest."""
     f = []
     t0 = time.monotonic()
     with connection.cursor() as c:
@@ -237,41 +242,159 @@ def _database():
         c.fetchone()
         latency_ms = (time.monotonic() - t0) * 1000
 
-        def var(name, status=False):
-            c.execute(f"SHOW {'STATUS' if status else 'VARIABLES'} LIKE %s", [name])
-            row = c.fetchone()
-            return row[1] if row else None
+        # Two round trips, not twenty. Each SHOW ... LIKE is a separate call to
+        # a managed instance on another host, so asking for eighteen values one
+        # at a time cost more than every other probe on the page combined — and
+        # cost it again on each liveness check, which is exactly the load you do
+        # not want to add while something is already wrong.
+        c.execute('SHOW GLOBAL STATUS')
+        status_all = {k.lower(): v for k, v in c.fetchall()}
+        c.execute('SHOW VARIABLES')
+        vars_all = {k.lower(): v for k, v in c.fetchall()}
+
+        def var(name):
+            return vars_all.get(name.lower())
+
+        def stat(name, default=0):
+            try:
+                return int(status_all.get(name.lower(), default))
+            except (TypeError, ValueError):
+                return default
 
         max_conn = int(var('max_connections') or 0)
-        threads = int(var('Threads_connected', True) or 0)
-        peak = int(var('Max_used_connections', True) or 0)
+        read_only = (var('read_only') or 'OFF').upper()
+        long_query_time = var('long_query_time') or '?'
+        threads, running = stat('Threads_connected'), stat('Threads_running')
+        peak, uptime = stat('Max_used_connections'), stat('Uptime')
+        questions, slow = stat('Questions'), stat('Slow_queries')
+        aborted, refused = stat('Aborted_connects'), stat('Connection_errors_max_connections')
+        bp_req, bp_disk = stat('Innodb_buffer_pool_read_requests'), stat('Innodb_buffer_pool_reads')
+        lock_waits = stat('Innodb_row_lock_waits')
+
         c.execute('SELECT ROUND(SUM(data_length + index_length) / 1048576, 1) '
                   'FROM information_schema.tables WHERE table_schema = DATABASE()')
-        size_mb = c.fetchone()[0] or 0
+        size_mb = float(c.fetchone()[0] or 0)
+
+        c.execute('SELECT table_name, ROUND((data_length + index_length) / 1048576, 2) '
+                  'FROM information_schema.tables WHERE table_schema = DATABASE() '
+                  'ORDER BY (data_length + index_length) DESC LIMIT 5')
+        biggest = [(t, float(v or 0)) for t, v in c.fetchall()]
+
+        # A query running for a long time is the classic silent outage: it holds
+        # locks, everything behind it queues, and nothing reports an error until
+        # the connections run out.
+        c.execute("SELECT ID, USER, TIME, STATE, LEFT(INFO, 120) "
+                  "FROM information_schema.PROCESSLIST "
+                  "WHERE COMMAND <> 'Sleep' AND INFO IS NOT NULL AND TIME > 10 "
+                  "ORDER BY TIME DESC LIMIT 5")
+        long_running = [
+            {'id': r[0], 'user': r[1], 'seconds': r[2], 'state': r[3], 'sql': r[4]}
+            for r in c.fetchall() if 'PROCESSLIST' not in (r[4] or '')
+        ]
+
+    # Rates need two samples; the first call after a restart simply has none.
+    qps = slow_rate = None
+    try:
+        prev, now = cache.get('health:db_counters'), time.time()
+        if prev and now > prev['t'] and questions >= prev['questions']:
+            span = now - prev['t']
+            qps = (questions - prev['questions']) / span
+            slow_rate = (slow - prev['slow']) / span * 3600
+        cache.set('health:db_counters',
+                  {'t': now, 'questions': questions, 'slow': slow}, timeout=86400)
+    except Exception:
+        pass
+
+    if read_only != 'OFF':
+        f.append(_finding(
+            CRIT, 'Database is read-only', f'read_only={read_only}',
+            'Every write is failing — no posts, no signups, no messages. This is '
+            'what a half-finished failover looks like. Check the database in the '
+            'Lightsail console.'))
+
+    if refused:
+        f.append(_finding(
+            CRIT, 'Connections have been refused',
+            f'{refused} times at the {max_conn} limit',
+            'The app has hit the connection ceiling. Restart gunicorn to drop '
+            'stale connections; if it recurs, the plan is too small.'))
 
     pct = threads / max_conn * 100 if max_conn else 0
     if pct >= 85:
-        f.append(_finding(
-            CRIT, 'Database connections nearly exhausted',
-            f'{threads} of {max_conn}',
-            'New requests will start failing with "Too many connections". '
-            'Restart gunicorn to drop stale connections.'))
+        f.append(_finding(CRIT, 'Database connections nearly exhausted',
+                          f'{threads} of {max_conn}',
+                          'Requests will start failing with "Too many '
+                          'connections". Restart gunicorn.'))
     elif pct >= 65:
         f.append(_finding(WARN, 'Database connections high', f'{threads} of {max_conn}'))
     else:
         f.append(_finding(OK, 'Database connections healthy',
-                          f'{threads} of {max_conn} (peak since restart: {peak})'))
+                          f'{threads} of {max_conn} (peak {peak}, refused {refused})'))
+
+    # Threads_running is the honest concurrency number — connected threads are
+    # mostly idle, running ones are actually executing.
+    if running >= 20:
+        f.append(_finding(CRIT, 'Database is contended',
+                          f'{running} queries executing at once',
+                          'Queries are piling up rather than completing. See the '
+                          'long-running list.'))
+    elif running >= 8:
+        f.append(_finding(WARN, 'Database busy', f'{running} queries executing'))
+    else:
+        f.append(_finding(OK, 'Database not contended', f'{running} executing'))
+
+    if long_running:
+        worst = long_running[0]
+        f.append(_finding(
+            CRIT if worst['seconds'] > 60 else WARN,
+            f'{len(long_running)} long-running quer{"y" if len(long_running) == 1 else "ies"}',
+            f'oldest {worst["seconds"]}s: {(worst["sql"] or "")[:80]}',
+            'A stuck query holds locks and queues everything behind it. From a '
+            f'mysql shell: KILL {worst["id"]};'))
 
     if latency_ms > 200:
-        f.append(_finding(CRIT, 'Database is slow to answer', f'{latency_ms:.0f} ms for SELECT 1',
-                          'The managed instance or the network to it is struggling.'))
+        f.append(_finding(CRIT, 'Database slow to answer',
+                          f'{latency_ms:.0f} ms for SELECT 1',
+                          'The instance or the network to it is struggling.'))
     elif latency_ms > 50:
         f.append(_finding(WARN, 'Database latency raised', f'{latency_ms:.0f} ms'))
     else:
         f.append(_finding(OK, 'Database responsive', f'{latency_ms:.1f} ms'))
 
-    return {'threads': threads, 'max_connections': max_conn, 'peak': peak,
-            'latency_ms': latency_ms, 'size_mb': size_mb, 'findings': f}
+    if uptime < 3600:
+        f.append(_finding(
+            WARN, 'Database restarted recently', f'up {uptime // 60} min',
+            'A managed-instance restart or failover happened. Writes were '
+            'failing while it was down.'))
+
+    hit_rate = (1 - bp_disk / bp_req) * 100 if bp_req else 100.0
+    if hit_rate < 99:
+        f.append(_finding(
+            NOTE, 'Working set does not fit in memory',
+            f'buffer pool hit rate {hit_rate:.2f}%',
+            'Queries are reaching disk. This is the one case where a bigger '
+            'database plan actually buys something.'))
+
+    if size_mb / (DB_PLAN_GB * 1024) * 100 > 80:
+        f.append(_finding(WARN, 'Database storage filling',
+                          f'{size_mb:.0f} MB of ~{DB_PLAN_GB} GB'))
+
+    if slow_rate and slow_rate > 60:
+        f.append(_finding(WARN, 'Slow queries appearing', f'~{slow_rate:.0f}/hour',
+                          f'Queries taking over {long_query_time}s.'))
+
+    # Standing fact, not an alarm: there is no standby to fail over to.
+    f.append(_finding(
+        NOTE, 'Database has no standby', 'single-AZ managed instance',
+        'If its host fails the app is down regardless of the web server. The '
+        'Lightsail high-availability plan is the only thing that changes that.'))
+
+    return {'threads': threads, 'running': running, 'max_connections': max_conn,
+            'peak': peak, 'refused': refused, 'latency_ms': latency_ms,
+            'size_mb': size_mb, 'read_only': read_only, 'uptime_days': uptime / 86400,
+            'hit_rate': hit_rate, 'qps': qps, 'slow': slow, 'aborted': aborted,
+            'lock_waits': lock_waits, 'biggest': biggest,
+            'long_running': long_running, 'findings': f}
 
 
 # ── Redis ───────────────────────────────────────────────────────────────────

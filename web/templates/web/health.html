@@ -138,14 +138,58 @@
   {% endif %}
   {% endwith %}
 
+  {% with d=sections.database %}
+  {% if d.max_connections %}
+  <section>
+    <h2>Database <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--dimmer)">· managed MySQL, single-AZ</span></h2>
+    <div class="grid">
+      <div class="tile"><div class="k">Connections</div>
+        <div class="v">{{ d.threads }}/{{ d.max_connections }}</div>
+        <div class="s">peak {{ d.peak }}{% if d.refused %} · {{ d.refused }} refused{% endif %}</div></div>
+      <div class="tile"><div class="k">Executing now</div><div class="v">{{ d.running }}</div>
+        <div class="s">queries running</div></div>
+      <div class="tile"><div class="k">Latency</div><div class="v">{{ d.latency_ms|floatformat:1 }}ms</div>
+        <div class="s">SELECT 1</div></div>
+      <div class="tile"><div class="k">Writes</div>
+        <div class="v">{% if d.read_only == 'OFF' %}enabled{% else %}READ-ONLY{% endif %}</div>
+        <div class="s">read_only={{ d.read_only }}</div></div>
+      <div class="tile"><div class="k">Cache hit rate</div><div class="v">{{ d.hit_rate|floatformat:3 }}%</div>
+        <div class="s">buffer pool</div></div>
+      <div class="tile"><div class="k">Size</div><div class="v">{{ d.size_mb }} MB</div>
+        <div class="s">of ~40 GB</div></div>
+      <div class="tile"><div class="k">DB uptime</div><div class="v">{{ d.uptime_days|floatformat:0 }}d</div>
+        <div class="s">restart = failover</div></div>
+      {% if d.qps %}<div class="tile"><div class="k">Queries/sec</div><div class="v">{{ d.qps|floatformat:1 }}</div>
+        <div class="s">{{ d.slow }} slow total</div></div>{% endif %}
+    </div>
+
+    {% if d.long_running %}
+      <h2 style="margin-top:16px">Long-running queries</h2>
+      <ul class="findings">
+        {% for q in d.long_running %}
+          <li><span class="dot crit"></span>
+            <span>{{ q.seconds }}s · {{ q.state|default:"—" }}<br><span class="fd">{{ q.sql }}</span></span>
+            <span style="margin-left:auto" class="fd">KILL {{ q.id }};</span></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if d.biggest %}
+      <h2 style="margin-top:16px">Largest tables</h2>
+      <ul class="findings">
+        {% for name, mb in d.biggest %}
+          <li><span class="fd">{{ name }}</span><span style="margin-left:auto" class="fd">{{ mb }} MB</span></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endwith %}
+
   {% with d=sections.database q=sections.queue r=sections.redis g=sections.growth %}
   <section>
     <h2>App</h2>
     <div class="grid">
-      {% if d.max_connections %}<div class="tile"><div class="k">DB connections</div>
-        <div class="v">{{ d.threads }}/{{ d.max_connections }}</div>
-        <div class="s">peak {{ d.peak }} · {{ d.latency_ms|floatformat:1 }}ms</div></div>{% endif %}
-      {% if d.size_mb %}<div class="tile"><div class="k">DB size</div><div class="v">{{ d.size_mb }} MB</div></div>{% endif %}
       <div class="tile"><div class="k">Transcode queue</div>
         <div class="v">{{ q.pending|default:0 }}/{{ q.processing|default:0 }}</div>
         <div class="s">pending / processing{% if q.failed %} · {{ q.failed }} failed{% endif %}</div></div>
