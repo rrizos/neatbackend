@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="refresh" content="30">
+<title>neat · health</title>
+<style>
+  :root{
+    --bg:#0d1017; --panel:#151a23; --panel2:#1b212c; --line:#262d3a;
+    --text:#e8edf5; --dim:#8f99ab; --dimmer:#5f6878;
+    --accent:#5b8cff; --good:#3fca7d; --warn:#e0a42b; --crit:#f2585b;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+       font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:24px 16px 80px}
+  a{color:var(--accent)}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;
+             gap:12px;flex-wrap:wrap;margin-bottom:20px}
+  header.top h1{margin:0;font-size:18px;font-weight:650;letter-spacing:-.2px}
+  header.top .meta{color:var(--dimmer);font-size:12px;font-family:var(--mono)}
+
+  .verdict{border-radius:14px;padding:20px;margin-bottom:26px;border:1px solid var(--line);
+           background:var(--panel)}
+  .verdict .word{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+  .verdict .line{font-size:20px;font-weight:650;margin-top:6px;letter-spacing:-.2px}
+  .verdict.ok{border-color:#1d5a39;background:linear-gradient(180deg,#12251b,#141a20)}
+  .verdict.ok .word{color:var(--good)}
+  .verdict.warn{border-color:#6b5216;background:linear-gradient(180deg,#241e10,#1a1a1c)}
+  .verdict.warn .word{color:var(--warn)}
+  .verdict.crit{border-color:#7d2427;background:linear-gradient(180deg,#2a1416,#1c1418)}
+  .verdict.crit .word{color:var(--crit)}
+
+  h2{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.09em;
+     color:var(--dim);margin:0 0 10px}
+  section{margin-bottom:28px}
+
+  .action{border:1px solid var(--line);border-left-width:3px;border-radius:10px;
+          background:var(--panel);padding:14px 16px;margin-bottom:10px}
+  .action.crit{border-left-color:var(--crit)}
+  .action.warn{border-left-color:var(--warn)}
+  .action .t{font-weight:650}
+  .action .d{color:var(--dim);font-size:13px;margin-top:2px;font-family:var(--mono)}
+  .action .a{margin-top:8px;white-space:pre-wrap;font-family:var(--mono);font-size:12.5px;
+             color:var(--text);background:var(--panel2);border-radius:8px;padding:10px 12px;
+             border:1px solid var(--line);overflow-x:auto}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .tile .k{color:var(--dimmer);font-size:11px;text-transform:uppercase;letter-spacing:.07em}
+  .tile .v{font-size:19px;font-weight:600;font-family:var(--mono);margin-top:4px}
+  .tile .s{font-size:12px;color:var(--dim);margin-top:2px}
+
+  ul.findings{list-style:none;margin:0;padding:0}
+  ul.findings li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;
+                 border-bottom:1px solid var(--line);font-size:13px}
+  ul.findings li:last-child{border-bottom:0}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;margin-top:6px}
+  .dot.ok{background:var(--good)} .dot.warn{background:var(--warn)} .dot.crit{background:var(--crit)}
+  .dot.note{background:var(--dimmer)}
+  .fd{color:var(--dim);font-family:var(--mono);font-size:12px}
+  footer{color:var(--dimmer);font-size:12px;margin-top:34px;border-top:1px solid var(--line);
+         padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>neat · health</h1>
+    <span class="meta">
+      {{ generated }} · {{ took_ms|floatformat:0 }}ms{% if cached %} · cached{% endif %}
+      · <a href="?fresh=1">refresh</a> · <a href="?format=json">json</a> · <a href="?logout=1">log out</a>
+    </span>
+  </header>
+
+  <div class="verdict {{ status }}">
+    <div class="word">{{ status }}</div>
+    <div class="line">{{ headline }}</div>
+  </div>
+
+  {% if actions %}
+  <section>
+    <h2>Do this</h2>
+    {% for a in actions %}
+      <div class="action {{ a.severity }}">
+        <div class="t">{{ a.title }}</div>
+        {% if a.detail %}<div class="d">{{ a.detail }}</div>{% endif %}
+        <div class="a">{{ a.action }}</div>
+      </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% with sys=sections.system %}
+  {% if sys.load %}
+  <section>
+    <h2>System</h2>
+    <div class="grid">
+      <div class="tile"><div class="k">Load (1m)</div><div class="v">{{ sys.load.0|floatformat:2 }}</div>
+        <div class="s">{{ sys.util_pct|floatformat:0 }}% of {{ sys.vcpus }} vCPU</div></div>
+      <div class="tile"><div class="k">Memory free</div><div class="v">{{ sys.mem_available_mb }} MB</div>
+        <div class="s">of {{ sys.mem_total_mb }} MB</div></div>
+      <div class="tile"><div class="k">Swap used</div><div class="v">{{ sys.swap_used_mb }} MB</div>
+        <div class="s">normally ~0</div></div>
+      <div class="tile"><div class="k">Disk</div><div class="v">{{ sys.disk_pct|floatformat:0 }}%</div>
+        <div class="s">{{ sys.disk_free_gb|floatformat:0 }} GB free{% if sys.days_to_full %} · full in ~{{ sys.days_to_full|floatformat:0 }}d{% endif %}</div></div>
+      <div class="tile"><div class="k">Uptime</div><div class="v">{{ sys.uptime_days|floatformat:0 }}d</div></div>
+    </div>
+  </section>
+  {% endif %}
+  {% endwith %}
+
+  {% with t=sections.traffic %}
+  {% if t.total %}
+  <section>
+    <h2>Traffic · last {{ t.window_min }} min</h2>
+    <div class="grid">
+      <div class="tile"><div class="k">Requests/sec</div><div class="v">{{ t.rps|floatformat:2 }}</div>
+        <div class="s">{{ t.pct_ceiling|floatformat:0 }}% of ~19 ceiling</div></div>
+      <div class="tile"><div class="k">Requests</div><div class="v">{{ t.total }}</div></div>
+      <div class="tile"><div class="k">p95 latency</div><div class="v">{% if t.p95 %}{{ t.p95|floatformat:2 }}s{% else %}—{% endif %}</div>
+        <div class="s">idle baseline 0.08s</div></div>
+      <div class="tile"><div class="k">Legacy feed hits</div><div class="v">{{ t.legacy }}</div>
+        <div class="s">~5x cost each</div></div>
+    </div>
+    {% if t.top_ips %}
+      <h2 style="margin-top:16px">Top IPs</h2>
+      <ul class="findings">
+        {% for ip, n in t.top_ips %}<li><span class="fd">{{ ip }}</span><span style="margin-left:auto" class="fd">{{ n }}</span></li>{% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endwith %}
+
+  {% with d=sections.database q=sections.queue r=sections.redis g=sections.growth %}
+  <section>
+    <h2>App</h2>
+    <div class="grid">
+      {% if d.max_connections %}<div class="tile"><div class="k">DB connections</div>
+        <div class="v">{{ d.threads }}/{{ d.max_connections }}</div>
+        <div class="s">peak {{ d.peak }} · {{ d.latency_ms|floatformat:1 }}ms</div></div>{% endif %}
+      {% if d.size_mb %}<div class="tile"><div class="k">DB size</div><div class="v">{{ d.size_mb }} MB</div></div>{% endif %}
+      <div class="tile"><div class="k">Transcode queue</div>
+        <div class="v">{{ q.pending|default:0 }}/{{ q.processing|default:0 }}</div>
+        <div class="s">pending / processing{% if q.failed %} · {{ q.failed }} failed{% endif %}</div></div>
+      {% if r.used_mb %}<div class="tile"><div class="k">Redis</div><div class="v">{{ r.used_mb|floatformat:1 }} MB</div>
+        <div class="s">db0 {{ r.keys.0|default:"?" }} keys</div></div>{% endif %}
+      {% if g.users %}<div class="tile"><div class="k">Users</div><div class="v">{{ g.users }}</div>
+        <div class="s">+{{ g.new_users }} in 24h</div></div>{% endif %}
+      {% if g.posts %}<div class="tile"><div class="k">Posts</div><div class="v">{{ g.posts }}</div>
+        <div class="s">+{{ g.new_posts }} in 24h</div></div>{% endif %}
+      {% if sections.tls.days %}<div class="tile"><div class="k">TLS expires</div>
+        <div class="v">{{ sections.tls.days }}d</div></div>{% endif %}
+    </div>
+  </section>
+  {% endwith %}
+
+  <section>
+    <h2>Services</h2>
+    <ul class="findings">
+      {% for r in sections.services.rows %}
+        <li><span class="dot {% if r.state == 'active' %}ok{% else %}crit{% endif %}"></span>
+          <span>{{ r.unit }}</span>
+          <span style="margin-left:auto" class="fd">{{ r.state }}{% if r.restarts %} · {{ r.restarts }} restarts{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Everything checked</h2>
+    <ul class="findings">
+      {% for f in findings %}
+        <li><span class="dot {{ f.severity }}"></span>
+          <span>{{ f.title }}{% if f.detail %} <span class="fd">— {{ f.detail }}</span>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <footer>
+    Auto-refreshes every 30s. Throughput ceiling (~19 req/s) and the idle
+    baseline (0.08s) are measured, not estimated — load test 2026-09-03.
+    <br>Monitors: <span class="fd">/health/live</span> (fails on real problems),
+    <span class="fd">/health/ready</span> (also fails on warnings).
+  </footer>
+
+</div>
+</body>
+</html>

@@ -368,3 +368,78 @@ def analytics(request):
         return redirect('analytics')
 
     return render(request, 'web/analytics.html', metrics.collect())
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
+#
+# Behind the same admin login as analytics: it reports internal capacity, and
+# which IP to block, which is not something to hand to whoever asks. The two
+# liveness endpoints below are deliberately public and say nothing but a single
+# word, because an uptime monitor cannot log in.
+
+@csrf_protect
+@require_http_methods(['GET', 'POST'])
+def health(request):
+    from django.contrib.auth import authenticate
+
+    from accounts.serializers import ensure_profile
+    from web import health as probes
+
+    error = ''
+    if request.method == 'POST' and not _analytics_admin(request):
+        if rate_limited(f'health:{client_ip(request)}', limit=8, window_seconds=900):
+            error = 'Too many attempts. Try again later.'
+        else:
+            user = authenticate(
+                username=(request.POST.get('username') or '').strip(),
+                password=request.POST.get('password') or '',
+            )
+            if user is not None and ensure_profile(user).is_admin:
+                request.session[ANALYTICS_SESSION_KEY] = True
+                request.session.set_expiry(60 * 60 * 8)
+                return redirect('health')
+            error = 'Those details are not valid here.'
+
+    if not _analytics_admin(request):
+        return render(request, 'web/analytics_login.html', {'error': error}, status=200)
+
+    if request.GET.get('logout'):
+        request.session.pop(ANALYTICS_SESSION_KEY, None)
+        return redirect('health')
+
+    snapshot = probes.collect(use_cache=not request.GET.get('fresh'))
+    if request.GET.get('format') == 'json':
+        return HttpResponse(
+            json.dumps(snapshot, indent=2, default=str),
+            content_type='application/json',
+        )
+    return render(request, 'web/health.html', snapshot)
+
+
+def _liveness_response(strict):
+    from web import health as probes
+
+    code, text = probes.liveness(strict=strict)
+    # Deliberately just the word. Anything more is reconnaissance for whoever
+    # is scanning, and the detail is one login away on the page itself.
+    # First token only: the contract with the monitors is one bare word, and
+    # nothing internal should ever reach an endpoint that needs no login.
+    word = (text.split(':')[0].strip().split() or ['error'])[0]
+    resp = HttpResponse(f'{word}\n', content_type='text/plain', status=code)
+    resp['Cache-Control'] = 'no-store'
+    return resp
+
+
+@require_http_methods(['GET', 'HEAD'])
+def health_live(request):
+    """200 while the app is genuinely serving; 503 on a real failure. Point the
+    primary uptime monitor here — it will then alert on degradation, not only
+    on the box being unreachable."""
+    return _liveness_response(strict=False)
+
+
+@require_http_methods(['GET', 'HEAD'])
+def health_ready(request):
+    """The same, but 503 on warnings too. A second, more sensitive monitor can
+    watch this if you would rather hear about trouble early."""
+    return _liveness_response(strict=True)

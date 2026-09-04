@@ -18,6 +18,13 @@ urlpatterns = [
     # Root-level, not under post/: it is its own page, behind an admin login.
     path('analytics', web_views.analytics, name='analytics'),
     path('analytics/', web_views.analytics),
+    # Operational health. The page itself is behind the same admin login; the
+    # two liveness endpoints are public and say a single word, because an
+    # uptime monitor cannot log in.
+    path('health', web_views.health, name='health'),
+    path('health/', web_views.health),
+    path('health/live', web_views.health_live, name='health_live'),
+    path('health/ready', web_views.health_ready, name='health_ready'),
     # Data and account pages. Served by Django rather than as static files
     # because the deletion form has to POST somewhere and send mail.
     path('safetyportal', web_views.safety_portal, name='safety_portal'),
