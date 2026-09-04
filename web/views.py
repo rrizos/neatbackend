@@ -367,7 +367,10 @@ def analytics(request):
         request.session.pop(ANALYTICS_SESSION_KEY, None)
         return redirect('analytics')
 
-    return render(request, 'web/analytics.html', metrics.collect())
+    # Scoped to the launch by default; ?all=1 shows the whole history,
+    # import and test accounts included.
+    return render(request, 'web/analytics.html',
+                  metrics.collect(launch_scoped=not request.GET.get('all')))
 
 
 # ── Health ───────────────────────────────────────────────────────────────────

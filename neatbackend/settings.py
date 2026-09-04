@@ -283,6 +283,13 @@ STATIC_URL = 'static/'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+# The day the app went public. /analytics scopes every metric to it by default,
+# because the accounts and posts that predate it are the WordPress import and
+# our own testing — counted in, they quietly flatter retention and wreck the
+# activation funnel, which are the two numbers a launch is actually judged on.
+# ISO date, overridable in .env.prod so the date can move without a deploy.
+NEAT_LAUNCH_DATE = os.environ.get('NEAT_LAUNCH_DATE', '2026-09-07').strip()
+
 # Redis when it is there, the database when it is not — the same shape as
 # CHANNEL_LAYERS above, so `manage.py runserver` still works without Redis.
 #

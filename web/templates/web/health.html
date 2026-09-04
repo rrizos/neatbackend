@@ -128,6 +128,15 @@
       <div class="tile"><div class="k">Legacy feed hits</div><div class="v">{{ t.legacy }}</div>
         <div class="s">~11x cost each</div></div>
     </div>
+    {% if t.client_versions %}
+      <h2 style="margin-top:16px">App builds in use</h2>
+      <ul class="findings">
+        {% for v, n in t.client_versions %}
+          <li><span class="fd">X-Neat-Client: {{ v }}</span><span style="margin-left:auto" class="fd">{{ n }}</span></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
     {% if t.top_ips %}
       <h2 style="margin-top:16px">Top IPs</h2>
       <ul class="findings">

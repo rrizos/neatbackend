@@ -23,6 +23,13 @@
              gap:16px;flex-wrap:wrap;margin-bottom:26px}
   header.top h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.2px}
   header.top .meta{color:var(--dimmer);font-size:12px;font-family:var(--mono)}
+  .scope{border:1px solid var(--line);border-left-width:3px;border-radius:10px;
+         background:var(--panel);padding:11px 14px;margin:0 0 22px;font-size:13px;
+         color:var(--dim)}
+  .scope.on{border-left-color:var(--accent)}
+  .scope.off{border-left-color:var(--warn)}
+  .scope strong{color:var(--text);font-weight:650}
+  .scope a{margin-left:6px}
 
   section{margin-bottom:34px}
   h2{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.09em;
@@ -117,6 +124,27 @@
   </div>
 </header>
 
+<!-- Scope: state plainly what is counted, because a filtered number that
+     looks unfiltered is worse than no number at all. -------------------- -->
+<div class="scope {% if scope.scoped %}on{% else %}off{% endif %}">
+  {% if scope.scoped %}
+    {% if scope.live %}
+      Counting from launch, <strong>{{ scope.launch|date:"j F Y" }}</strong>.
+    {% else %}
+      Launch is <strong>{{ scope.launch|date:"j F Y" }}</strong> — everything below
+      will read zero until then. That is correct, not broken.
+    {% endif %}
+    Excluded: {{ scope.excluded_users }} earlier account{{ scope.excluded_users|pluralize }}
+    and {{ scope.excluded_posts }} earlier post{{ scope.excluded_posts|pluralize }}
+    (the import and our own testing).
+    <a href="?all=1">show everything instead</a>
+  {% else %}
+    Showing <strong>all history</strong>, including imported and test accounts —
+    retention and the activation funnel are understated as a result.
+    <a href="?">back to launch only</a>
+  {% endif %}
+</div>
+
 <!-- What needs attention ------------------------------------------------- -->
 <section>
   <h2>What needs attention <span class="hint">ranked by how much it costs you</span></h2>
@@ -183,6 +211,34 @@
     </p>
   </div>
 </section>
+
+<!-- Push reach ------------------------------------------------------------ -->
+{% if push.total %}
+<section>
+  <h2>Push reach <span class="hint">the ceiling on every retention number above</span></h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="big">{{ push.pct }}%</div>
+      <p class="note">
+        {{ push.reachable }} of {{ push.total }} accounts have a push token.
+        The other {{ push.unreachable }} can only come back on their own
+        initiative, and most will not.
+      </p>
+    </div>
+    <div class="card">
+      <table>
+        <tbody>
+        {% for name, n in push.platforms %}
+          <tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="note">Registered devices by platform. One person can appear
+        twice if they use both.</p>
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <!-- How people sign up ---------------------------------------------------- -->
 {% if signup_methods %}

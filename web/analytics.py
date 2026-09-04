@@ -24,7 +24,10 @@ your own cohorts always beat a published figure for deciding anything.
 """
 
 from collections import Counter
+from contextvars import ContextVar
+from datetime import datetime
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count, Min, Q
 from django.db.models.functions import TruncDate
@@ -36,11 +39,88 @@ from accounts.models import (
 from dm_messages.models import Conversation, Message
 from events.models import Event
 from posts.models import Post, PostComment, PostLike
+from push.models import DeviceToken
 
 User = get_user_model()
 
 #: Published bands for consumer-social apps. Shown as context, never as a goal.
 BENCHMARKS = {'d1': 40, 'd7': 20, 'd30': 10, 'stickiness': 20}
+
+
+# ── Launch scope ────────────────────────────────────────────────────────────
+#
+# Everything below is scoped to the launch by default. The accounts and posts
+# that predate it are the WordPress import and our own testing, and they do not
+# behave like real users: they never opened the app, so they sink D1/D7/D30 and
+# every step of the activation funnel while adding nothing true. A launch is
+# judged on those two numbers, so the page must not quietly poison them.
+#
+# The scope is a contextvar rather than an argument threaded through twenty-odd
+# functions — the same shape accounts/client_version.py already uses, and for
+# the same reason. `?all=1` on the page turns it off when the whole history is
+# genuinely what you want.
+
+_launch_scoped = ContextVar('neat_analytics_launch_scoped', default=True)
+
+
+def launch_date():
+    """Configured launch, as an aware datetime at local midnight. A value that
+    cannot be parsed disables scoping rather than raising: a broken date should
+    cost you a filter, not the whole page."""
+    raw = (getattr(settings, 'NEAT_LAUNCH_DATE', '') or '').strip()
+    if not raw:
+        return None
+    try:
+        naive = datetime.strptime(raw, '%Y-%m-%d')
+    except ValueError:
+        return None
+    return timezone.make_aware(naive, timezone.get_current_timezone())
+
+
+def set_launch_scoped(value):
+    _launch_scoped.set(bool(value))
+
+
+def _cutoff():
+    return launch_date() if _launch_scoped.get() else None
+
+
+def _scoped(qs, field):
+    cut = _cutoff()
+    return qs.filter(**{f'{field}__gte': cut}) if cut else qs
+
+
+# One helper per model, so no call site has to remember which timestamp marks
+# an account or a row as belonging to the launch.
+def _users():          return _scoped(User.objects.all(), 'date_joined')
+def _profiles():       return _scoped(Profile.objects.all(), 'user__date_joined')
+def _sessions():       return _scoped(AppSession.objects.all(), 'started')
+def _follows():        return _scoped(Follow.objects.all(), 'created')
+def _notifications():  return _scoped(Notification.objects.all(), 'created')
+def _socials():        return _scoped(SocialAccount.objects.all(), 'created')
+def _conversations():  return _scoped(Conversation.objects.all(), 'created')
+def _messages():       return _scoped(Message.objects.all(), 'created')
+def _events():         return _scoped(Event.objects.all(), 'created')
+def _posts():          return _scoped(Post.objects.all(), 'created')
+def _comments():       return _scoped(PostComment.objects.all(), 'created')
+def _likes():          return _scoped(PostLike.objects.all(), 'created')
+
+
+def scope_summary():
+    """What the page is showing, and what it is leaving out — stated on the
+    page itself, because a filtered number that looks unfiltered is worse than
+    no number."""
+    cut = _cutoff()
+    if cut is None:
+        return {'scoped': False, 'launch': launch_date(),
+                'excluded_users': 0, 'excluded_posts': 0}
+    return {
+        'scoped': True,
+        'launch': cut,
+        'live': timezone.now() >= cut,
+        'excluded_users': User.objects.filter(date_joined__lt=cut).count(),
+        'excluded_posts': Post.objects.filter(created__lt=cut).count(),
+    }
 
 
 def _since(days):
@@ -54,20 +134,20 @@ def _pct(part, whole, places=1):
 # ── Headline ────────────────────────────────────────────────────────────────
 
 def headline():
-    total = User.objects.count()
+    total = _users().count()
     return {
         'total_users': total,
-        'new_today': User.objects.filter(date_joined__gte=_since(1)).count(),
-        'new_7d': User.objects.filter(date_joined__gte=_since(7)).count(),
-        'new_30d': User.objects.filter(date_joined__gte=_since(30)).count(),
-        'dau': Profile.objects.filter(last_active__gte=_since(1)).count(),
-        'wau': Profile.objects.filter(last_active__gte=_since(7)).count(),
-        'mau': Profile.objects.filter(last_active__gte=_since(30)).count(),
-        'posts': Post.objects.count(),
-        'comments': PostComment.objects.count(),
-        'messages': Message.objects.count(),
-        'events': Event.objects.count(),
-        'first_signup': User.objects.aggregate(d=Min('date_joined'))['d'],
+        'new_today': _users().filter(date_joined__gte=_since(1)).count(),
+        'new_7d': _users().filter(date_joined__gte=_since(7)).count(),
+        'new_30d': _users().filter(date_joined__gte=_since(30)).count(),
+        'dau': _profiles().filter(last_active__gte=_since(1)).count(),
+        'wau': _profiles().filter(last_active__gte=_since(7)).count(),
+        'mau': _profiles().filter(last_active__gte=_since(30)).count(),
+        'posts': _posts().count(),
+        'comments': _comments().count(),
+        'messages': _messages().count(),
+        'events': _events().count(),
+        'first_signup': _users().aggregate(d=Min('date_joined'))['d'],
         'now': timezone.now(),
     }
 
@@ -75,7 +155,7 @@ def headline():
 def growth(head):
     """Week-on-week, because a raw signup count says nothing on its own."""
     this_week = head['new_7d']
-    last_week = User.objects.filter(
+    last_week = _users().filter(
         date_joined__gte=_since(14), date_joined__lt=_since(7)
     ).count()
     return {
@@ -100,17 +180,17 @@ def activation():
     following nobody has nothing to read, and one that never posted has given
     the place no reason to keep them.
     """
-    total = User.objects.count()
+    total = _users().count()
     if not total:
         return {'total': 0, 'steps': []}
 
-    with_city = Profile.objects.exclude(city='').count()
-    with_avatar = Profile.objects.exclude(
+    with_city = _profiles().exclude(city='').count()
+    with_avatar = _profiles().exclude(
         Q(avatar_url='') & Q(avatar_thumb_url='')
     ).count()
-    following_someone = Follow.objects.values('follower_id').distinct().count()
-    posted = Post.objects.exclude(user=None).values('user_id').distinct().count()
-    messaged = Message.objects.values('sender_id').distinct().count()
+    following_someone = _follows().values('follower_id').distinct().count()
+    posted = _posts().exclude(user=None).values('user_id').distinct().count()
+    messaged = _messages().values('sender_id').distinct().count()
 
     # Deliberately *not* a funnel. These are independent milestones — somebody
     # can post without ever following anyone — so nesting them would invent a
@@ -148,11 +228,11 @@ def time_to_first_post():
     Fast is healthy: the longer the gap, the more likely the answer is never.
     """
     rows = (
-        Post.objects.exclude(user=None)
+        _posts().exclude(user=None)
         .values('user_id')
         .annotate(first=Min('created'))
     )
-    joined = dict(User.objects.values_list('id', 'date_joined'))
+    joined = dict(_users().values_list('id', 'date_joined'))
     hours = []
     for row in rows:
         start = joined.get(row['user_id'])
@@ -181,7 +261,7 @@ def retention_estimate():
     is a floor, not the real number. Cohorts from real sessions replace it.
     """
     rows = list(
-        Profile.objects.exclude(last_active=None)
+        _profiles().exclude(last_active=None)
         .values_list('user__date_joined', 'last_active')
     )
     if not rows:
@@ -212,7 +292,7 @@ def retention_cohorts(weeks=6):
     number to trust — but it can only speak for people who joined after
     tracking began, which is why it starts nearly empty and fills in weekly.
     """
-    first_session = AppSession.objects.aggregate(d=Min('started'))['d']
+    first_session = _sessions().aggregate(d=Min('started'))['d']
     if not first_session:
         return None
 
@@ -224,7 +304,7 @@ def retention_cohorts(weeks=6):
         if end < first_session:
             continue
         cohort = list(
-            User.objects.filter(date_joined__gte=max(start, first_session),
+            _users().filter(date_joined__gte=max(start, first_session),
                                 date_joined__lt=end)
             .values_list('id', 'date_joined')
         )
@@ -233,7 +313,7 @@ def retention_cohorts(weeks=6):
         ids = [c[0] for c in cohort]
         joined_at = dict(cohort)
         seen = {}
-        for user_id, started in AppSession.objects.filter(
+        for user_id, started in _sessions().filter(
             user_id__in=ids
         ).values_list('user_id', 'started'):
             seen.setdefault(user_id, []).append(started)
@@ -260,10 +340,10 @@ def retention_cohorts(weeks=6):
 
 def dormant():
     """Accounts that have gone quiet — the churn nobody notices."""
-    total = User.objects.count()
-    never = Profile.objects.filter(last_active=None).count()
-    gone_30 = Profile.objects.filter(last_active__lt=_since(30)).count()
-    gone_90 = Profile.objects.filter(last_active__lt=_since(90)).count()
+    total = _users().count()
+    never = _profiles().filter(last_active=None).count()
+    gone_30 = _profiles().filter(last_active__lt=_since(30)).count()
+    gone_90 = _profiles().filter(last_active__lt=_since(90)).count()
     return {
         'never_seen': never,
         'never_seen_pct': _pct(never, total),
@@ -282,9 +362,9 @@ def power_user_curve(days=28):
     curve that only falls away to the right is an app nobody has a habit for.
     Needs real sessions; empty until tracking has run long enough.
     """
-    if not AppSession.objects.exists():
+    if not _sessions().exists():
         return None
-    rows = AppSession.objects.filter(started__gte=_since(days)).values_list(
+    rows = _sessions().filter(started__gte=_since(days)).values_list(
         'user_id', 'started'
     )
     per_user = {}
@@ -304,19 +384,19 @@ def power_user_curve(days=28):
 
 
 def session_metrics():
-    total = AppSession.objects.count()
+    total = _sessions().count()
     if not total:
         return {'tracking': False}
     durations = sorted(
-        s.duration_seconds for s in AppSession.objects.only('started', 'last_seen')
+        s.duration_seconds for s in _sessions().only('started', 'last_seen')
     )
     durations = [d for d in durations if d > 0]
-    people = AppSession.objects.values('user_id').distinct().count()
+    people = _sessions().values('user_id').distinct().count()
     return {
         'tracking': True,
-        'since': AppSession.objects.aggregate(d=Min('started'))['d'],
+        'since': _sessions().aggregate(d=Min('started'))['d'],
         'sessions': total,
-        'sessions_7d': AppSession.objects.filter(started__gte=_since(7)).count(),
+        'sessions_7d': _sessions().filter(started__gte=_since(7)).count(),
         'avg_seconds': int(sum(durations) / len(durations)) if durations else 0,
         'median_seconds': durations[len(durations) // 2] if durations else 0,
         'people': people,
@@ -332,13 +412,13 @@ def creator_split():
     Lurking is normal and not a problem in itself — but if almost nobody
     creates, there is nothing for the rest to come back for.
     """
-    total = User.objects.count()
-    creators = Post.objects.exclude(user=None).values('user_id').distinct().count()
-    reactors = set(PostLike.objects.values_list('user_id', flat=True)) | set(
-        PostComment.objects.values_list('user_id', flat=True)
+    total = _users().count()
+    creators = _posts().exclude(user=None).values('user_id').distinct().count()
+    reactors = set(_likes().values_list('user_id', flat=True)) | set(
+        _comments().values_list('user_id', flat=True)
     )
     reactor_only = len(reactors - set(
-        Post.objects.exclude(user=None).values_list('user_id', flat=True)
+        _posts().exclude(user=None).values_list('user_id', flat=True)
     ))
     lurkers = total - creators - reactor_only
     return {
@@ -354,42 +434,42 @@ def graph_health():
     An account following nobody opens an empty feed, and an empty feed is the
     single most reliable predictor that somebody will not come back.
     """
-    total = User.objects.count()
-    following = Follow.objects.values('follower_id').distinct().count()
-    followed = Follow.objects.values('following_id').distinct().count()
-    pairs = Follow.objects.count()
+    total = _users().count()
+    following = _follows().values('follower_id').distinct().count()
+    followed = _follows().values('following_id').distinct().count()
+    pairs = _follows().count()
     return {
         'isolated': total - following,
         'isolated_pct': _pct(total - following, total),
         'nobody_follows_them': total - followed,
         'nobody_follows_them_pct': _pct(total - followed, total),
         'avg_following': round(pairs / total, 1) if total else 0,
-        'follows_7d': Follow.objects.filter(created__gte=_since(7)).count(),
+        'follows_7d': _follows().filter(created__gte=_since(7)).count(),
     }
 
 
 def content_health():
-    total = User.objects.count()
-    posters_30d = Post.objects.filter(created__gte=_since(30)).values('user_id').distinct().count()
-    posts = Post.objects.count()
-    engaged = Post.objects.annotate(
+    total = _users().count()
+    posters_30d = _posts().filter(created__gte=_since(30)).values('user_id').distinct().count()
+    posts = _posts().count()
+    engaged = _posts().annotate(
         likes_n=Count('like_rows', distinct=True),
         comments_n=Count('comment_rows', distinct=True),
     ).filter(Q(likes_n__gt=0) | Q(comments_n__gt=0)).count()
     return {
         'posters_30d': posters_30d,
         'posting_share': _pct(posters_30d, total),
-        'posts_7d': Post.objects.filter(created__gte=_since(7)).count(),
-        'comments_7d': PostComment.objects.filter(created__gte=_since(7)).count(),
-        'messages_7d': Message.objects.filter(created__gte=_since(7)).count(),
-        'likes_7d': PostLike.objects.filter(created__gte=_since(7)).count(),
+        'posts_7d': _posts().filter(created__gte=_since(7)).count(),
+        'comments_7d': _comments().filter(created__gte=_since(7)).count(),
+        'messages_7d': _messages().filter(created__gte=_since(7)).count(),
+        'likes_7d': _likes().filter(created__gte=_since(7)).count(),
         # A post nobody touched is a post that discouraged its author.
         'no_engagement': posts - engaged,
         'no_engagement_pct': _pct(posts - engaged, posts),
-        'avg_likes': round(PostLike.objects.count() / posts, 1) if posts else 0,
-        'avg_comments': round(PostComment.objects.count() / posts, 1) if posts else 0,
-        'conversations': Conversation.objects.count(),
-        'unread_notifications': Notification.objects.filter(is_read=False).count(),
+        'avg_likes': round(_likes().count() / posts, 1) if posts else 0,
+        'avg_comments': round(_comments().count() / posts, 1) if posts else 0,
+        'conversations': _conversations().count(),
+        'unread_notifications': _notifications().filter(is_read=False).count(),
     }
 
 
@@ -409,14 +489,14 @@ def signup_methods():
     presses means the email form is the thing to stop maintaining. The split
     also decides how much the lockout risk below matters.
     """
-    joined = dict(User.objects.values_list('id', 'date_joined'))
+    joined = dict(_users().values_list('id', 'date_joined'))
     total = len(joined)
     if not total:
         return None
 
     at_signup = {}          # user_id -> provider that created the account
     linked_later = 0
-    for user_id, provider, created in SocialAccount.objects.values_list(
+    for user_id, provider, created in _socials().values_list(
         'user_id', 'provider', 'created'
     ):
         start = joined.get(user_id)
@@ -453,7 +533,7 @@ def signup_methods():
 
     # Somebody whose only way in is a provider loses the account with it, so
     # this is the number that says how exposed the base is.
-    provider_only = User.objects.filter(
+    provider_only = _users().filter(
         id__in=list(at_signup), password__startswith='!'
     ).count()
 
@@ -476,6 +556,34 @@ def signup_methods():
     }
 
 
+def push_reach():
+    """What share of signups the app can still reach.
+
+    Push is the only channel that brings somebody back who has not thought
+    about the app today, so this quietly sets the ceiling on every retention
+    number below. A user who declined the permission is not lost, but they can
+    only return on their own initiative, and most do not.
+    """
+    total = _users().count()
+    if not total:
+        return {'total': 0, 'reachable': 0, 'pct': 0.0, 'platforms': []}
+
+    rows = DeviceToken.objects.filter(user__in=_users()).values_list('user_id', 'platform')
+    by_user = {}
+    for user_id, platform in rows:
+        by_user.setdefault(user_id, set()).add(platform or 'unknown')
+
+    counts = Counter(p for platforms in by_user.values() for p in platforms)
+    reachable = len(by_user)
+    return {
+        'total': total,
+        'reachable': reachable,
+        'pct': _pct(reachable, total),
+        'unreachable': total - reachable,
+        'platforms': sorted(counts.items(), key=lambda kv: -kv[1]),
+    }
+
+
 # ── Cities ──────────────────────────────────────────────────────────────────
 
 def city_breakdown(limit=15):
@@ -486,20 +594,20 @@ def city_breakdown(limit=15):
     """
     counts = {
         r['city']: r['n'] for r in
-        Profile.objects.exclude(city='').values('city').annotate(n=Count('id'))
+        _profiles().exclude(city='').values('city').annotate(n=Count('id'))
     }
     active = {
         r['city']: r['n'] for r in
-        Profile.objects.exclude(city='').filter(last_active__gte=_since(30))
+        _profiles().exclude(city='').filter(last_active__gte=_since(30))
         .values('city').annotate(n=Count('id'))
     }
     posts = {
         r['city']: r['n'] for r in
-        Post.objects.exclude(city='').values('city').annotate(n=Count('id'))
+        _posts().exclude(city='').values('city').annotate(n=Count('id'))
     }
     posts_30 = {
         r['city']: r['n'] for r in
-        Post.objects.exclude(city='').filter(created__gte=_since(30))
+        _posts().exclude(city='').filter(created__gte=_since(30))
         .values('city').annotate(n=Count('id'))
     }
     rows = []
@@ -528,9 +636,9 @@ def city_breakdown(limit=15):
 def activity_by_hour():
     """Which hours the app is actually used — when to post and when to notify."""
     hours = Counter()
-    for created in Post.objects.filter(created__gte=_since(60)).values_list('created', flat=True):
+    for created in _posts().filter(created__gte=_since(60)).values_list('created', flat=True):
         hours[timezone.localtime(created).hour] += 1
-    for created in Message.objects.filter(created__gte=_since(60)).values_list('created', flat=True):
+    for created in _messages().filter(created__gte=_since(60)).values_list('created', flat=True):
         hours[timezone.localtime(created).hour] += 1
     peak = max(list(hours.values()) + [1])
     return {
@@ -542,7 +650,7 @@ def activity_by_hour():
 
 def signups_by_day(days=30):
     rows = (
-        User.objects.filter(date_joined__gte=_since(days))
+        _users().filter(date_joined__gte=_since(days))
         .annotate(day=TruncDate('date_joined')).values('day').annotate(n=Count('id'))
     )
     counts = {r['day']: r['n'] for r in rows}
@@ -554,13 +662,13 @@ def signups_by_day(days=30):
 
 
 def activity_by_day(days=30):
-    def per_day(model):
+    def per_day(qs):
         rows = (
-            model.objects.filter(created__gte=_since(days))
+            qs.filter(created__gte=_since(days))
             .annotate(day=TruncDate('created')).values('day').annotate(n=Count('id'))
         )
         return {r['day']: r['n'] for r in rows}
-    posts, comments, messages = per_day(Post), per_day(PostComment), per_day(Message)
+    posts, comments, messages = per_day(_posts()), per_day(_comments()), per_day(_messages())
     today = timezone.now().date()
     out = []
     for o in range(days - 1, -1, -1):
@@ -575,7 +683,7 @@ def activity_by_day(days=30):
 
 def most_active(limit=12):
     return list(
-        User.objects.annotate(
+        _users().annotate(
             post_count=Count('posts', distinct=True),
             comment_count=Count('post_comments', distinct=True),
         )
@@ -586,7 +694,7 @@ def most_active(limit=12):
 
 
 def recent_users(limit=100):
-    rows = User.objects.select_related('profile').order_by('-date_joined')[:limit]
+    rows = _users().select_related('profile').order_by('-date_joined')[:limit]
     out = []
     for user in rows:
         profile = getattr(user, 'profile', None)
@@ -620,6 +728,17 @@ def diagnosis(data):
     def add(level, title, detail, action):
         out.append({'level': level, 'title': title, 'detail': detail,
                     'action': action})
+
+    push = data.get('push') or {}
+    if push.get('total') and push['pct'] < 50:
+        add('critical' if push['pct'] < 30 else 'warning',
+            'Most signups cannot be reached',
+            f"{push['unreachable']} of {push['total']} accounts "
+            f"({100 - push['pct']:.0f}%) have no push token, so nothing can "
+            "bring them back except their own initiative.",
+            'Ask for the notification permission after the first real moment of '
+            'value — a first like or follow — rather than on the launch screen, '
+            'where it is declined most often.')
 
     graph = data['graph']
     if graph['isolated_pct'] >= 30:
@@ -733,7 +852,10 @@ def diagnosis(data):
     return out
 
 
-def collect():
+def collect(launch_scoped=True):
+    """Everything the page shows. Scoped to the launch unless asked otherwise —
+    see the launch-scope block above for why that is the default."""
+    set_launch_scoped(launch_scoped)
     head = headline()
     signups = signups_by_day()
     activity = activity_by_day()
@@ -751,6 +873,7 @@ def collect():
         'graph': graph_health(),
         'health': content_health(),
         'signup_methods': signup_methods(),
+        'push': push_reach(),
         'cities': city_breakdown(),
         'hours': activity_by_hour(),
         'signups': signups,
@@ -760,5 +883,6 @@ def collect():
         'active_users': most_active(),
         'users': recent_users(),
     }
+    data['scope'] = scope_summary()
     data['diagnosis'] = diagnosis(data)
     return data

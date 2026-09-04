@@ -83,3 +83,56 @@ class HealthViewTests(TestCase):
             resp = self.client.get('/health/live')
         self.assertEqual(resp.status_code, 503)
         self.assertNotIn('secret', resp.content.decode())
+
+
+class AnalyticsLaunchScopeTests(TestCase):
+    """The launch cutoff is the whole point of the page being trustworthy: the
+    imported and test accounts never opened the app, so counting them sinks
+    retention and the activation funnel while adding nothing true."""
+
+    LAUNCH = '2026-09-07'
+
+    def _user(self, name, joined):
+        from django.contrib.auth import get_user_model
+        u = get_user_model().objects.create_user(username=name, password='x')
+        get_user_model().objects.filter(pk=u.pk).update(date_joined=joined)
+        return u
+
+    def setUp(self):
+        from django.utils import timezone
+        from datetime import datetime
+        cut = timezone.make_aware(datetime(2026, 9, 7), timezone.get_current_timezone())
+        self.before = self._user('legacy_import', cut - timezone.timedelta(days=30))
+        self.after = self._user('real_signup', cut + timezone.timedelta(hours=2))
+
+    def test_scoped_collect_excludes_prelaunch_accounts(self):
+        from web import analytics
+        with self.settings(NEAT_LAUNCH_DATE=self.LAUNCH):
+            data = analytics.collect(launch_scoped=True)
+        self.assertEqual(data['head']['total_users'], 1, 'pre-launch account leaked in')
+        self.assertTrue(data['scope']['scoped'])
+        self.assertEqual(data['scope']['excluded_users'], 1)
+
+    def test_unscoped_collect_includes_everything(self):
+        from web import analytics
+        with self.settings(NEAT_LAUNCH_DATE=self.LAUNCH):
+            data = analytics.collect(launch_scoped=False)
+        self.assertEqual(data['head']['total_users'], 2)
+        self.assertFalse(data['scope']['scoped'])
+
+    def test_unparseable_launch_date_disables_scoping_rather_than_raising(self):
+        """A bad date in the environment should cost a filter, not the page."""
+        from web import analytics
+        with self.settings(NEAT_LAUNCH_DATE='not-a-date'):
+            self.assertIsNone(analytics.launch_date())
+            data = analytics.collect(launch_scoped=True)
+        self.assertEqual(data['head']['total_users'], 2)
+
+    def test_scope_does_not_leak_between_calls(self):
+        """The scope is a contextvar; an unscoped render must not leave the
+        next request unscoped."""
+        from web import analytics
+        with self.settings(NEAT_LAUNCH_DATE=self.LAUNCH):
+            analytics.collect(launch_scoped=False)
+            data = analytics.collect(launch_scoped=True)
+        self.assertEqual(data['head']['total_users'], 1)

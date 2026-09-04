@@ -519,6 +519,7 @@ def _traffic():
     total = legacy = 0
     per_ip, per_min, rts, statuses = {}, {}, [], {}
     api_legacy_ips = {}
+    client_versions = {}
     # The lean/legacy split needs $http_x_neat_client in the log format. Until
     # nginx is emitting it, every feed request would parse as header-less and
     # raise a false alarm about a scraper, so the whole analysis is withheld
@@ -555,6 +556,11 @@ def _traffic():
         nc = m.group('nc')
         if nc is not None:
             have_client_field = True
+            # Which app builds are actually in use. Old builds are the reason
+            # the bare-IP vhost still has to be default_server, so watching
+            # this empty out is how you know that can finally be retired.
+            client_versions[nc if nc != '-' else 'none'] = (
+                client_versions.get(nc if nc != '-' else 'none', 0) + 1)
         if nc is not None and '/api/posts/' in req and req.startswith('GET'):
             try:
                 modern = int(nc) >= 2 if nc else False
@@ -631,6 +637,7 @@ def _traffic():
 
     return {'total': total, 'rps': rps, 'pct_ceiling': pct_ceiling, 'legacy': legacy,
             'have_client_field': have_client_field,
+            'client_versions': sorted(client_versions.items(), key=lambda kv: -kv[1]),
             'p50': p50, 'p95': p95, 'top_ips': top, 'statuses': statuses,
             'window_min': TRAFFIC_WINDOW_MIN, 'findings': f}
 
