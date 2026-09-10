@@ -5,6 +5,7 @@ urlpatterns = [
     path('cities/', views.cities_list, name='cities_list'),
     path('viral/', views.viral_posts, name='viral_posts'),
     path('city-heat/', views.city_heat, name='city_heat'),
+    path('user/<str:username>/', views.user_posts, name='user_posts'),
     path('saved/', views.saved_posts, name='saved_posts'),
     path('exist/', views.posts_exist, name='posts_exist'),
     # Upload a file while the caption is still being written; the post that

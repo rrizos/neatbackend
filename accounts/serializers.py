@@ -1,11 +1,18 @@
 from .avatars import avatar_for
 from .models import Block, Follow, Profile
-from neatbackend.timefmt import local_iso
 
 
 def ensure_profile(user):
     profile, _ = Profile.objects.get_or_create(user=user)
     return profile
+
+
+def _post_count(user):
+    try:
+        from posts.models import Post
+        return Post.objects.filter(user=user).count()
+    except Exception:
+        return 0
 
 
 def user_to_dict(user, viewer=None):
@@ -43,7 +50,7 @@ def user_to_dict(user, viewer=None):
         'canChangeCity': profile.can_change_city() if is_self_or_admin else False,
         'cityChangeAllowedAt': (
             (profile.city_change_allowed_at() or None) and
-            local_iso(profile.city_change_allowed_at())
+            profile.city_change_allowed_at().isoformat()
         ) if is_self_or_admin else None,
         # Whether this account can be signed into with a password at all.
         # False for one created through Apple or Google that has not set one,
@@ -54,6 +61,7 @@ def user_to_dict(user, viewer=None):
         # the inline copy above. Empty for anyone who has not saved a picture
         # since the two-copy split shipped.
         'avatarFullUrl': profile.avatar_full_url,
+        'postCount': _post_count(user),
         'followers': followers,
         'following': following,
         'isFollowing': is_following,

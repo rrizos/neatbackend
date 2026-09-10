@@ -1045,6 +1045,50 @@ def post_save(request, post_id):
 
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
+def user_posts(request, username):
+    """All posts by a given user, newest first.
+
+    GET /api/posts/user/<username>/
+    Returns {"posts": [...]} using the same lean format as the feed.
+    Blocked accounts return 404.
+    """
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    try:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        target = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    if is_blocked(viewer, target):
+        return _cors_json(JsonResponse({"error": "Not found"}, status=404))
+
+    posts = (
+        Post.objects
+        .filter(user=target)
+        .select_related("user", "user__profile", "poll")
+        .prefetch_related("like_rows", "media_items", "poll__options__votes_rows")
+        .annotate(comment_count=Count("comment_rows", distinct=True))
+        .order_by("-created", "-id")
+    )
+
+    viewer_following_ids = set(
+        Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+    )
+    preview_map = _preview_map_for(list(posts))
+    rows, avatars = _lean_feed_payload(list(posts), viewer, viewer_following_ids, preview_map)
+    return _cors_json(JsonResponse({"posts": rows, "avatars": avatars}))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
 def saved_posts(request):
     if request.method == "OPTIONS":
         return _cors_json(HttpResponse())
