@@ -16,6 +16,10 @@ class Post(models.Model):
         related_name='posts',
     )
     city = models.CharField(max_length=120, blank=True, default='')
+    # 'city' posts appear only in the author's city feed.
+    # 'greece' posts appear in the national Ελλάδα feed and are visible to
+    # everyone regardless of city.
+    scope = models.CharField(max_length=10, default='city')
     author = models.CharField(max_length=150, default='Anonymous')
     text = models.TextField()
     image_url = models.TextField(blank=True, default='')
@@ -39,6 +43,7 @@ class Post(models.Model):
             'authorId': self.user_id,
             'avatarUrl': _avatar_for(getattr(self.user, 'profile', None)),
             'city': self.city,
+            'scope': self.scope,
             'text': self.text,
             'imageUrl': self.image_url,
             'created': self.created.isoformat(),

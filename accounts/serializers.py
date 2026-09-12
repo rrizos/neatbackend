@@ -10,7 +10,8 @@ def ensure_profile(user):
 def _post_count(user):
     try:
         from posts.models import Post
-        return Post.objects.filter(user=user).count()
+        # Only city-scope posts; Greece feed posts are excluded from profiles
+        return Post.objects.filter(user=user, scope='city').count()
     except Exception:
         return 0
 

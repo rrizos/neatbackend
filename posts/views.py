@@ -369,11 +369,17 @@ def _ensure_posts_table():
     table_name = Post._meta.db_table
     with connection.cursor() as cursor:
         existing_tables = connection.introspection.table_names(cursor)
-    if table_name in existing_tables:
-        return
+    if table_name not in existing_tables:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(Post)
 
-    with connection.schema_editor() as schema_editor:
-        schema_editor.create_model(Post)
+    # Add scope column if it was not yet present (Greece feed feature).
+    with connection.cursor() as cursor:
+        columns = [col.name for col in connection.introspection.get_table_description(cursor, table_name)]
+        if 'scope' not in columns:
+            cursor.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN scope VARCHAR(10) NOT NULL DEFAULT 'city'"
+            )
 
 
 @csrf_exempt
@@ -617,11 +623,14 @@ def posts_list(request):
         requested_city = (request.GET.get("city") or "").strip()
         is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
-            posts = posts.filter(city=requested_city)
+            posts = posts.filter(city=requested_city, scope='city')
             if viewer_city and requested_city != viewer_city:
                 viewer = None
         elif viewer_city and not is_admin_viewer:
-            posts = posts.filter(city=viewer_city)
+            posts = posts.filter(city=viewer_city, scope='city')
+        else:
+            # Unauthenticated or admin with no city filter — still exclude greece posts
+            posts = posts.filter(scope='city')
         viewer_following_ids = None
         if viewer and viewer.is_authenticated:
             posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
@@ -685,6 +694,9 @@ def posts_list(request):
         text = (request.POST.get("text") or "").strip()
         if not text:
             return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
+        post_scope = (request.POST.get("scope") or "city").strip()
+        if post_scope not in ("city", "greece"):
+            post_scope = "city"
         try:
             media_info = json.loads(request.POST.get("media", "[]"))
         except Exception:
@@ -773,6 +785,10 @@ def posts_list(request):
         if not text:
             return _cors_json(JsonResponse({"error": "Missing text"}, status=400))
 
+        post_scope = (body.get("scope") or "city").strip()
+        if post_scope not in ("city", "greece"):
+            post_scope = "city"
+
         media_list = body.get("media") or []
         image_url = (body.get("imageUrl") or body.get("image_url") or "").strip()
         if not media_list and image_url:
@@ -797,6 +813,7 @@ def posts_list(request):
         author=user.username,
         text=text,
         city=user_city,
+        scope=post_scope,
         image_url=legacy_image_url,
     )
 
@@ -840,7 +857,7 @@ def post_like(request, post_id):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
     if is_blocked(user, post.user):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
-    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+    if post.scope != 'greece' and getattr(getattr(user, "profile", None), "city", "") != post.city:
         return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
     try:
@@ -900,7 +917,7 @@ def post_poll_vote(request, post_id):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
     if is_blocked(user, post.user):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
-    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+    if post.scope != 'greece' and getattr(getattr(user, "profile", None), "city", "") != post.city:
         return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
     poll = getattr(post, "poll", None)
@@ -949,7 +966,7 @@ def post_comment(request, post_id):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
     if is_blocked(user, post.user):
         return _cors_json(JsonResponse({"error": "Post not found"}, status=404))
-    if getattr(getattr(user, "profile", None), "city", "") != post.city:
+    if post.scope != 'greece' and getattr(getattr(user, "profile", None), "city", "") != post.city:
         return _cors_json(JsonResponse({"error": "You can only interact in your city"}, status=400))
 
     try:
@@ -1070,9 +1087,12 @@ def user_posts(request, username):
     if is_blocked(viewer, target):
         return _cors_json(JsonResponse({"error": "Not found"}, status=404))
 
+    scope = (request.GET.get("scope") or "city").strip()
+    if scope not in ("city", "greece"):
+        scope = "city"
     posts = (
         Post.objects
-        .filter(user=target)
+        .filter(user=target, scope=scope)
         .select_related("user", "user__profile", "poll")
         .prefetch_related("like_rows", "media_items", "poll__options__votes_rows")
         .annotate(comment_count=Count("comment_rows", distinct=True))
@@ -1085,6 +1105,59 @@ def user_posts(request, username):
     preview_map = _preview_map_for(list(posts))
     rows, avatars = _lean_feed_payload(list(posts), viewer, viewer_following_ids, preview_map)
     return _cors_json(JsonResponse({"posts": rows, "avatars": avatars}))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def greece_feed(request):
+    """National Ελλάδα feed — all posts with scope='greece', newest first.
+
+    GET /api/posts/greece/
+    Returns the same lean {posts, avatars, has_more} shape as the city feed.
+    City labels travel with every post in the standard `city` field.
+    Blocks are respected; the viewer must be authenticated.
+    """
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    viewer = require_authenticated_user(request)
+    if viewer is None:
+        return _unauthorized()
+
+    posts = (
+        Post.objects
+        .filter(scope='greece')
+        .select_related("user", "user__profile", "poll")
+        .prefetch_related("like_rows", "media_items", "poll__options__votes_rows")
+        .annotate(comment_count=Count("comment_rows", distinct=True))
+        .order_by("-created", "-id")
+    )
+    posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
+
+    viewer_following_ids = set(
+        Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
+    )
+
+    before = (request.GET.get("before") or "").strip()
+    if before:
+        try:
+            anchor = Post.objects.filter(pk=int(before)).values("created", "id").first()
+        except (TypeError, ValueError):
+            return _cors_json(JsonResponse({"error": "Invalid before"}, status=400))
+        if anchor:
+            posts = posts.filter(
+                Q(created__lt=anchor["created"])
+                | Q(created=anchor["created"], id__lt=anchor["id"])
+            )
+
+    limit = _feed_page_limit(request)
+    page = list(posts[:limit + 1])
+    has_more = len(page) > limit
+    page = page[:limit]
+    preview_map = _preview_map_for(page)
+    rows, avatars = _lean_feed_payload(page, viewer, viewer_following_ids, preview_map)
+    return _cors_json(JsonResponse({"posts": rows, "avatars": avatars, "has_more": has_more}))
 
 
 @csrf_exempt
