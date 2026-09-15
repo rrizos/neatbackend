@@ -35,7 +35,6 @@ from .models import (
     MessageReport,
 )
 from .realtime import broadcast_to_conversation, push_to_user
-from neatbackend.timefmt import local_iso
 
 User = get_user_model()
 
@@ -262,7 +261,7 @@ def _message_to_dict(message, preview_map=None, lean=False, viewer=None):
         'text': '' if message.photo_mode else (
             _strip_media(message.text) if lean else message.text
         ),
-        'created': local_iso(message.created),
+        'created': message.created.isoformat(),
         'reactions': reactions,
         'edited': message.edited,
     }
@@ -391,15 +390,15 @@ def _conversation_to_dict(conversation, viewer):
         'otherUser': other.username,
         'otherFullName': getattr(other_profile, 'full_name', '') if other_profile else '',
         'otherAvatarUrl': avatar_for(other_profile),
-        'otherLastActive': local_iso(other_last_active),
+        'otherLastActive': other_last_active.isoformat() if other_last_active else '',
         # Never the bytes: a photo reads as "sent a photo" here, and for a
         # temporary one handing them over would skip the opening entirely.
         'lastMessage': _inbox_preview(last_message),
         'lastSender': last_message.sender.username if last_message else '',
-        'updated': local_iso(conversation.updated),
+        'updated': conversation.updated.isoformat(),
         'unreadCount': unread_qs.count(),
-        'lastReadAt': local_iso(member.last_read_at if member else None),
-        'otherLastReadAt': local_iso(other_member.last_read_at if other_member else None),
+        'lastReadAt': member.last_read_at.isoformat() if member and member.last_read_at else '',
+        'otherLastReadAt': other_member.last_read_at.isoformat() if other_member and other_member.last_read_at else '',
         'otherIsTyping': _is_typing(other_member),
         'viewerBlockedOther': Block.objects.filter(blocker=viewer, blocked=other).exists() if other != viewer else False,
         'otherBlockedViewer': Block.objects.filter(blocker=other, blocked=viewer).exists() if other != viewer else False,
@@ -467,10 +466,11 @@ def inbox(request):
 
     conversations = (
         Conversation.objects.filter(members__user=viewer)
-        .prefetch_related('members__user')
+        .prefetch_related('members__user__profile')
         .order_by('-updated')
     )
     data = []
+    viewer_city = getattr(getattr(viewer, 'profile', None), 'city', '') or ''
     for conversation in conversations:
         members = list(conversation.members.all())
         viewer_member = next((m for m in members if m.user_id == viewer.id), None)
@@ -483,6 +483,12 @@ def inbox(request):
         other_members = [m.user for m in members if m.user_id != viewer.id]
         if other_members and Block.objects.filter(blocker=other_members[0], blocked=viewer).exists():
             continue
+        # Hide threads with users from other cities. When both parties are back
+        # in the same city the thread reappears automatically — no data is lost.
+        if other_members and viewer_city:
+            other_city = getattr(getattr(other_members[0], 'profile', None), 'city', '') or ''
+            if other_city and other_city != viewer_city:
+                continue
         data.append(_conversation_to_dict(conversation, viewer))
     return _cors_json(JsonResponse({'conversations': data}))
 

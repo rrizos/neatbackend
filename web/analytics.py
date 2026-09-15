@@ -24,10 +24,7 @@ your own cohorts always beat a published figure for deciding anything.
 """
 
 from collections import Counter
-from contextvars import ContextVar
-from datetime import datetime
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count, Min, Q
 from django.db.models.functions import TruncDate
@@ -39,88 +36,25 @@ from accounts.models import (
 from dm_messages.models import Conversation, Message
 from events.models import Event
 from posts.models import Post, PostComment, PostLike
-from push.models import DeviceToken
 
 User = get_user_model()
 
 #: Published bands for consumer-social apps. Shown as context, never as a goal.
 BENCHMARKS = {'d1': 40, 'd7': 20, 'd30': 10, 'stickiness': 20}
 
+#: Only show data on or after this date — everything before is excluded.
+_START = timezone.datetime(2026, 9, 7, tzinfo=timezone.timezone(timezone.timedelta(0)))
 
-# ── Launch scope ────────────────────────────────────────────────────────────
-#
-# Everything below is scoped to the launch by default. The accounts and posts
-# that predate it are the WordPress import and our own testing, and they do not
-# behave like real users: they never opened the app, so they sink D1/D7/D30 and
-# every step of the activation funnel while adding nothing true. A launch is
-# judged on those two numbers, so the page must not quietly poison them.
-#
-# The scope is a contextvar rather than an argument threaded through twenty-odd
-# functions — the same shape accounts/client_version.py already uses, and for
-# the same reason. `?all=1` on the page turns it off when the whole history is
-# genuinely what you want.
-
-_launch_scoped = ContextVar('neat_analytics_launch_scoped', default=True)
-
-
-def launch_date():
-    """Configured launch, as an aware datetime at local midnight. A value that
-    cannot be parsed disables scoping rather than raising: a broken date should
-    cost you a filter, not the whole page."""
-    raw = (getattr(settings, 'NEAT_LAUNCH_DATE', '') or '').strip()
-    if not raw:
-        return None
-    try:
-        naive = datetime.strptime(raw, '%Y-%m-%d')
-    except ValueError:
-        return None
-    return timezone.make_aware(naive, timezone.get_current_timezone())
-
-
-def set_launch_scoped(value):
-    _launch_scoped.set(bool(value))
-
-
-def _cutoff():
-    return launch_date() if _launch_scoped.get() else None
-
-
-def _scoped(qs, field):
-    cut = _cutoff()
-    return qs.filter(**{f'{field}__gte': cut}) if cut else qs
-
-
-# One helper per model, so no call site has to remember which timestamp marks
-# an account or a row as belonging to the launch.
-def _users():          return _scoped(User.objects.all(), 'date_joined')
-def _profiles():       return _scoped(Profile.objects.all(), 'user__date_joined')
-def _sessions():       return _scoped(AppSession.objects.all(), 'started')
-def _follows():        return _scoped(Follow.objects.all(), 'created')
-def _notifications():  return _scoped(Notification.objects.all(), 'created')
-def _socials():        return _scoped(SocialAccount.objects.all(), 'created')
-def _conversations():  return _scoped(Conversation.objects.all(), 'created')
-def _messages():       return _scoped(Message.objects.all(), 'created')
-def _events():         return _scoped(Event.objects.all(), 'created')
-def _posts():          return _scoped(Post.objects.all(), 'created')
-def _comments():       return _scoped(PostComment.objects.all(), 'created')
-def _likes():          return _scoped(PostLike.objects.all(), 'created')
-
-
-def scope_summary():
-    """What the page is showing, and what it is leaving out — stated on the
-    page itself, because a filtered number that looks unfiltered is worse than
-    no number."""
-    cut = _cutoff()
-    if cut is None:
-        return {'scoped': False, 'launch': launch_date(),
-                'excluded_users': 0, 'excluded_posts': 0}
-    return {
-        'scoped': True,
-        'launch': cut,
-        'live': timezone.now() >= cut,
-        'excluded_users': User.objects.filter(date_joined__lt=cut).count(),
-        'excluded_posts': Post.objects.filter(created__lt=cut).count(),
-    }
+# Base querysets filtered to the analytics window.
+def _users():     return User.objects.filter(date_joined__gte=_START)
+def _profiles():  return Profile.objects.filter(user__date_joined__gte=_START)
+def _posts():     return Post.objects.filter(created__gte=_START)
+def _comments():  return PostComment.objects.filter(created__gte=_START)
+def _messages():  return Message.objects.filter(created__gte=_START)
+def _likes():     return PostLike.objects.filter(created__gte=_START)
+def _follows():   return Follow.objects.filter(created__gte=_START)
+def _sessions():  return AppSession.objects.filter(started__gte=_START)
+def _events():    return Event.objects.filter(created__gte=_START)
 
 
 def _since(days):
@@ -305,7 +239,7 @@ def retention_cohorts(weeks=6):
             continue
         cohort = list(
             _users().filter(date_joined__gte=max(start, first_session),
-                                date_joined__lt=end)
+                            date_joined__lt=end)
             .values_list('id', 'date_joined')
         )
         if not cohort:
@@ -313,7 +247,7 @@ def retention_cohorts(weeks=6):
         ids = [c[0] for c in cohort]
         joined_at = dict(cohort)
         seen = {}
-        for user_id, started in _sessions().filter(
+        for user_id, started in AppSession.objects.filter(
             user_id__in=ids
         ).values_list('user_id', 'started'):
             seen.setdefault(user_id, []).append(started)
@@ -468,8 +402,8 @@ def content_health():
         'no_engagement_pct': _pct(posts - engaged, posts),
         'avg_likes': round(_likes().count() / posts, 1) if posts else 0,
         'avg_comments': round(_comments().count() / posts, 1) if posts else 0,
-        'conversations': _conversations().count(),
-        'unread_notifications': _notifications().filter(is_read=False).count(),
+        'conversations': Conversation.objects.filter(created__gte=_START).count(),
+        'unread_notifications': Notification.objects.filter(created__gte=_START, is_read=False).count(),
     }
 
 
@@ -496,7 +430,7 @@ def signup_methods():
 
     at_signup = {}          # user_id -> provider that created the account
     linked_later = 0
-    for user_id, provider, created in _socials().values_list(
+    for user_id, provider, created in SocialAccount.objects.filter(user__date_joined__gte=_START).values_list(
         'user_id', 'provider', 'created'
     ):
         start = joined.get(user_id)
@@ -533,7 +467,7 @@ def signup_methods():
 
     # Somebody whose only way in is a provider loses the account with it, so
     # this is the number that says how exposed the base is.
-    provider_only = _users().filter(
+    provider_only = User.objects.filter(
         id__in=list(at_signup), password__startswith='!'
     ).count()
 
@@ -553,34 +487,6 @@ def signup_methods():
         'linked_later': linked_later,
         'provider_only': provider_only,
         'provider_only_pct': _pct(provider_only, len(at_signup)) if at_signup else 0.0,
-    }
-
-
-def push_reach():
-    """What share of signups the app can still reach.
-
-    Push is the only channel that brings somebody back who has not thought
-    about the app today, so this quietly sets the ceiling on every retention
-    number below. A user who declined the permission is not lost, but they can
-    only return on their own initiative, and most do not.
-    """
-    total = _users().count()
-    if not total:
-        return {'total': 0, 'reachable': 0, 'pct': 0.0, 'platforms': []}
-
-    rows = DeviceToken.objects.filter(user__in=_users()).values_list('user_id', 'platform')
-    by_user = {}
-    for user_id, platform in rows:
-        by_user.setdefault(user_id, set()).add(platform or 'unknown')
-
-    counts = Counter(p for platforms in by_user.values() for p in platforms)
-    reachable = len(by_user)
-    return {
-        'total': total,
-        'reachable': reachable,
-        'pct': _pct(reachable, total),
-        'unreachable': total - reachable,
-        'platforms': sorted(counts.items(), key=lambda kv: -kv[1]),
     }
 
 
@@ -729,17 +635,6 @@ def diagnosis(data):
         out.append({'level': level, 'title': title, 'detail': detail,
                     'action': action})
 
-    push = data.get('push') or {}
-    if push.get('total') and push['pct'] < 50:
-        add('critical' if push['pct'] < 30 else 'warning',
-            'Most signups cannot be reached',
-            f"{push['unreachable']} of {push['total']} accounts "
-            f"({100 - push['pct']:.0f}%) have no push token, so nothing can "
-            "bring them back except their own initiative.",
-            'Ask for the notification permission after the first real moment of '
-            'value — a first like or follow — rather than on the launch screen, '
-            'where it is declined most often.')
-
     graph = data['graph']
     if graph['isolated_pct'] >= 30:
         add('critical', 'Most people follow nobody',
@@ -852,10 +747,7 @@ def diagnosis(data):
     return out
 
 
-def collect(launch_scoped=True):
-    """Everything the page shows. Scoped to the launch unless asked otherwise —
-    see the launch-scope block above for why that is the default."""
-    set_launch_scoped(launch_scoped)
+def collect():
     head = headline()
     signups = signups_by_day()
     activity = activity_by_day()
@@ -873,7 +765,6 @@ def collect(launch_scoped=True):
         'graph': graph_health(),
         'health': content_health(),
         'signup_methods': signup_methods(),
-        'push': push_reach(),
         'cities': city_breakdown(),
         'hours': activity_by_hour(),
         'signups': signups,
@@ -883,6 +774,5 @@ def collect(launch_scoped=True):
         'active_users': most_active(),
         'users': recent_users(),
     }
-    data['scope'] = scope_summary()
     data['diagnosis'] = diagnosis(data)
     return data

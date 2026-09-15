@@ -169,6 +169,13 @@ def signup(request):
         profile.bio = (body.get('bio') or '').strip()
         profile.city = city
         profile.save(update_fields=['full_name', 'bio', 'city'])
+        # Keep the locked-cities member count up to date and auto-unlock if threshold met.
+        if city:
+            try:
+                from posts.views import _maybe_unlock_city
+                _maybe_unlock_city(city)
+            except Exception:
+                pass
         token = AuthToken.create_for_user(user)
         security_audit.record(
             'auth.signup',
@@ -446,7 +453,8 @@ def me(request):
             profile.full_name = (body.get('fullName') or body.get('full_name') or profile.full_name).strip()
             profile.bio = (body.get('bio') if body.get('bio') is not None else profile.bio).strip()
             new_city = (body.get('city') or profile.city).strip()
-            city_changed = new_city != profile.city
+            old_city = profile.city or ''
+            city_changed = new_city != old_city
             if city_changed:
                 # Only ever a *change*: setting the first city is what the last
                 # step of sign-up does, and can_change_city() allows it.
@@ -500,6 +508,17 @@ def me(request):
                 profile.username_pending = False
                 save_fields.append('username_pending')
             profile.save(update_fields=save_fields)
+            # Keep member counts up to date for both old and new city.
+            # The old city loses one member; the new city gains one.
+            if city_changed:
+                try:
+                    from posts.views import _maybe_unlock_city
+                    if old_city:
+                        _maybe_unlock_city(old_city)
+                    if new_city:
+                        _maybe_unlock_city(new_city)
+                except Exception:
+                    pass
 
         return _cors_json(JsonResponse({'user': user_to_dict(user, viewer=user)}))
     except Exception as exc:
@@ -579,7 +598,11 @@ def followers_list(request, username):
         except User.DoesNotExist:
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
-        follower_ids = Follow.objects.filter(following=user).values_list('follower_id', flat=True)
+        user_city = ensure_profile(user).city or ''
+        fol_qs = Follow.objects.filter(following=user)
+        if user_city:
+            fol_qs = fol_qs.filter(follower__profile__city=user_city)
+        follower_ids = fol_qs.values_list('follower_id', flat=True)
         hidden_ids = blocked_user_ids(viewer)
         users = User.objects.filter(id__in=follower_ids).exclude(id__in=hidden_ids).order_by('username')
         return _user_list_response(users, viewer)
@@ -603,7 +626,11 @@ def following_list(request, username):
         except User.DoesNotExist:
             return _cors_json(JsonResponse({'error': 'Profile not found'}, status=404))
 
-        following_ids = Follow.objects.filter(follower=user).values_list('following_id', flat=True)
+        user_city = ensure_profile(user).city or ''
+        fol_qs = Follow.objects.filter(follower=user)
+        if user_city:
+            fol_qs = fol_qs.filter(following__profile__city=user_city)
+        following_ids = fol_qs.values_list('following_id', flat=True)
         hidden_ids = blocked_user_ids(viewer)
         users = User.objects.filter(id__in=following_ids).exclude(id__in=hidden_ids).order_by('username')
         return _user_list_response(users, viewer)

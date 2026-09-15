@@ -12,7 +12,6 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
 import dj_database_url
 
@@ -120,25 +119,7 @@ if _redis_url:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            # socket_timeout is not tuning — without it the DM socket dies
-            # every five seconds.
-            #
-            # channels_redis waits for messages with `BZPOPMIN <key> 5`, a
-            # blocking pop that returns empty after five seconds so the layer
-            # can loop. Handed a plain URL, the connection ends up with a read
-            # deadline of that same five seconds, so the deadline and the
-            # server's empty reply race — and the deadline keeps winning. The
-            # read raises, the exception travels up through await_many_dispatch
-            # and kills the consumer, the client reconnects, and five seconds
-            # later it happens again. Thousands of tracebacks a day, and a
-            # realtime layer that was never up for longer than one pop.
-            #
-            # Any explicit value cures it; 30 is chosen to sit well clear of
-            # the five-second pop while still being short enough that a
-            # genuinely wedged connection is noticed rather than waited on
-            # forever. Verified against this Redis: idle for 75 seconds across
-            # both boundaries without an error, still delivering afterwards.
-            'CONFIG': {'hosts': [{'address': _redis_url, 'socket_timeout': 30}]},
+            'CONFIG': {'hosts': [_redis_url]},
         }
     }
 else:
@@ -209,32 +190,14 @@ PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://63.181.201.175').rs
 # to somebody else's app would otherwise be accepted as proof of identity here.
 #
 # Apple: the app's bundle id (and the Services ID, if the web flow is ever added).
-#
-# Google: the two platforms name *different* audiences, and both have to be
-# listed or one of them cannot sign in at all.
-#
-#   * iOS goes through Google's own SDK, which mints a token addressed to the
-#     iOS client id.
-#   * Android goes through Credential Manager, which has no Android-specific
-#     audience to use — the Android OAuth client exists only so Google can
-#     recognise the package name and signing certificate — so the token it
-#     mints is addressed to the *web* client id instead, the same value the app
-#     passes as its serverClientId.
-#
-# These are public identifiers, not secrets; they already ship inside the app
-# binary. They are defaulted rather than left to the environment because an
-# incomplete list fails as "that sign-in was not issued for this app" on one
-# platform only, which reads like an app bug rather than a missing variable.
+# Google: every per-platform OAuth client id — iOS and Android each get their
+# own, and both appear as the audience of tokens from that platform.
 def _id_list(name, default=''):
     return tuple(v.strip() for v in os.environ.get(name, default).split(',') if v.strip())
 
 
 APPLE_CLIENT_IDS = _id_list('APPLE_CLIENT_IDS', 'NeatApp.Neat')
-GOOGLE_CLIENT_IDS = _id_list(
-    'GOOGLE_CLIENT_IDS',
-    '449378002358-i3dlqsb7rmff8jf05ag6slk7o21k8laq.apps.googleusercontent.com,'
-    '449378002358-430tlsk1shjrk07mv4nbcsjibtk9437a.apps.googleusercontent.com',
-)
+GOOGLE_CLIENT_IDS = _id_list('GOOGLE_CLIENT_IDS')
 
 
 # Password validation
@@ -283,46 +246,14 @@ STATIC_URL = 'static/'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-# The day the app went public. /analytics scopes every metric to it by default,
-# because the accounts and posts that predate it are the WordPress import and
-# our own testing — counted in, they quietly flatter retention and wreck the
-# activation funnel, which are the two numbers a launch is actually judged on.
-# ISO date, overridable in .env.prod so the date can move without a deploy.
-NEAT_LAUNCH_DATE = os.environ.get('NEAT_LAUNCH_DATE', '2026-09-07').strip()
-
-# Redis when it is there, the database when it is not — the same shape as
-# CHANNEL_LAYERS above, so `manage.py runserver` still works without Redis.
-#
-# Either backend keeps the property the database one was originally chosen for:
-# rate-limit counters (accounts/ratelimit.py, security/detectors.py) are shared
-# across gunicorn workers rather than being per-process. What Redis adds is that
-# a rate-limit check stops costing a write to the managed MySQL. The endpoints
-# carrying a limit today are the auth ones, so that write load lands on the
-# smallest, least redundant thing we own at exactly the moment signups spike.
-#
-# A different database index from the channel layer, so the two can never share
-# a key and the cache can be flushed without touching a live DM socket.
-#
-# incr() raises ValueError for a missing key on both backends — that is what the
-# try/except in both callers depends on, so the swap does not change behaviour.
-_REDIS_CACHE_DB = 1
-
-if _redis_url:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-            'LOCATION': urlunsplit(
-                urlsplit(_redis_url)._replace(path=f'/{_REDIS_CACHE_DB}')
-            ),
-        }
+# DB-backed so rate-limit counters (accounts/ratelimit.py) are shared
+# correctly across all gunicorn worker processes, not just per-process.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache_table',
     }
-else:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-            'LOCATION': 'django_cache_table',
-        }
-    }
+}
 
 # Security headers/cookie flags. The app is served over both HTTP (:80) and
 # HTTPS (:443) for now — the Netlify-hosted web build's server-side proxy
@@ -363,12 +294,6 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', _default_sender)
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
 
-# Where clients are told to fetch media from. Empty means "from this server",
-# which is the current behaviour. Set it to a CloudFront domain and every media
-# URL in an API response is rewritten to point at the edge instead — see
-# neatbackend/cdn.py. Files do not move; only the address changes.
-MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
-
 # Firebase Cloud Messaging — path to the service-account JSON downloaded from
 # Firebase console (Project settings → Service accounts). Never commit this
 # file; defaults to a gitignored path next to manage.py for local dev, and
@@ -376,3 +301,29 @@ MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
 FIREBASE_CREDENTIALS_PATH = os.environ.get(
     'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
 )
+
+# ── Locked Cities feature flag ───────────────────────────────────────────────
+# Set to False to instantly revert to the pre-lock state everywhere:
+# all cities open, green pins, no lock UI, no feed block.
+LOCKED_CITIES_ENABLED = True
+
+# Cities that are always open regardless of threshold.
+LOCKED_CITIES_UNLOCKED = {'Αθήνα', 'Θεσσαλονίκη'}
+
+# Per-city thresholds.  Any city not listed here falls back to
+# LOCKED_CITIES_DEFAULT_THRESHOLD (100).
+LOCKED_CITIES_THRESHOLDS = {
+    # 300 – Πάτρα
+    'Πάτρα': 300,
+    # 250 – Ηράκλειο, Λάρισα
+    'Ηράκλειο': 250, 'Λάρισα': 250,
+    # 200 – Βόλος, Ιωάννινα, Χαλκίδα
+    'Βόλος': 200, 'Ιωάννινα': 200, 'Χαλκίδα': 200,
+    # 150 – mid-size cities
+    'Ρόδος': 150, 'Χανιά': 150, 'Σέρρες': 150, 'Καλαμάτα': 150,
+    'Κατερίνη': 150, 'Καβάλα': 150, 'Λαμία': 150, 'Βέροια': 150,
+    'Αγρίνιο': 150, 'Κέρκυρα': 150, 'Τρίκαλα': 150, 'Ρέθυμνο': 150,
+    'Ξάνθη': 150, 'Κομοτηνή': 150,
+}
+# All cities not listed above (small islands, minor cities, etc.) open at 100.
+LOCKED_CITIES_DEFAULT_THRESHOLD = 100

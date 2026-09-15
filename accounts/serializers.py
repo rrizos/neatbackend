@@ -1,5 +1,31 @@
+from django.conf import settings
 from .avatars import avatar_for
 from .models import Block, Follow, Profile
+
+
+def _city_lock_fields(city, is_self):
+    """Return cityLocked/cityThreshold/cityMemberCount for the account owner.
+
+    Only meaningful for the owner (is_self=True); everyone else gets the safe
+    defaults so the lock state of a city is never leaked through another
+    account's profile response.
+    """
+    if not is_self or not getattr(settings, 'LOCKED_CITIES_ENABLED', False) or not city:
+        return {'cityLocked': False, 'cityThreshold': 0, 'cityMemberCount': 0}
+    unlocked = getattr(settings, 'LOCKED_CITIES_UNLOCKED', set())
+    if city in unlocked:
+        return {'cityLocked': False, 'cityThreshold': 0, 'cityMemberCount': 0}
+    try:
+        from posts.models import CityConfig
+        cfg = CityConfig.objects.get(name=city)
+        return {
+            'cityLocked': cfg.is_locked,
+            'cityThreshold': cfg.threshold,
+            'cityMemberCount': cfg.member_count_cache,
+        }
+    except Exception:
+        # No CityConfig row → treat city as open.
+        return {'cityLocked': False, 'cityThreshold': 0, 'cityMemberCount': 0}
 
 
 def ensure_profile(user):
@@ -7,10 +33,14 @@ def ensure_profile(user):
     return profile
 
 
-def _post_count(user):
+def _post_count(user, city=''):
     try:
         from posts.models import Post
-        # Only city-scope posts; Greece feed posts are excluded from profiles
+        # Only city-scope posts made while the user was in their current city.
+        # Filtering by city means moving to a new city starts the count at 0,
+        # and returning to an old city restores the original count (posts stay).
+        if city:
+            return Post.objects.filter(user=user, scope='city', city=city).count()
         return Post.objects.filter(user=user, scope='city').count()
     except Exception:
         return 0
@@ -18,8 +48,20 @@ def _post_count(user):
 
 def user_to_dict(user, viewer=None):
     profile = ensure_profile(user)
-    followers = Follow.objects.filter(following=user).count()
-    following = Follow.objects.filter(follower=user).count()
+    user_city = profile.city or ''
+    # Followers and following are scoped to the user's current city so that
+    # moving cities presents a blank-slate social graph. The underlying Follow
+    # rows are never deleted — returning to a previous city restores the counts.
+    if user_city:
+        followers = Follow.objects.filter(
+            following=user, follower__profile__city=user_city
+        ).count()
+        following = Follow.objects.filter(
+            follower=user, following__profile__city=user_city
+        ).count()
+    else:
+        followers = Follow.objects.filter(following=user).count()
+        following = Follow.objects.filter(follower=user).count()
     is_following = False
     is_mutual = False
     is_blocked = False
@@ -62,7 +104,7 @@ def user_to_dict(user, viewer=None):
         # the inline copy above. Empty for anyone who has not saved a picture
         # since the two-copy split shipped.
         'avatarFullUrl': profile.avatar_full_url,
-        'postCount': _post_count(user),
+        'postCount': _post_count(user, city=user_city),
         'followers': followers,
         'following': following,
         'isFollowing': is_following,
@@ -72,6 +114,7 @@ def user_to_dict(user, viewer=None):
         'canCreateOfficialEvents': profile.can_create_official_events,
         'isBlocked': is_blocked,
         'hasBlockedYou': has_blocked_viewer,
+        **_city_lock_fields(profile.city, is_self_or_admin),
     }
 
 

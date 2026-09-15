@@ -21,7 +21,7 @@ from django.db.models import Count, ExpressionWrapper, F, FloatField, Q
 from .images import store_comment_image, store_comment_image_data
 from .models import (
     Post, PostComment, PostLike, PostSave, CommentLike, PostMedia, PostReport, CommentReport,
-    Poll, PollOption, PollVote, StagedUpload,
+    Poll, PollOption, PollVote, StagedUpload, CityConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -420,6 +420,93 @@ def cities_list(request):
     return _cors_json(JsonResponse({"cities": cities}))
 
 
+@csrf_exempt
+def city_locks(request):
+    """Return lock state for every tracked city.
+
+    Response: {"locks": {"Ρόδος": {"locked": true, "threshold": 50, "memberCount": 12}, ...}}
+
+    Only cities with a CityConfig row are included. The frontend treats any
+    city absent from this response as open (unless kLockedCitiesEnabled forces
+    a default-locked rule for non-whitelisted cities).
+    When LOCKED_CITIES_ENABLED is False the response is always empty so the
+    frontend falls back to treating every city as open.
+    """
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    if not getattr(settings, 'LOCKED_CITIES_ENABLED', False):
+        return _cors_json(JsonResponse({"locks": {}}))
+
+    locks = {}
+    for c in CityConfig.objects.all():
+        locks[c.name] = {
+            "locked": c.is_locked,
+            "threshold": c.threshold,
+            "memberCount": c.member_count_cache,
+        }
+    return _cors_json(JsonResponse({"locks": locks}))
+
+
+def _maybe_unlock_city(city_name):
+    """Re-count the city's members and auto-unlock if threshold is reached.
+
+    Called after any city join (signup or profile update). Safe to call even
+    when the feature is off — exits immediately in that case.
+    """
+    if not getattr(settings, 'LOCKED_CITIES_ENABLED', False):
+        return
+    if not city_name or city_name in getattr(settings, 'LOCKED_CITIES_UNLOCKED', set()):
+        return
+
+    def _real_count(city):
+        """Count real (non-test) members of a city.
+
+        Accounts whose email ends with @fake.com are test accounts used by the
+        developer and are excluded so that seeding fresh cities doesn't inflate
+        the counter with dummy data.
+        """
+        from accounts.models import Profile as _Profile
+        return (
+            _Profile.objects
+            .filter(city=city)
+            .exclude(user__email__iendswith='@fake.com')
+            .count()
+        )
+
+    try:
+        config = CityConfig.objects.get(name=city_name)
+    except CityConfig.DoesNotExist:
+        # First ever user for this city — create the config row.
+        count = _real_count(city_name)
+        thresholds = getattr(settings, 'LOCKED_CITIES_THRESHOLDS', {})
+        default_t  = getattr(settings, 'LOCKED_CITIES_DEFAULT_THRESHOLD', 200)
+        config = CityConfig.objects.create(
+            name=city_name,
+            threshold=thresholds.get(city_name, default_t),
+            member_count_cache=count,
+            is_locked=True,
+        )
+        return
+
+    if not config.is_locked:
+        # Already open — just keep the count fresh.
+        count = _real_count(city_name)
+        config.member_count_cache = count
+        config.save(update_fields=['member_count_cache'])
+        return
+
+    count = _real_count(city_name)
+    config.member_count_cache = count
+
+    if not config.manually_overridden and count >= config.threshold:
+        config.is_locked = False
+        config.save(update_fields=['member_count_cache', 'is_locked'])
+        # TODO (Step 3.1): fire city-unlock push notification to all members
+    else:
+        config.save(update_fields=['member_count_cache'])
+
+
 def _viral_period_start(period):
     """Calendar-aligned period start (today/this week's Monday/this month),
     computed in the server's UTC clock. This can be a few hours off from a
@@ -687,6 +774,24 @@ def posts_list(request):
     user_city = getattr(getattr(user, "profile", None), "city", "")
     if not user_city:
         return _cors_json(JsonResponse({"error": "Choose a city first"}, status=400))
+
+    # Block posting to the *city* feed when that city is still locked.
+    # Greece-scoped posts are always allowed regardless of city lock status.
+    if getattr(settings, 'LOCKED_CITIES_ENABLED', False):
+        _ct = request.content_type or ""
+        if "multipart" in _ct:
+            _peek_scope = (request.POST.get("scope") or "city").strip()
+        else:
+            try:
+                _peek_scope = (json.loads(request.body).get("scope") or "city").strip()
+            except Exception:
+                _peek_scope = "city"
+        if _peek_scope == "city":
+            try:
+                CityConfig.objects.get(name=user_city, is_locked=True)
+                return _cors_json(JsonResponse({"error": "city_locked"}, status=403))
+            except CityConfig.DoesNotExist:
+                pass
 
     content_type = request.content_type or ""
     if "multipart" in content_type:
@@ -1098,6 +1203,17 @@ def user_posts(request, username):
         .annotate(comment_count=Count("comment_rows", distinct=True))
         .order_by("-created", "-id")
     )
+    # City posts are scoped to the target's current city so that moving cities
+    # presents a blank slate. Posts from previous cities remain in the DB and
+    # reappear if the user returns to that city.
+    if scope == "city":
+        from accounts.models import Profile as _Profile
+        try:
+            target_city = _Profile.objects.get(user=target).city or ''
+        except _Profile.DoesNotExist:
+            target_city = ''
+        if target_city:
+            posts = posts.filter(city=target_city)
 
     viewer_following_ids = set(
         Follow.objects.filter(follower=viewer).values_list('following_id', flat=True)
@@ -1171,9 +1287,24 @@ def saved_posts(request):
     if user is None:
         return _unauthorized()
 
+    # City saves are scoped to the user's current city so that moving cities
+    # presents a blank slate. Greece-scope saves are always visible.
+    # Returning to a previous city restores city saves automatically.
+    from accounts.models import Profile as _Profile
+    try:
+        _user_city = _Profile.objects.get(user=user).city or ''
+    except _Profile.DoesNotExist:
+        _user_city = ''
+
+    from django.db.models import Q as _Q
+    _save_filter = (
+        _Q(post__scope='greece') | _Q(post__city=_user_city)
+        if _user_city else _Q()
+    )
     save_rows = (
         PostSave.objects
         .filter(user=user)
+        .filter(_save_filter)
         .select_related('post__user')
         .prefetch_related('post__comment_rows__user', 'post__like_rows', 'post__media_items')
         .order_by('-created')
@@ -1189,6 +1320,53 @@ def saved_posts(request):
                       viewer_following_ids=viewer_following_ids,
                       page_ctx=_saved_ctx)
         for s in save_rows
+    ]
+    return _cors_json(JsonResponse({"posts": posts}))
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def liked_posts(request):
+    if request.method == "OPTIONS":
+        return _cors_json(HttpResponse())
+
+    _ensure_posts_table()
+    user = require_authenticated_user(request)
+    if user is None:
+        return _unauthorized()
+
+    # Same city-scoping as saved_posts: liked city posts from other cities are
+    # hidden until the user returns there. Greece likes are always visible.
+    from accounts.models import Profile as _Profile
+    try:
+        _user_city = _Profile.objects.get(user=user).city or ''
+    except _Profile.DoesNotExist:
+        _user_city = ''
+
+    from django.db.models import Q as _Q
+    _like_filter = (
+        _Q(post__scope='greece') | _Q(post__city=_user_city)
+        if _user_city else _Q()
+    )
+    like_rows = (
+        PostLike.objects
+        .filter(user=user)
+        .filter(_like_filter)
+        .select_related('post__user')
+        .prefetch_related('post__comment_rows__user', 'post__like_rows', 'post__media_items')
+        .order_by('-created')
+    )
+    viewer_following_ids = set(
+        Follow.objects.filter(follower=user).values_list('following_id', flat=True)
+    )
+    _liked_ctx = _viewer_page_context(
+        [l.post for l in like_rows], user, viewer_following_ids
+    )
+    posts = [
+        _post_to_dict(l.post, viewer=user,
+                      viewer_following_ids=viewer_following_ids,
+                      page_ctx=_liked_ctx)
+        for l in like_rows
     ]
     return _cors_json(JsonResponse({"posts": posts}))
 
