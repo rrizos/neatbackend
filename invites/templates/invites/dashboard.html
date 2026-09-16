@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>neat invites</title>
+<style>
+  :root {
+    --ground: #0e1116; --panel: #161b22; --ink: #e6edf3; --ink-2: #8b949e;
+    --rule: #262c36; --accent: #2f81f7; --good: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink); padding: 32px 20px 64px;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; }
+  header.page { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 1.3rem; letter-spacing: -.01em; }
+  h2 { margin: 36px 0 12px; font-size: 1rem; letter-spacing: -.01em; }
+  a { color: var(--accent); }
+  p.sub { margin: 6px 0 0; color: var(--ink-2); font-size: .88rem; max-width: 46rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 12px; margin: 22px 0 0; }
+  .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+  .tile .n { font-size: 1.6rem; font-weight: 600; letter-spacing: -.02em; }
+  .tile .k { color: var(--ink-2); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  tbody tr:hover { background: rgba(255, 255, 255, .02); }
+  td.joins { color: var(--good); font-weight: 600; }
+  td.zero { color: var(--ink-2); font-weight: 400; }
+  .empty { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 22px; color: var(--ink-2); }
+  .scroll { overflow-x: auto; }
+  footer { margin: 40px 0 0; color: var(--ink-2); font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>neat invites</h1>
+      <p class="sub">
+        Who is sending invite links, and what came of them. <b>Copies</b> is
+        every tap of the copy button, so one person can produce several.
+        <b>Opens</b> is people who landed on an invite page, counted once per
+        visitor per day. <b>Joins</b> is signups the app
+        attributed to an invite. <b>Real</b> counts only those that clear the
+        same bar the ambassador payouts use: a city, at least {{ min_posts }}
+        post, {{ min_interactions }} interactions with other people, and still
+        opening the app on day {{ retention_days }}. Nothing is paid here, so
+        there is no approval step — <b>Real</b> is simply the honest version of
+        <b>Joins</b>.
+      </p>
+    </div>
+    <a href="?logout=1">Sign out</a>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ totals.people }}</div><div class="k">Inviters</div></div>
+    <div class="tile"><div class="n">{{ totals.copies }}</div><div class="k">Copies</div></div>
+    <div class="tile"><div class="n">{{ totals.opens }}</div><div class="k">Opens</div></div>
+    <div class="tile"><div class="n">{{ totals.joins }}</div><div class="k">Joins</div></div>
+    <div class="tile"><div class="n">{{ totals.real }}</div><div class="k">Real users</div></div>
+    <div class="tile"><div class="n">{{ totals.conversion }}%</div><div class="k">Open → join</div></div>
+  </div>
+
+  <h2>By inviter</h2>
+  {% if rows %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>User</th><th>Copies</th><th>Opens</th><th>Joins</th><th>Real</th><th>Last activity</th></tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>@{{ row.inviter__username }}</td>
+              <td>{{ row.copies }}</td>
+              <td>{{ row.opens }}</td>
+              <td class="{% if row.joins %}joins{% else %}zero{% endif %}">{{ row.joins }}</td>
+              <td class="{% if row.real %}joins{% else %}zero{% endif %}">{{ row.real }}</td>
+              <td>{{ row.last|date:"j M Y, H:i" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">Nothing yet. The first row appears when someone copies their invite link in the app.</p>
+  {% endif %}
+
+  <h2>Recent joins</h2>
+  {% if recent %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>New user</th><th>Invited by</th><th>City</th><th>When</th></tr>
+        </thead>
+        <tbody>
+          {% for event in recent %}
+            <tr>
+              <td>@{{ event.joined_user.username }}</td>
+              <td>@{{ event.inviter.username }}</td>
+              <td>{{ event.city|default:"—" }}</td>
+              <td>{{ event.created|date:"j M Y, H:i" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No attributed signups yet.</p>
+  {% endif %}
+
+  <footer>
+    Invite pages stop naming how many people a city still needs once it is more
+    than {{ reveal_at }} — a number that large reads as a wall rather than an
+    invitation. Same rule in the app. <b>Real</b> is recomputed on every load
+    rather than stored, so it always reflects what those accounts look like
+    today.
+  </footer>
+</div>
+</body>
+</html>

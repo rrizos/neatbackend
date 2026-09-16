@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.urls import include, path, re_path
 from media_serve import serve_media
+from ambassadors import views as ambassador_views
+from lockedcities import views as lockedcities_views
+from invites import views as invite_views
 from web import views as web_views
 
 urlpatterns = [
@@ -12,6 +15,8 @@ urlpatterns = [
     path('api/events/', include('events.urls')),
     path('api/push/', include('push.urls')),
     path('api/link-preview/', include('linkpreview.urls')),
+    path('api/invites/', include('invites.urls')),
+    path('api/ambassadors/', include('ambassadors.urls')),
     # Shared post links. Server-rendered so a crawler gets real meta tags and a
     # human gets the post itself — this replaced the Netlify edge functions.
     path('post/', include('web.urls')),
@@ -35,5 +40,26 @@ urlpatterns = [
     path('safetyportal/', web_views.safety_portal),
     path('deleteaccount', web_views.delete_account, name='delete_account'),
     path('deleteaccount/', web_views.delete_account),
+    # Invite links. /invites (the dashboard) is spelled out before the
+    # generic pattern so a user called "invites" cannot take the page, and the
+    # <username>/invite pattern is last because it matches two segments of
+    # anything — every real route above it must win first.
+    path('invites', invite_views.invites_dashboard, name='invites_dashboard'),
+    path('invites/', invite_views.invites_dashboard),
+    path('invite', invite_views.invite_page, name='invite_page'),
+    path('invite/', invite_views.invite_page),
+    re_path(r'^(?P<username>[A-Za-z0-9_.-]{1,30})/invite/?$',
+            invite_views.invite_page, name='invite_page_user'),
+    # The ambassador programme: two admin pages and the public link.
+    # /a/<code> is short because people type it off a screen.
+    path('ambassadors', ambassador_views.manage, name='ambassadors_manage'),
+    path('ambassadors/', ambassador_views.manage),
+    path('ambassadorsstats', ambassador_views.stats, name='ambassadors_stats'),
+    path('ambassadorsstats/', ambassador_views.stats),
+    re_path(r'^a/(?P<code>[A-Za-z0-9_-]{1,64})/?$',
+            ambassador_views.ambassador_landing, name='ambassador_landing'),
+    # The locked-cities kill switch.
+    path('stoplocked', lockedcities_views.stop_locked, name='stop_locked'),
+    path('stoplocked/', lockedcities_views.stop_locked),
     re_path(r'^media/(?P<path>.*)$', serve_media),
 ]

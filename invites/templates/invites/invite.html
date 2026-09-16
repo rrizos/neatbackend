@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<meta name="description" content="{{ description }}">
+{# A personal link. Useful to whoever was sent it, noise in a search result. #}
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon.png" sizes="96x96">
+<link rel="apple-touch-icon" href="/icons/Icon-192.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Neat">
+<meta property="og:locale" content="el_GR">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:image" content="https://neatapp.gr/brand/og-default.png">
+<meta property="og:url" content="{{ canonical }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ title }}">
+<meta name="twitter:description" content="{{ description }}">
+<meta name="twitter:image" content="https://neatapp.gr/brand/og-default.png">
+<style>
+  /* The app's palette, not the marketing site's: whoever opens this is two
+     taps from the real thing, and the two should not look like different
+     products. Black ground, one blue, hairline borders, SF. */
+  :root {
+    --bg: #000000;
+    --card: #0e0e11;
+    --surface: #141414;
+    --ink: #ffffff;
+    --muted: #9ca3af;
+    --hairline: rgba(255, 255, 255, .09);
+    --blue: #2F80ED;
+    --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0; color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; min-height: 100svh;
+  }
+  img { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+
+  main { flex: 1; width: 100%; max-width: 440px; margin: 0 auto; padding: 22px 20px 36px; }
+
+  /* The mark alone: it is the app's own icon, and a wordmark next to it only
+     says the same thing twice. Left, because a lone logo centred reads as a
+     splash screen rather than a header. */
+  .topbar { display: inline-block; margin: 0 0 30px; }
+  .topbar img { width: 42px; height: 42px; }
+
+  /* ── Who is asking ──────────────────────────────────────────────────────── */
+  .hero { text-align: center; }
+  .avatar, .avatar-fallback {
+    width: 84px; height: 84px; border-radius: 50%; margin: 0 auto 16px;
+    object-fit: cover; background: var(--surface);
+    box-shadow: 0 0 0 1px var(--hairline), 0 12px 28px -14px rgba(0, 0, 0, .9);
+  }
+  .avatar-fallback {
+    display: grid; place-items: center;
+    font-size: 32px; font-weight: 700; color: var(--blue); letter-spacing: -.02em;
+  }
+  h1 {
+    margin: 0; font-size: 27px; line-height: 1.2; font-weight: 800;
+    letter-spacing: -.045em; text-wrap: balance;
+  }
+  .lede { color: var(--muted); font-size: 15.5px; margin: 12px 0 0; text-wrap: pretty; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+
+  /* ── Download ───────────────────────────────────────────────────────────── */
+  .cta {
+    display: block; width: 100%; height: 52px; line-height: 52px; margin: 26px 0 0;
+    background: var(--blue); color: #fff; border-radius: 16px; text-align: center;
+    font-size: 16px; font-weight: 700; letter-spacing: -.01em;
+  }
+  .cta:active { filter: brightness(.92); }
+  .cta.secondary {
+    background: transparent; color: var(--ink); border: 1px solid var(--hairline);
+    margin-top: 10px; font-weight: 600;
+  }
+
+  /* ── Reassurance + the one instruction ──────────────────────────────────── */
+  .note {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--surface); border-radius: 14px; padding: 13px 14px; margin: 26px 0 0;
+  }
+  .note-glyph { font-size: 16px; line-height: 1.4; flex: none; }
+  .note p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+  .note p b { color: var(--ink); font-weight: 600; }
+
+  .about { color: var(--muted); font-size: 13.5px; line-height: 1.5; margin: 24px 0 0; text-align: center; }
+
+  footer { padding: 18px 20px 26px; text-align: center; color: #5b6069; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="topbar" href="/" aria-label="Neat">
+    <img src="/brand/logo-dark.png" alt="Neat" width="42" height="42">
+  </a>
+
+  <div class="hero">
+    {% if avatar %}
+      <img class="avatar" src="{{ avatar }}" alt="" width="84" height="84">
+    {% else %}
+      <div class="avatar-fallback">{{ initial }}</div>
+    {% endif %}
+
+    <h1>{{ title }}</h1>
+
+    <p class="lede">
+      {% comment %} A caller with nothing to say about a city supplies its own line: the branches below all talk about unlocking one, which is the wrong subject for a link whose readers live anywhere. {% endcomment %}
+      {% if lede %}
+        {{ lede }}
+      {% elif city and city.open %}
+        Το feed της πόλης <strong>{{ city.name }}</strong> είναι ήδη ανοιχτό. Μπες και δες τι παίζει δίπλα σου.
+      {% elif city and city.show_numbers %}
+        Λείπουν <strong>{{ city.remaining }}</strong> άτομα για να ανοίξει το feed της πόλης <strong>{{ city.name }}</strong>. Μπαίνοντας, είσαι ένα από αυτά.
+      {% elif city %}
+        Το feed της πόλης <strong>{{ city.name }}</strong> ανοίγει μόλις μαζευτεί η παρέα — και κάθε άτομο που μπαίνει το φέρνει πιο κοντά.
+      {% else %}
+        Η Neat χωρίζει την Ελλάδα σε πόλεις — κάθε πόλη με το δικό της feed. Μπαίνοντας, φέρνεις τη δική σου πιο κοντά στο άνοιγμα.
+      {% endif %}
+    </p>
+  </div>
+
+  {% if show_greece_note %}
+    <div class="note">
+      <span class="note-glyph">🇬🇷</span>
+      <p>Το <b>feed της Ελλάδας</b> είναι ανοιχτό από την πρώτη στιγμή.</p>
+    </div>
+  {% endif %}
+
+  {% comment %} The store this phone actually has, decided from the User-Agent. The other one stays a button rather than a footnote: guessing wrong should cost the reader a tap, not a hunt. {% endcomment %}
+  <a class="cta" id="cta" href="{{ stores.primary_url }}" target="_blank" rel="noopener noreferrer">Κατέβασε τη Neat</a>
+  <a class="cta secondary" href="{{ stores.other_url }}" target="_blank" rel="noopener noreferrer">Έχω {{ stores.other_label }}</a>
+
+</main>
+<footer>neatapp.gr</footer>
+{% if clipboard_token %}
+<script>
+  // iOS tells an app nothing about the link that installed it, so the token
+  // goes out on the pasteboard instead and the app reads it back on first
+  // launch. Writing it needs a user gesture, which pressing the download
+  // button is. Best effort by design: a browser that refuses, or a reader who
+  // copies something else first, simply falls through to the network match.
+  document.getElementById('cta').addEventListener('click', function () {
+    try {
+      navigator.clipboard.writeText('{{ clipboard_token }}');
+    } catch (e) {}
+  });
+</script>
+{% endif %}
+</body>
+</html>

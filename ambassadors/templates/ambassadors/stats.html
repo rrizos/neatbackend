@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>neat ambassador stats</title>
+<style>
+  :root {
+    --ground: #0e1116; --panel: #161b22; --ink: #e6edf3; --ink-2: #8b949e;
+    --rule: #262c36; --accent: #2f81f7; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink); padding: 32px 20px 64px;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 72rem; margin: 0 auto; }
+  header.page { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 1.3rem; letter-spacing: -.01em; }
+  h2 { margin: 34px 0 10px; font-size: 1rem; }
+  a { color: var(--accent); }
+  p.sub { margin: 6px 0 0; color: var(--ink-2); font-size: .88rem; max-width: 52rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 12px; margin: 22px 0 0; }
+  .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+  .tile .n { font-size: 1.6rem; font-weight: 600; letter-spacing: -.02em; }
+  .tile .k { color: var(--ink-2); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; }
+  .tile.money .n { color: var(--good); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  tbody tr:hover { background: rgba(255, 255, 255, .02); }
+  .owed { color: var(--good); font-weight: 600; }
+  .zero { color: var(--ink-2); }
+  .status { font-size: .74rem; padding: 2px 9px; border-radius: 100px; border: 1px solid var(--rule); color: var(--ink-2); white-space: nowrap; }
+  .status.qualified { color: var(--good); border-color: rgba(63, 185, 80, .35); }
+  .status.flagged { color: var(--warn); border-color: rgba(210, 153, 34, .4); }
+  .status.approved { color: var(--accent); border-color: rgba(47, 129, 247, .4); }
+  .checks { font-size: .78rem; color: var(--ink-2); white-space: nowrap; }
+  .yes { color: var(--good); } .no { color: var(--ink-2); opacity: .6; }
+  .flags { color: var(--warn); font-size: .78rem; max-width: 22rem; white-space: pre-line; text-align: left; }
+  button {
+    background: transparent; border: 1px solid var(--rule); color: var(--ink-2);
+    border-radius: 6px; padding: 6px 11px; font-size: .8rem; cursor: pointer;
+    font-family: inherit; font-weight: 600;
+  }
+  button.go { border-color: rgba(63, 185, 80, .4); color: var(--good); }
+  button.no-btn { border-color: rgba(248, 81, 73, .35); color: var(--bad); }
+  button:hover { filter: brightness(1.25); }
+  .empty { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; color: var(--ink-2); }
+  .scroll { overflow-x: auto; }
+  footer { margin: 40px 0 0; color: var(--ink-2); font-size: .8rem; max-width: 52rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>neat ambassador stats</h1>
+      <p class="sub">
+        A signup becomes <b>qualified</b> once the account has picked a city,
+        posted at least {{ min_posts }} time, touched other people's accounts
+        at least {{ min_interactions }} times (a like, a follow, a comment),
+        and is still opening the app on day {{ retention_days }}. Qualifying is not paying: you approve each
+        one, and the rate is copied at that moment, so changing an
+        ambassador's rate never rewrites what you already owe.
+        <a href="/ambassadors">Manage ambassadors →</a>
+      </p>
+    </div>
+    <a href="?logout=1">Sign out</a>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ totals.ambassadors }}</div><div class="k">Ambassadors</div></div>
+    <div class="tile"><div class="n">{{ totals.signups }}</div><div class="k">Signups</div></div>
+    <div class="tile"><div class="n">{{ totals.qualified }}</div><div class="k">Awaiting you</div></div>
+    <div class="tile"><div class="n">{{ totals.approved }}</div><div class="k">Approved</div></div>
+    <div class="tile money"><div class="n">€{{ totals.owed|floatformat:2 }}</div><div class="k">Owed</div></div>
+    <div class="tile"><div class="n">€{{ totals.settled|floatformat:2 }}</div><div class="k">Paid out</div></div>
+  </div>
+
+  <h2>By ambassador</h2>
+  {% if rows %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Ambassador</th><th>Opens</th><th>Signups</th><th>Pending</th>
+            <th>Qualified</th><th>Approved</th><th>Paid</th><th>Flagged</th>
+            <th>Rejected</th><th>Owed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in rows %}
+            <tr>
+              <td>{{ a.name }} <span class="checks">/a/{{ a.code }}</span></td>
+              <td>{{ a.click_count }}</td>
+              <td>{{ a.signup_count }}</td>
+              <td class="zero">{{ a.pending }}</td>
+              <td>{{ a.qualified }}</td>
+              <td>{{ a.approved }}</td>
+              <td>{{ a.paid }}</td>
+              <td>{% if a.flagged %}<span class="status flagged">{{ a.flagged }}</span>{% else %}0{% endif %}</td>
+              <td class="zero">{{ a.rejected }}</td>
+              <td class="{% if a.owed %}owed{% else %}zero{% endif %}">€{{ a.owed|default:0|floatformat:2 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No ambassadors yet. <a href="/ambassadors">Add one</a> and their link works immediately.</p>
+  {% endif %}
+
+  <h2>Signups to review</h2>
+  {% if review %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Account</th><th>Ambassador</th><th>Signed up</th><th>City</th>
+            <th>Posts</th><th>Talked to</th><th>Day {{ retention_days }}</th><th>How</th><th>Status</th><th>Why flagged</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in review %}
+            <tr>
+              <td>@{{ s.user.username }}</td>
+              <td>{{ s.ambassador.name }}</td>
+              <td class="checks">{{ s.created|date:"j M, H:i" }}</td>
+              <td>{% if s.has_city %}<span class="yes">✓</span>{% else %}<span class="no">—</span>{% endif %}</td>
+              <td>{{ s.post_count }}</td>
+              <td class="{% if s.interaction_count >= min_interactions %}yes{% else %}no{% endif %}">{{ s.interaction_count }}</td>
+              <td>{% if s.retained_day3 %}<span class="yes">✓</span>{% else %}<span class="no">—</span>{% endif %}</td>
+              <td class="checks">{{ s.claim_method }}</td>
+              <td><span class="status {{ s.status }}">{{ s.status }}</span></td>
+              <td class="flags">{{ s.flags }}</td>
+              <td style="white-space:nowrap">
+                {% if s.status == 'qualified' or s.status == 'flagged' %}
+                  <form method="post" style="display:inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="id" value="{{ s.id }}">
+                    <input type="hidden" name="action" value="approve">
+                    <button class="go" type="submit">Approve €{{ s.ambassador.payout_per_signup }}</button>
+                  </form>
+                {% endif %}
+                {% if s.status == 'approved' %}
+                  <form method="post" style="display:inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="id" value="{{ s.id }}">
+                    <input type="hidden" name="action" value="paid">
+                    <button type="submit">Mark paid</button>
+                  </form>
+                {% endif %}
+                <form method="post" style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="id" value="{{ s.id }}">
+                  <input type="hidden" name="action" value="reject">
+                  <button class="no-btn" type="submit">Reject</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">Nothing to review. Signups appear here as soon as one is claimed against a link.</p>
+  {% endif %}
+
+  <footer>
+    <b>How</b> says what the credit rests on, and they are not equal.
+    <b>referrer</b> is Google Play handing the app the code from the store URL:
+    exact, and needs nothing from the reader. <b>clipboard</b> is the download
+    button leaving a token on the pasteboard for the app to read on first
+    launch — iOS only, because Apple tells an app nothing about how it was
+    installed. <b>token</b> is the app following the link after install, the
+    strongest and the rarest. <b>network</b> is the server pairing a signup
+    with a recent click from the same address: a lead, not proof, which is why
+    those arrive flagged. None of it stops a determined person with several SIM
+    cards — the day-{{ retention_days }} test and your approval are what sit
+    between a signup and a payment.
+  </footer>
+</div>
+</body>
+</html>

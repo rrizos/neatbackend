@@ -71,9 +71,14 @@ INSTALLED_APPS = [
     'security.apps.SecurityConfig',
     'linkpreview.apps.LinkPreviewConfig',
     'web.apps.WebConfig',
+    'invites.apps.InvitesConfig',
+    'ambassadors.apps.AmbassadorsConfig',
+    'lockedcities.apps.LockedCitiesConfig',
 ]
 
 MIDDLEWARE = [
+    # Puts the requesting address where the referral signal can see it.
+    'ambassadors.middleware.ClientIPMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # First, so every serializer below knows what the caller can render.
     'accounts.client_version.ClientVersionMiddleware',

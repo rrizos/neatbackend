@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>neat ambassadors</title>
+<style>
+  :root {
+    --ground: #0e1116; --panel: #161b22; --ink: #e6edf3; --ink-2: #8b949e;
+    --rule: #262c36; --accent: #2f81f7; --good: #3fb950; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink); padding: 32px 20px 64px;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 64rem; margin: 0 auto; }
+  header.page { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 1.3rem; letter-spacing: -.01em; }
+  h2 { margin: 34px 0 12px; font-size: 1rem; }
+  a { color: var(--accent); }
+  p.sub { margin: 6px 0 0; color: var(--ink-2); font-size: .88rem; max-width: 46rem; }
+  .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; margin: 20px 0 0; }
+  form.new { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 12px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 6px; font-size: .78rem; color: var(--ink-2); }
+  input {
+    background: var(--ground); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 9px 11px; color: var(--ink); font-size: .92rem; font-family: inherit; width: 100%;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 10px 16px; font-size: .92rem; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--rule); color: var(--ink-2); }
+  button.ghost:hover { color: var(--ink); border-color: var(--ink-2); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: var(--ink-2); font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: var(--ink-2); }
+  .copy { cursor: pointer; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); border-radius: 6px; padding: 5px 10px; font-size: .78rem; }
+  .copy:hover { color: var(--ink); }
+  .off td { opacity: .45; }
+  .pill { font-size: .72rem; padding: 2px 8px; border-radius: 100px; border: 1px solid var(--rule); color: var(--ink-2); }
+  .pill.on { color: var(--good); border-color: rgba(63, 185, 80, .35); }
+  .error { color: var(--bad); font-size: .86rem; margin: 12px 0 0; }
+  .empty { color: var(--ink-2); padding: 18px 0; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>neat ambassadors</h1>
+      <p class="sub">
+        Each ambassador gets one link. Opens and signups are recorded against
+        it, but nothing becomes payable until the account clears the quality
+        bar and one of you approves it on
+        <a href="/ambassadorsstats">the stats page</a>.
+      </p>
+    </div>
+    <a href="?logout=1">Sign out</a>
+  </header>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Add an ambassador</h2>
+    <form class="new" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      <label>Name <input name="name" required placeholder="Maria K."></label>
+      <label>Contact <input name="contact" placeholder="@handle or email"></label>
+      <label>Rate per signup (€) <input name="rate" inputmode="decimal" placeholder="2.00"></label>
+      <label>Daily cap <input name="cap" inputmode="numeric" placeholder="25"></label>
+      <label>Their Neat username <input name="linked" placeholder="optional"></label>
+      <label>Custom code <input name="code" placeholder="optional, 6+ chars"></label>
+      <button type="submit">Create link</button>
+    </form>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  </div>
+
+  <h2>Ambassadors</h2>
+  {% if rows %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Link</th><th>Rate</th><th>Cap</th>
+            <th>Opens</th><th>Signups</th><th>Paid for</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in rows %}
+            <tr class="{% if not a.is_active %}off{% endif %}">
+              <td>
+                {{ a.name }}
+                {% if a.is_active %}<span class="pill on">active</span>{% else %}<span class="pill">off</span>{% endif %}
+                {% if a.contact %}<div class="link">{{ a.contact }}</div>{% endif %}
+              </td>
+              <td>
+                <span class="link" id="l{{ a.id }}">neatapp.gr/a/{{ a.code }}</span>
+                <button class="copy" type="button" data-link="https://neatapp.gr/a/{{ a.code }}">copy</button>
+              </td>
+              <td>€{{ a.payout_per_signup }}</td>
+              <td>{{ a.daily_cap }}</td>
+              <td>{{ a.click_count }}</td>
+              <td>{{ a.signup_count }}</td>
+              <td>{{ a.approved }}</td>
+              <td>
+                <form method="post" style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="id" value="{{ a.id }}">
+                  <input type="hidden" name="action" value="{% if a.is_active %}deactivate{% else %}activate{% endif %}">
+                  <button class="ghost" type="submit">{% if a.is_active %}Disable{% else %}Enable{% endif %}</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No ambassadors yet. Add one above and their link works immediately.</p>
+  {% endif %}
+</div>
+<script>
+  // Copy, with the button saying so. No clipboard library for one string.
+  document.querySelectorAll('.copy').forEach(function (button) {
+    button.addEventListener('click', function () {
+      navigator.clipboard.writeText(button.dataset.link).then(function () {
+        var was = button.textContent;
+        button.textContent = 'copied';
+        setTimeout(function () { button.textContent = was; }, 1500);
+      });
+    });
+  });
+</script>
+</body>
+</html>
