@@ -11,7 +11,9 @@ Nothing else writes. The admin pages only move rows between statuses, and
 every move records who did it.
 """
 
+import hashlib
 import json
+import random
 import secrets
 from decimal import Decimal, InvalidOperation
 
@@ -21,6 +23,7 @@ from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
@@ -28,16 +31,28 @@ from django.views.decorators.http import require_http_methods
 
 from accounts.auth import require_authenticated_user
 from accounts.ratelimit import client_ip, rate_limited
+from lockedcities.cities import APP_CITIES
 
+from . import content as content_matching
+from . import qr as qr_module
 from . import qualify
 from .models import (
-    Ambassador, AmbassadorClick, AmbassadorSignup, ip_hash, new_code, visitor_hash,
+    Ambassador, AmbassadorClick, AmbassadorContent, AmbassadorSignup, ip_hash,
+    new_code, visitor_hash,
 )
 
 User = get_user_model()
 
 #: An account older than this cannot be a referral, whatever token it presents.
 MAX_ACCOUNT_AGE = timezone.timedelta(days=3)
+
+#: Codes that would collide with something else on the site if /a/ ever moved,
+#: or that simply read as a mistake on a poster.
+RESERVED_CODES = {
+    'invite', 'invites', 'post', 'posts', 'api', 'admin', 'analytics',
+    'creator', 'ambassadors', 'ambassadorsstats', 'stoplocked', 'privacy',
+    'terms', 'health', 'runbook', 'media', 'static', 'app', 'www',
+}
 #: Tolerance for an account that looks a moment older than the click that is
 #: supposed to have produced it — clock skew, not time travel.
 CLOCK_SKEW = timezone.timedelta(minutes=10)
@@ -248,7 +263,7 @@ def claim(request):
     # human has already ruled on it, in which case their decision stands.
     replaceable = (
         existing is not None
-        and existing.claim_method == AmbassadorSignup.NETWORK
+        and existing.claim_method in AmbassadorSignup.REPLACEABLE
         and existing.status not in AmbassadorSignup.FINAL
     )
     if existing is not None and not replaceable:
@@ -317,16 +332,19 @@ def claim(request):
         if replaceable:
             # Free the click the guess was holding, so it is not left looking
             # spent, and re-point the row at the evidence that actually arrived.
-            old_click = existing.click
+            # A content credit holds no click at all, only a post.
+            old_click_id = existing.click_id
             existing.ambassador = ambassador
             existing.click = click
+            existing.content = None
             existing.claim_method = method
             existing.status = AmbassadorSignup.FLAGGED if flags else AmbassadorSignup.PENDING
             existing.flags = '\n'.join(flags)
-            existing.save(update_fields=['ambassador', 'click', 'claim_method',
-                                         'status', 'flags'])
+            existing.save(update_fields=['ambassador', 'click', 'content',
+                                         'claim_method', 'status', 'flags'])
             signup = existing
-            AmbassadorClick.objects.filter(id=old_click.id).update(used_at=None)
+            if old_click_id:
+                AmbassadorClick.objects.filter(id=old_click_id).update(used_at=None)
         else:
             signup = AmbassadorSignup.objects.create(
                 ambassador=ambassador,
@@ -343,6 +361,230 @@ def claim(request):
     # a brand-new account cannot possibly pass the day-three test yet.
     qualify.refresh(signup)
     return JsonResponse({'ok': True, 'credited': True})
+
+
+# ── The creator's own dashboard ───────────────────────────────────────────────
+
+def _creator_or_404(key):
+    from django.http import Http404
+
+    ambassador = Ambassador.objects.filter(dashboard_key=key).first()
+    if ambassador is None:
+        raise Http404('No such dashboard')
+    return ambassador
+
+
+def _log_content(ambassador, data):
+    """Validate and store a post a creator logged. Returns an error, or ''."""
+    from datetime import datetime
+
+    platform = (data.get('platform') or '').strip()
+    if platform not in dict(AmbassadorContent.PLATFORMS):
+        return 'Διάλεξε πλατφόρμα.'
+
+    url = (data.get('url') or '').strip()
+    if not (url.startswith('https://') or url.startswith('http://')) or len(url) > 500:
+        return 'Βάλε το link της ανάρτησης — χωρίς αυτό δεν μπορεί να ελεγχθεί.'
+
+    city = (data.get('city') or '').strip()
+    if city not in APP_CITIES:
+        return 'Διάλεξε πόλη από τη λίστα.'
+
+    try:
+        naive = datetime.strptime((data.get('uploaded_at') or '').strip(), '%Y-%m-%dT%H:%M')
+    except ValueError:
+        return 'Βάλε ημερομηνία και ώρα ανάρτησης.'
+    uploaded_at = timezone.make_aware(naive, timezone.get_current_timezone())
+
+    now = timezone.now()
+    # A post from the future is a typo at best. One from long ago is a request
+    # to be credited with people who joined before anyone was keeping track.
+    if uploaded_at > now + timezone.timedelta(minutes=10):
+        return 'Η ώρα ανάρτησης δεν μπορεί να είναι στο μέλλον.'
+    if uploaded_at < now - content_matching.LOOKBACK:
+        return 'Η ανάρτηση είναι πολύ παλιά για να καταχωρηθεί.'
+
+    if AmbassadorContent.objects.filter(ambassador=ambassador, url=url).exists():
+        return 'Αυτή η ανάρτηση έχει ήδη καταχωρηθεί.'
+
+    AmbassadorContent.objects.create(
+        ambassador=ambassador,
+        platform=platform,
+        url=url,
+        city=city,
+        uploaded_at=uploaded_at,
+        note=(data.get('note') or '').strip()[:300],
+    )
+    return ''
+
+
+@csrf_protect
+@require_http_methods(['GET', 'HEAD', 'POST'])
+@cache_control(no_store=True)
+def creator_dashboard(request, key):
+    """What an ambassador sees about their own work.
+
+    No login, because most ambassadors have no Neat account to log in with —
+    the key in the URL is the credential. It is unguessable, the page is
+    noindex, and it shows one person's own figures and nothing else.
+
+    Money is reported exactly as the payout dashboard reports it, from the
+    same rows: `amount` is copied onto a signup at approval, so what a creator
+    is told they are owed cannot drift from what you approved.
+    """
+    ambassador = _creator_or_404(key)
+
+    # Two things a creator may do here: change the line on their own poster,
+    # and log a post they put up. Everything else on this page is a report.
+    content_error = ''
+    if request.method == 'POST':
+        action = request.POST.get('action') or 'slogan'
+
+        if action == 'content':
+            if rate_limited(f'creator-content:{ambassador.id}', limit=40, window_seconds=86400):
+                content_error = 'Πολλές καταχωρήσεις για σήμερα. Δοκίμασε αύριο.'
+            else:
+                content_error = _log_content(ambassador, request.POST)
+                if not content_error:
+                    return redirect(
+                        reverse('creator_dashboard', kwargs={'key': key}) + '#content')
+        else:
+            if rate_limited(f'creator-slogan:{ambassador.id}', limit=30, window_seconds=3600):
+                return redirect('creator_dashboard', key=key)
+            ambassador.custom_slogan = (request.POST.get('slogan') or '').strip()[:60]
+            ambassador.save(update_fields=['custom_slogan'])
+            # Back to the tab they were on, not to the first one.
+            return redirect(
+                reverse('creator_dashboard', kwargs={'key': key}) + '?tab=custom')
+
+    # Credit anyone who has joined inside one of this creator's verified post
+    # windows since the page was last opened.
+    content_matching.match(ambassador)
+
+    # Re-measure anything still in play, so a creator refreshing this page sees
+    # today's answer rather than the one from when someone last looked.
+    qualify.refresh_all(
+        AmbassadorSignup.objects
+        .filter(ambassador=ambassador)
+        .exclude(status__in=AmbassadorSignup.FINAL)
+    )
+
+    # A different loud line every time this page is opened, so a creator can
+    # print a mix instead of a hundred identical stickers. The index travels
+    # in the image and download URLs, so what they see is what they get.
+    loud = random.randrange(len(qr_module.AGGRESSIVE_SLOGANS))
+    tab = request.GET.get('tab')
+    if tab not in qr_module.STYLES:
+        tab = qr_module.BASIC
+    custom_rev = hashlib.sha256(
+        ambassador.custom_slogan.encode('utf-8')).hexdigest()[:8]
+
+    signups = (
+        AmbassadorSignup.objects
+        .filter(ambassador=ambassador)
+        .select_related('user')
+        .order_by('-created')
+    )
+    # Approved and paid only. A creator is never shown a person who has not
+    # been approved — not as a name, not as a count, not as a hint that
+    # something is pending. Anything else is a promise the review step has not
+    # made yet, and an argument waiting to happen when it is refused.
+    approved = [s for s in signups
+                if s.status in (AmbassadorSignup.APPROVED, AmbassadorSignup.PAID)]
+
+    owed = sum((s.amount for s in signups if s.status == AmbassadorSignup.APPROVED),
+               Decimal('0'))
+    paid = sum((s.amount for s in signups if s.status == AmbassadorSignup.PAID),
+               Decimal('0'))
+
+    return render(request, 'ambassadors/creator.html', {
+        'ambassador': ambassador,
+        'approved': approved,
+        'owed': owed,
+        'paid': paid,
+        'earned': owed + paid,
+        'rate': ambassador.payout_per_signup,
+        'opens': AmbassadorClick.objects.filter(ambassador=ambassador).count(),
+        'qr_version': qr_module.DESIGN_VERSION,
+        # Every style, so the page can show what each one actually looks like
+        # rather than describing it.
+        'styles': [
+            {'id': qr_module.BASIC, 'name': 'Βασικό', 'index': '',
+             'line': qr_module.slogan_for(qr_module.BASIC)},
+            {'id': qr_module.AGGRESSIVE, 'name': 'Δυνατό', 'index': loud,
+             'line': qr_module.slogan_for(qr_module.AGGRESSIVE, ambassador.code, '', loud)},
+            {'id': qr_module.CUSTOM, 'name': 'Δικό σου', 'index': '',
+             'line': ambassador.custom_slogan or qr_module.BASIC_SLOGAN},
+        ],
+        # Which tab to open on. Saving a slogan comes back here, and coming
+        # back to the wrong tab is how you lose the thing you just did.
+        'tab': tab,
+        # Changes whenever the saved line does, so the new poster is fetched
+        # rather than read out of the browser's cache.
+        'custom_rev': custom_rev,
+        'custom_slogan': ambassador.custom_slogan,
+        'slogan_max': 60,
+        'content_error': content_error,
+        'content_form': request.POST if content_error else {},
+        'platforms': AmbassadorContent.PLATFORMS,
+        'cities': APP_CITIES,
+        'posts': [
+            {
+                'post': post,
+                # Approved people only, for the same reason the list below
+                # shows nobody unapproved: a count is a promise too.
+                'brought': post.signups.filter(status__in=[
+                    AmbassadorSignup.APPROVED, AmbassadorSignup.PAID]).count(),
+            }
+            for post in AmbassadorContent.objects.filter(ambassador=ambassador)[:30]
+        ],
+        'retention_days': qualify.RETENTION_DAYS,
+        'min_posts': qualify.MIN_POSTS,
+        'min_interactions': qualify.MIN_INTERACTIONS,
+    })
+
+
+@require_http_methods(['GET', 'HEAD'])
+def creator_qr(request, key, fmt):
+    """The same link as something printable. `?download=1` to save it."""
+    from django.http import HttpResponse
+
+    from . import qr
+
+    ambassador = _creator_or_404(key)
+    download = request.GET.get('download') == '1'
+
+    style = request.GET.get('style') or qr.BASIC
+    if style not in qr.STYLES:
+        style = qr.BASIC
+
+    try:
+        index = int(request.GET.get('i')) if request.GET.get('i') else None
+    except ValueError:
+        index = None
+
+    # `text` previews a line the creator is still typing, before they save it.
+    # Only reachable with their own key, and never stored from here.
+    live = (request.GET.get('text') or '').strip()[:60] if style == qr.CUSTOM else ''
+    slogan = qr.slogan_for(style, ambassador.code,
+                           live or ambassador.custom_slogan, index)
+    stem = f'neat-{ambassador.code}-{style}'
+
+    if fmt == 'png':
+        body, content_type, name = qr.png(ambassador.link), 'image/png', f'{stem}.png'
+    else:
+        body, content_type, name = (qr.svg(ambassador.link, slogan),
+                                    'image/svg+xml', f'{stem}.svg')
+
+    response = HttpResponse(body, content_type=content_type)
+    if download:
+        response['Content-Disposition'] = f'attachment; filename="{name}"'
+    # Short, and deliberately so. The link inside rarely changes but the
+    # poster around it does, and a day-long cache meant a redesign was
+    # invisible to the person it was for. ?v= retires old copies outright;
+    # this keeps even an un-versioned request honest.
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
 
 
 # ── /ambassadors ─────────────────────────────────────────────────────────────
@@ -374,11 +616,16 @@ def manage(request):
                 if raw_code:
                     # A hand-written code still has to be unguessable-ish and
                     # url-safe; short or taken is refused rather than mangled.
-                    ok = (len(raw_code) >= 6 and
+                    # Three characters is enough now that codes are names
+                    # rather than secrets. The character class is what keeps a
+                    # code from dressing itself up as another route.
+                    ok = (3 <= len(raw_code) <= 40 and
                           all(c.isalnum() or c in '-_' for c in raw_code) and
+                          raw_code not in RESERVED_CODES and
                           not Ambassador.objects.filter(code=raw_code).exists())
                     if not ok:
-                        error = 'That code is too short, has odd characters, or is taken.'
+                        error = ('That code is too short or long, has odd '
+                                 'characters, is reserved, or is taken.')
                 code = raw_code or new_code(name)
                 if not error:
                     try:
@@ -440,12 +687,46 @@ def stats(request):
         if anonymous is not None:
             return anonymous
         action = request.POST.get('action')
+
+        if action == 'stop_content':
+            post = AmbassadorContent.objects.filter(id=request.POST.get('id') or 0).first()
+            if post is not None and post.running:
+                # Credit everyone who joined up to this moment before closing
+                # the window, so pressing Stop never loses someone who had
+                # already arrived.
+                content_matching.match(post.ambassador)
+                post.stopped_at = timezone.now()
+                post.stopped_by = _admin_user(request)
+                post.save(update_fields=['stopped_at', 'stopped_by'])
+            return redirect(reverse('ambassadors_stats') + '#content')
+
+        if action in ('approve_content', 'reject_content'):
+            post = AmbassadorContent.objects.filter(id=request.POST.get('id') or 0).first()
+            if post is not None and post.status == AmbassadorContent.PENDING:
+                post.status = (AmbassadorContent.APPROVED if action == 'approve_content'
+                               else AmbassadorContent.REJECTED)
+                post.reviewed_by = _admin_user(request)
+                post.reviewed_at = timezone.now()
+                post.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+                if post.status == AmbassadorContent.APPROVED:
+                    # Credit its window straight away rather than on the next
+                    # page load, so the result of approving is visible now.
+                    content_matching.match(post.ambassador)
+            return redirect(reverse('ambassadors_stats') + '#content')
+
         signup = AmbassadorSignup.objects.filter(
             id=request.POST.get('id') or 0,
         ).select_related('ambassador').first()
         if signup is not None:
             admin = _admin_user(request)
-            if action == 'approve' and signup.status in (
+            # Measured again at the moment of approval rather than trusted
+            # from the last page load, and required of every credit however it
+            # arrived. A flagged row used to be approvable as it stood — and
+            # flagged rows never climb to qualified on their own — so an
+            # account with no posts and no day-three session could be paid for
+            # simply by being flagged. The bar is the bar.
+            meets_bar = qualify.measure(signup.user)['qualifies']
+            if action == 'approve' and meets_bar and signup.status in (
                 AmbassadorSignup.QUALIFIED, AmbassadorSignup.FLAGGED,
             ):
                 # The rate is copied now, so a later change to the ambassador's
@@ -466,8 +747,10 @@ def stats(request):
                 signup.save(update_fields=['status', 'paid_at'])
         return redirect('ambassadors_stats')
 
-    # Every row still in play is re-measured on load. At this volume that is
-    # cheaper than a scheduled job and impossible to forget to run.
+    # Credit anyone who joined inside a verified post's window, then re-measure
+    # every row still in play. At this volume both are cheaper than a scheduled
+    # job, and impossible to forget to run.
+    content_matching.match()
     qualify.refresh_all()
 
     rows = (
@@ -488,11 +771,50 @@ def stats(request):
         .order_by('-approved', '-qualified', '-signup_count')
     )
 
-    review = (
+    review = list(
         AmbassadorSignup.objects
         .exclude(status__in=[AmbassadorSignup.PAID, AmbassadorSignup.REJECTED])
-        .select_related('ambassador', 'user')
+        .select_related('ambassador', 'user', 'content')
         .order_by('-created')[:60]
+    )
+    # What each row still lacks, from the measurements refresh_all just took.
+    # Approval re-measures on its own; this is so the page never offers a
+    # button that will refuse.
+    for signup in review:
+        missing = []
+        if not signup.has_city:
+            missing.append('city')
+        if signup.post_count < qualify.MIN_POSTS:
+            missing.append('post')
+        if signup.interaction_count < qualify.MIN_INTERACTIONS:
+            missing.append(f'{qualify.MIN_INTERACTIONS - signup.interaction_count} interactions')
+        if not signup.retained_day3:
+            missing.append(f'day {qualify.RETENTION_DAYS}')
+        signup.missing = missing
+
+    pending_posts = (
+        AmbassadorContent.objects
+        .filter(status=AmbassadorContent.PENDING)
+        .select_related('ambassador')
+        .order_by('uploaded_at')
+    )
+    running_posts = list(
+        AmbassadorContent.objects
+        .filter(status=AmbassadorContent.APPROVED, stopped_at__isnull=True)
+        .select_related('ambassador')
+        .annotate(credited=Count('signups'))
+        .order_by('uploaded_at')
+    )
+    for post in running_posts:
+        post.running_hours = int((timezone.now() - post.uploaded_at).total_seconds() // 3600)
+
+    recent_posts = (
+        AmbassadorContent.objects
+        .exclude(status=AmbassadorContent.PENDING)
+        .exclude(status=AmbassadorContent.APPROVED, stopped_at__isnull=True)
+        .select_related('ambassador', 'reviewed_by', 'stopped_by')
+        .annotate(credited=Count('signups'))
+        .order_by('-uploaded_at')[:20]
     )
 
     totals = {
@@ -511,4 +833,7 @@ def stats(request):
         'retention_days': qualify.RETENTION_DAYS,
         'min_posts': qualify.MIN_POSTS,
         'min_interactions': qualify.MIN_INTERACTIONS,
+        'pending_posts': pending_posts,
+        'running_posts': running_posts,
+        'recent_posts': recent_posts,
     })

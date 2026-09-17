@@ -113,6 +113,115 @@
     <p class="empty">No ambassadors yet. <a href="/ambassadors">Add one</a> and their link works immediately.</p>
   {% endif %}
 
+  <h2 id="content">Posts to verify</h2>
+  <p class="sub" style="margin:0 0 10px">
+    A verified post credits its creator with every account that joins its city
+    from the moment it went up until you press <b>Stop</b>. That is correlation:
+    anyone joining that city while it runs counts, including people who never
+    saw it — and nothing stops a post but the button, so a forgotten one keeps
+    counting. Open the link and check the post is real and went up when they
+    say. Stories expire after a day, so verify those first.
+  </p>
+  {% if pending_posts %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Creator</th><th>Platform</th><th>City</th><th>Went up</th><th>Link</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for p in pending_posts %}
+            <tr>
+              <td>{{ p.ambassador.name }}</td>
+              <td>{{ p.get_platform_display }}</td>
+              <td>{{ p.city }}</td>
+              <td class="checks">{{ p.uploaded_at|date:"j M, H:i" }}</td>
+              <td><a href="{{ p.url }}" target="_blank" rel="noopener noreferrer">open</a>{% if p.note %}<div class="checks">{{ p.note }}</div>{% endif %}</td>
+              <td style="white-space:nowrap">
+                <form method="post" style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="id" value="{{ p.id }}">
+                  <input type="hidden" name="action" value="approve_content">
+                  <button class="go" type="submit">Verified</button>
+                </form>
+                <form method="post" style="display:inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="id" value="{{ p.id }}">
+                  <input type="hidden" name="action" value="reject_content">
+                  <button class="no-btn" type="submit">Reject</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No posts waiting.</p>
+  {% endif %}
+
+  <h2 style="margin-top:22px">Running</h2>
+  {% if running_posts %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Creator</th><th>Platform</th><th>City</th><th>Went up</th><th>Running</th><th>Credited</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for p in running_posts %}
+            <tr>
+              <td>{{ p.ambassador.name }}</td>
+              <td><a href="{{ p.url }}" target="_blank" rel="noopener noreferrer">{{ p.get_platform_display }}</a></td>
+              <td>{{ p.city }}</td>
+              <td class="checks">{{ p.uploaded_at|date:"j M, H:i" }}</td>
+              <td class="{% if p.running_hours >= 48 %}flags{% else %}checks{% endif %}">{{ p.running_hours }}h</td>
+              <td>{{ p.credited }}</td>
+              <td>
+                <form method="post" style="display:inline"
+                      onsubmit="return confirm('Stop crediting {{ p.city|escapejs }} signups to {{ p.ambassador.name|escapejs }}? This cannot be undone.');">
+                  {% csrf_token %}
+                  <input type="hidden" name="id" value="{{ p.id }}">
+                  <input type="hidden" name="action" value="stop_content">
+                  <button class="no-btn" type="submit">Stop</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">Nothing running.</p>
+  {% endif %}
+
+  {% if recent_posts %}
+    <div class="scroll" style="margin-top:12px">
+      <table>
+        <thead>
+          <tr><th>Creator</th><th>Platform</th><th>City</th><th>Went up</th><th>Status</th><th>Credited</th></tr>
+        </thead>
+        <tbody>
+          {% for p in recent_posts %}
+            <tr>
+              <td>{{ p.ambassador.name }}</td>
+              <td>{{ p.get_platform_display }}</td>
+              <td>{{ p.city }}</td>
+              <td class="checks">{{ p.uploaded_at|date:"j M, H:i" }}</td>
+              <td>
+                {% if p.stopped_at %}
+                  <span class="status">stopped</span>
+                  <div class="checks">{{ p.stopped_at|date:"j M, H:i" }}{% if p.stopped_by %} · {{ p.stopped_by.username }}{% endif %}</div>
+                {% else %}
+                  <span class="status">{{ p.status }}</span>
+                {% endif %}
+              </td>
+              <td>{{ p.credited }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   <h2>Signups to review</h2>
   {% if review %}
     <div class="scroll">
@@ -133,11 +242,14 @@
               <td>{{ s.post_count }}</td>
               <td class="{% if s.interaction_count >= min_interactions %}yes{% else %}no{% endif %}">{{ s.interaction_count }}</td>
               <td>{% if s.retained_day3 %}<span class="yes">✓</span>{% else %}<span class="no">—</span>{% endif %}</td>
-              <td class="checks">{{ s.claim_method }}</td>
+              <td class="checks">{{ s.claim_method }}{% if s.content %}<div>{{ s.content.get_platform_display }} · {{ s.content.uploaded_at|date:"j M H:i" }}</div>{% endif %}</td>
               <td><span class="status {{ s.status }}">{{ s.status }}</span></td>
               <td class="flags">{{ s.flags }}</td>
               <td style="white-space:nowrap">
-                {% if s.status == 'qualified' or s.status == 'flagged' %}
+                {% if s.missing %}
+                  {% comment %} Any row still short of the bar says so, pending included: it is the first thing a reviewer wants to know about it. {% endcomment %}
+                  <span class="checks" title="Cannot be approved until it clears the bar">needs {{ s.missing|join:", " }}</span>
+                {% elif s.status == 'qualified' or s.status == 'flagged' %}
                   <form method="post" style="display:inline">
                     {% csrf_token %}
                     <input type="hidden" name="id" value="{{ s.id }}">

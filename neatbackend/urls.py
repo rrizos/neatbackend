@@ -61,5 +61,11 @@ urlpatterns = [
     # The locked-cities kill switch.
     path('stoplocked', lockedcities_views.stop_locked, name='stop_locked'),
     path('stoplocked/', lockedcities_views.stop_locked),
+    # A creator's own dashboard. The key in the URL is the credential:
+    # ambassadors usually have no Neat account to log in with.
+    re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/qr\.(?P<fmt>svg|png)$',
+            ambassador_views.creator_qr, name='creator_qr'),
+    re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/?$',
+            ambassador_views.creator_dashboard, name='creator_dashboard'),
     re_path(r'^media/(?P<path>.*)$', serve_media),
 ]

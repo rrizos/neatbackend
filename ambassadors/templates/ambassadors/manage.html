@@ -102,6 +102,10 @@
               <td>
                 <span class="link" id="l{{ a.id }}">neatapp.gr/a/{{ a.code }}</span>
                 <button class="copy" type="button" data-link="https://neatapp.gr/a/{{ a.code }}">copy</button>
+                <div style="margin-top:6px">
+                  <span class="link">their dashboard</span>
+                  <button class="copy" type="button" data-link="{{ a.dashboard_link }}">copy private link</button>
+                </div>
               </td>
               <td>€{{ a.payout_per_signup }}</td>
               <td>{{ a.daily_cap }}</td>

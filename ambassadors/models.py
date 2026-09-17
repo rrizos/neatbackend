@@ -31,16 +31,40 @@ from django.utils import timezone
 
 
 def new_code(name=''):
-    """A link code that reads like a person and cannot be guessed.
+    """A link code that is just the person's name: neatapp.gr/a/maria.
 
-    The readable half is courtesy — an ambassador sees their own name in the
-    link they post. The random half is the security: six url-safe characters
-    from `secrets`, so codes cannot be enumerated by trying neighbours of one
-    that is public.
+    This used to carry six random characters so codes could not be guessed.
+    They are gone, because the thing being protected was never worth the cost:
+    a guessed code buys you an invite page and a recorded click, and no
+    payment can follow from it — crediting a signup needs a token this server
+    minted for a real visit, tied to an account that did not exist when the
+    click happened. Meanwhile the cost was paid on every poster and every
+    sticker, by every person squinting at `maria-7Qf2xa`.
+
+    Greek names transliterate, because a link that reaches print as
+    `/a/%CE%9C%CE%B1%CF%81%CE%AF%CE%B1` is not a link anyone will type.
     """
-    stem = ''.join(ch for ch in (name or '').lower() if ch.isalnum())[:12]
-    suffix = secrets.token_urlsafe(6).replace('-', '').replace('_', '')[:6]
-    return f'{stem}-{suffix}' if stem else suffix
+    from invites.cities import city_slug
+
+    stem = city_slug(name)[:20]
+    if not stem:
+        # Nothing usable in the name at all — fall back to something random
+        # rather than refusing to create the ambassador.
+        return secrets.token_urlsafe(6).replace('-', '').replace('_', '')[:8]
+
+    code = stem
+    suffix = 2
+    # Two ambassadors called Maria is a real thing; the second becomes maria2.
+    while Ambassador.objects.filter(code=code).exists():
+        code = f'{stem}{suffix}'
+        suffix += 1
+    return code
+
+
+def new_dashboard_key():
+    """The secret in a creator's dashboard URL. Long enough that the URL is
+    the only way in, short enough to paste into a message."""
+    return secrets.token_urlsafe(24)
 
 
 def visitor_hash(ip, user_agent):
@@ -84,6 +108,17 @@ class Ambassador(models.Model):
     #: both are worth a human look before they are worth a payment.
     daily_cap = models.IntegerField(default=25)
 
+    #: The creator's own way in. Ambassadors are often not Neat users at all,
+    #: so there is no account to log into — the key *is* the credential, and
+    #: the dashboard it opens shows only their own figures. Unguessable,
+    #: noindex, and regenerable if a link gets loose.
+    dashboard_key = models.CharField(max_length=64, unique=True, db_index=True,
+                                     default=new_dashboard_key)
+
+    #: The creator's own poster line, when they want one. Empty means they are
+    #: using one of the ready-made styles.
+    custom_slogan = models.CharField(max_length=60, blank=True, default='')
+
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -98,6 +133,10 @@ class Ambassador(models.Model):
     @property
     def link(self):
         return f'https://neatapp.gr/a/{self.code}'
+
+    @property
+    def dashboard_link(self):
+        return f'https://neatapp.gr/creator/{self.dashboard_key}'
 
 
 class AmbassadorClick(models.Model):
@@ -167,8 +206,15 @@ class AmbassadorSignup(models.Model):
     ambassador = models.ForeignKey(
         Ambassador, on_delete=models.CASCADE, related_name='signups',
     )
+    #: The click this credit rests on. Empty for a content-window credit,
+    #: which rests on a post the creator logged instead — see `content`.
     click = models.OneToOneField(
         AmbassadorClick, on_delete=models.PROTECT, related_name='signup',
+        null=True, blank=True,
+    )
+    content = models.ForeignKey(
+        'AmbassadorContent', on_delete=models.SET_NULL, related_name='signups',
+        null=True, blank=True,
     )
     #: One credit per account for all time, enforced by the database rather
     #: than by whichever view happens to run.
@@ -192,12 +238,20 @@ class AmbassadorSignup(models.Model):
     #:   network   nobody handed us anything: the server paired a new account
     #:             with a recent click from the same address. A lead, not
     #:             proof, which is why these arrive flagged.
+    #:   content   the account joined the city a creator's post targeted, within
+    #:             the window after it went up. The weakest of the five —
+    #:             everyone who joins that city in that window counts, whether
+    #:             they saw the post or not — which is why the post itself has
+    #:             to be verified before any of this happens.
     TOKEN = 'token'
     REFERRER = 'referrer'
     CLIPBOARD = 'clipboard'
     NETWORK = 'network'
+    CONTENT = 'content'
     METHODS = [(TOKEN, 'token'), (REFERRER, 'referrer'),
-               (CLIPBOARD, 'clipboard'), (NETWORK, 'network')]
+               (CLIPBOARD, 'clipboard'), (NETWORK, 'network'), (CONTENT, 'content')]
+    #: Guesses rather than evidence: a real token arriving later replaces them.
+    REPLACEABLE = {NETWORK, CONTENT}
     claim_method = models.CharField(max_length=10, choices=METHODS, default=TOKEN)
     #: Why this was flagged, one short reason per line. Empty when clean.
     flags = models.TextField(blank=True, default='')
@@ -228,3 +282,72 @@ class AmbassadorSignup(models.Model):
 
     def __str__(self):
         return f'{self.user_id} → {self.ambassador_id} ({self.status})'
+
+
+class AmbassadorContent(models.Model):
+    """A post a creator says they put up, and the city it was aimed at.
+
+    It earns them every account that joins that city in the window after it
+    went up. That is a correlation, not an attribution — nobody can tell from
+    here whether a new user in Πάτρα saw the TikTok — and it is the easiest
+    thing in this app to abuse: log a post "targeting Αθήνα" every sixteen
+    hours and collect every Athens signup. So a post counts for nothing until
+    somebody has opened its link and checked it is real and went up when the
+    creator says it did.
+    """
+
+    PENDING = 'pending'
+    APPROVED = 'approved'
+    REJECTED = 'rejected'
+    STATUSES = [(PENDING, 'pending'), (APPROVED, 'approved'), (REJECTED, 'rejected')]
+
+    PLATFORMS = [
+        ('tiktok', 'TikTok'),
+        ('instagram_story', 'Instagram story'),
+        ('instagram_post', 'Instagram post'),
+        ('instagram_reel', 'Instagram reel'),
+        ('facebook', 'Facebook'),
+        ('youtube', 'YouTube'),
+        ('other', 'Άλλο'),
+    ]
+
+    ambassador = models.ForeignKey(
+        Ambassador, on_delete=models.CASCADE, related_name='content',
+    )
+    platform = models.CharField(max_length=20, choices=PLATFORMS)
+    #: Required, because it is what gets checked. A story expires in a day, so
+    #: a reviewer who waits too long cannot verify one — worth knowing.
+    url = models.URLField(max_length=500)
+    city = models.CharField(max_length=120)
+    uploaded_at = models.DateTimeField(db_index=True)
+    note = models.CharField(max_length=300, blank=True, default='')
+
+    status = models.CharField(max_length=10, choices=STATUSES, default=PENDING, db_index=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    #: When somebody decided this post has stopped bringing people in. There is
+    #: no fixed window: a post keeps crediting its city's new accounts from the
+    #: moment it went up until this is set, because how long a video keeps
+    #: working is something a person watching the numbers can judge and a
+    #: constant cannot. Final — see stop_content in views.py.
+    stopped_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    stopped_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['status', 'city', 'uploaded_at'])]
+        ordering = ['-uploaded_at']
+
+    @property
+    def running(self):
+        return self.status == self.APPROVED and self.stopped_at is None
+
+    def __str__(self):
+        return f'{self.ambassador_id} · {self.platform} · {self.city} · {self.uploaded_at:%Y-%m-%d %H:%M}'

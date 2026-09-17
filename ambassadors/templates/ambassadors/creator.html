@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% comment %} A private link, and nobody's search result. {% endcomment %}
+<meta name="robots" content="noindex, nofollow">
+<title>Neat · {{ ambassador.name }}</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/icons/Icon-192.png">
+<style>
+  :root {
+    --bg: #000000; --card: #0e0e11; --surface: #141414; --ink: #ffffff;
+    --muted: #9ca3af; --hairline: rgba(255,255,255,.09); --blue: #2F80ED;
+    --good: #3fb950;
+    --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0; color: var(--ink); font-family: var(--sans); font-size: 16px;
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  img { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+  main { max-width: 620px; margin: 0 auto; padding: 26px 20px 60px; }
+
+  .top { display: inline-block; margin-bottom: 24px; }
+  .top img { width: 56px; height: 56px; }
+  h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -.045em; }
+  .sub { color: var(--muted); font-size: 14.5px; margin: 6px 0 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 12px; margin: 24px 0 0; }
+  .tile { background: var(--card); border: 1px solid var(--hairline); border-radius: 16px; padding: 16px; }
+  .tile b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.03em; }
+  .tile.money b { color: var(--good); }
+  .tile span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+
+  h2 { font-size: 15px; margin: 34px 0 12px; letter-spacing: -.01em; }
+  .card { background: var(--card); border: 1px solid var(--hairline); border-radius: 18px; padding: 18px; }
+
+  .linkrow { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; }
+  .linkbox {
+    flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 12px 14px; font-size: 13.5px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  button, .btn {
+    border: 0; border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 700;
+    font-family: inherit; cursor: pointer; background: var(--blue); color: #fff; white-space: nowrap;
+  }
+  .btn.ghost { background: transparent; border: 1px solid var(--hairline); color: var(--ink); }
+
+  .qrwrap { text-align: center; }
+  .qr { background: #fff; border-radius: 18px; padding: 14px; display: inline-block; }
+  /* Height auto: the poster is taller than it is wide, and forcing it square
+     hid the whole band. */
+  .qr img { width: 230px; height: auto; display: block; }
+  .qrbtns { display: flex; gap: 8px; justify-content: center; margin: 14px 0 0; flex-wrap: wrap; }
+
+  .styles { display: flex; gap: 8px; margin: 0 0 16px; }
+  .styles button {
+    flex: 1; background: var(--surface); color: var(--muted); font-size: 13.5px;
+    padding: 10px 8px; border: 1px solid var(--hairline);
+  }
+  .styles button[aria-selected="true"] { background: var(--blue); color: #fff; border-color: transparent; }
+  .line { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+  .line b { color: var(--ink); font-weight: 600; }
+  .customform { display: flex; gap: 8px; margin: 14px 0 0; }
+  .customform input {
+    flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 12px 14px; color: var(--ink); font: inherit; font-size: 14px;
+  }
+  .customform input:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
+  [hidden] { display: none !important; }
+
+  form.content { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  form.content label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+  form.content .wide { grid-column: 1 / -1; }
+  form.content input, form.content select {
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px;
+    padding: 11px 12px; color: var(--ink); font: inherit; font-size: 14px; width: 100%;
+    -webkit-appearance: none; appearance: none;
+  }
+  form.content input:focus, form.content select:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
+  form.content button { grid-column: 1 / -1; }
+  .err { color: #ff6b6b; font-size: 13.5px; margin: 0 0 12px; }
+  .posts td { vertical-align: top; }
+  .posts .platform { font-weight: 600; }
+  .posts .meta { color: var(--muted); font-size: 12.5px; }
+  .status { font-size: 11.5px; border-radius: 100px; padding: 2px 9px; border: 1px solid var(--hairline); white-space: nowrap; }
+  .status.pending { color: #d29922; border-color: rgba(210,153,34,.4); }
+  .status.approved { color: var(--good); border-color: rgba(63,185,80,.4); }
+  .status.rejected { color: var(--muted); }
+  @media (max-width: 440px) { form.content { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 11px 0; border-bottom: 1px solid var(--hairline); font-size: 14.5px; }
+  tr:last-child td { border-bottom: 0; }
+  td.when { color: var(--muted); text-align: right; font-size: 13px; }
+  td.amount { text-align: right; color: var(--good); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 12px 0 0; }
+  .pill { font-size: 11.5px; color: var(--muted); border: 1px solid var(--hairline); border-radius: 100px; padding: 2px 9px; }
+  footer { color: #5b6069; font-size: 12.5px; text-align: center; margin: 40px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <a class="top" href="/" aria-label="Neat">
+    <img src="/brand/logo-dark.png" alt="Neat" width="56" height="56">
+  </a>
+
+  <h1>{{ ambassador.name }}</h1>
+  <p class="sub">
+    {% if ambassador.is_active %}
+      Ο πίνακάς σου. Ό,τι βλέπεις εδώ ενημερώνεται σε πραγματικό χρόνο.
+    {% else %}
+      <span class="pill">ανενεργό</span> Ο λογαριασμός σου είναι προσωρινά ανενεργός.
+    {% endif %}
+  </p>
+
+  <div class="tiles">
+    <div class="tile"><b>{{ approved|length }}</b><span>Μέλη που έφερες</span></div>
+    <div class="tile money"><b>€{{ earned|floatformat:2 }}</b><span>Σύνολο</span></div>
+    <div class="tile money"><b>€{{ owed|floatformat:2 }}</b><span>Προς πληρωμή</span></div>
+    <div class="tile"><b>€{{ paid|floatformat:2 }}</b><span>Πληρώθηκαν</span></div>
+  </div>
+
+  <h2>Το link σου</h2>
+  <div class="card">
+    <div class="linkrow">
+      <div class="linkbox" id="link">neatapp.gr/a/{{ ambassador.code }}</div>
+      <button id="copy" data-link="{{ ambassador.link }}">Αντιγραφή</button>
+    </div>
+    <p class="note">Κάθε άτομο που κατεβάζει τη Neat από αυτό το link μετράει σε σένα.</p>
+  </div>
+
+  <h2>Ο κωδικός σου σε QR</h2>
+  <div class="card qrwrap">
+    <div class="styles" role="tablist">
+      {% for st in styles %}
+        <button type="button" role="tab" data-style="{{ st.id }}"
+                aria-selected="{% if st.id == tab %}true{% else %}false{% endif %}">{{ st.name }}</button>
+      {% endfor %}
+    </div>
+
+    {% for st in styles %}
+      <div class="pane" data-pane="{{ st.id }}" {% if st.id != tab %}hidden{% endif %}>
+        <div class="qr">
+          <img id="img-{{ st.id }}"
+               src="/creator/{{ ambassador.dashboard_key }}/qr.svg?style={{ st.id }}&v={{ qr_version }}{% if st.index != '' %}&i={{ st.index }}{% endif %}{% if st.id == 'custom' %}&r={{ custom_rev }}{% endif %}"
+               alt="QR" width="230">
+        </div>
+        <p class="line" id="line-{{ st.id }}">«<b>{{ st.line }}</b>»</p>
+        {% if st.id == 'aggressive' %}
+          <p class="note">Κάθε φορά που ανανεώνεις τη σελίδα παίρνεις άλλη ατάκα — κατέβασε όσες θέλεις και κόλλα διαφορετικές.</p>
+        {% endif %}
+
+        {% if st.id == 'custom' %}
+          <form class="customform" method="post">
+            {% csrf_token %}
+            <input id="slogan" name="slogan" maxlength="{{ slogan_max }}" value="{{ custom_slogan }}"
+                   placeholder="Γράψε τη δική σου ατάκα" autocomplete="off">
+            <button type="submit">Αποθήκευση</button>
+          </form>
+          <p class="note">Μέχρι {{ slogan_max }} χαρακτήρες. Όσο πιο σύντομη, τόσο πιο μεγάλα γράμματα στην αφίσα.</p>
+        {% endif %}
+
+        <div class="qrbtns">
+          <a class="btn" id="dl-{{ st.id }}"
+             href="/creator/{{ ambassador.dashboard_key }}/qr.svg?style={{ st.id }}&download=1&v={{ qr_version }}{% if st.index != '' %}&i={{ st.index }}{% endif %}{% if st.id == 'custom' %}&r={{ custom_rev }}{% endif %}"
+             download>Κατέβασε για εκτύπωση</a>
+          <a class="btn ghost" href="/creator/{{ ambassador.dashboard_key }}/qr.png?download=1&v={{ qr_version }}" download>PNG για stories</a>
+        </div>
+      </div>
+    {% endfor %}
+
+    <p class="note">
+      Το αρχείο εκτύπωσης είναι διανυσματικό: το τυπώνεις σε αφίσα, σε
+      αυτοκόλλητο ή σε flyer χωρίς να θολώσει, σε όποιο μέγεθος θέλεις.
+    </p>
+  </div>
+
+  <h2 id="content">Πρόσθεσε περιεχόμενο</h2>
+  <div class="card">
+    <p class="note" style="margin:0 0 14px">
+      Ανέβασες story, post ή βίντεο για μια πόλη; Καταχώρησέ το εδώ. Μόλις
+      ελεγχθεί, όποιος γράφεται στη Neat σε εκείνη την πόλη από την ώρα της
+      ανάρτησης μετράει σε σένα — μαζί με όσους έρχονται από το link σου. Για να
+      πληρωθεί ένα μέλος πρέπει, όπως και με το link, να περάσει όλους τους
+      ελέγχους.
+    </p>
+    {% if content_error %}<p class="err">{{ content_error }}</p>{% endif %}
+    <form class="content" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="content">
+      <label>Πλατφόρμα
+        <select name="platform" required>
+          <option value="">Διάλεξε</option>
+          {% for value, label in platforms %}
+            <option value="{{ value }}" {% if content_form.platform == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Πόλη
+        <select name="city" required>
+          <option value="">Διάλεξε</option>
+          {% for city in cities %}
+            <option value="{{ city }}" {% if content_form.city == city %}selected{% endif %}>{{ city }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="wide">Link ανάρτησης
+        <input type="url" name="url" required placeholder="https://www.tiktok.com/@…"
+               value="{{ content_form.url|default:'' }}">
+      </label>
+      <label>Ημερομηνία & ώρα ανάρτησης
+        <input type="datetime-local" name="uploaded_at" required
+               value="{{ content_form.uploaded_at|default:'' }}">
+      </label>
+      <label>Σημείωση (προαιρετικό)
+        <input name="note" maxlength="300" value="{{ content_form.note|default:'' }}">
+      </label>
+      <button type="submit">Καταχώρηση</button>
+    </form>
+
+    {% if posts %}
+      <table class="posts" style="margin-top:18px">
+        {% for row in posts %}
+          <tr>
+            <td>
+              <div class="platform">{{ row.post.get_platform_display }} · {{ row.post.city }}</div>
+              <div class="meta">{{ row.post.uploaded_at|date:"j M, H:i" }}</div>
+            </td>
+            <td class="when">
+              {% if row.post.status == 'approved' and row.post.stopped_at %}
+                <span class="status rejected">έκλεισε</span>
+                <div class="meta" style="margin-top:4px">{{ row.brought }} μέλη</div>
+              {% elif row.post.status == 'approved' %}
+                <span class="status approved">μετράει τώρα</span>
+                <div class="meta" style="margin-top:4px">{{ row.brought }} μέλη</div>
+              {% elif row.post.status == 'pending' %}
+                <span class="status pending">σε έλεγχο</span>
+              {% else %}
+                <span class="status rejected">δεν εγκρίθηκε</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+  </div>
+
+  <h2>Μέλη που έφερες</h2>
+  <div class="card">
+    {% if approved %}
+      <table>
+        {% for s in approved %}
+          <tr>
+            <td>
+              @{{ s.user.username }}
+              <div class="meta" style="color:var(--muted);font-size:12px">
+                {% if s.claim_method == 'content' %}από ανάρτηση{% if s.content %} · {{ s.content.city }}{% endif %}{% else %}από το link σου{% endif %}
+              </div>
+            </td>
+            <td class="when">{{ s.created|date:"j M Y" }}</td>
+            <td class="amount">€{{ s.amount|floatformat:2 }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="empty">Κανένα ακόμα. Μόλις εγκριθεί το πρώτο, εμφανίζεται εδώ.</p>
+    {% endif %}
+  </div>
+
+
+  <footer>neatapp.gr · κράτα αυτό το link ιδιωτικό</footer>
+</main>
+<script>
+  // Tabs. The panes are all rendered, so switching costs nothing and the
+  // images are already in the page by the time anyone presses a button.
+  document.querySelectorAll('.styles button').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var style = tab.dataset.style;
+      document.querySelectorAll('.styles button').forEach(function (b) {
+        b.setAttribute('aria-selected', String(b === tab));
+      });
+      document.querySelectorAll('.pane').forEach(function (pane) {
+        pane.hidden = pane.dataset.pane !== style;
+      });
+    });
+  });
+
+  // Live preview: the poster redraws as the line is typed, so nobody has to
+  // save to find out whether it fits. Saving is still what makes it stick.
+  (function () {
+    var input = document.getElementById('slogan');
+    var img = document.getElementById('img-custom');
+    var line = document.getElementById('line-custom');
+    var dl = document.getElementById('dl-custom');
+    if (!input || !img) return;
+    // The saved revision stays on the URL even while previewing, so clearing
+    // the field shows the saved poster rather than a stale cached one.
+    var base = '/creator/{{ ambassador.dashboard_key }}/qr.svg?style=custom' +
+               '&v={{ qr_version }}&r={{ custom_rev }}';
+    var fallback = '{{ styles.0.line|escapejs }}';
+    var timer;
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        var text = input.value.trim();
+        var q = text ? '&text=' + encodeURIComponent(text) : '';
+        img.src = base + q;
+        if (dl) {
+          dl.href = base + '&download=1' + q;
+        }
+        if (line) {
+          // textContent, not innerHTML: this is whatever the creator typed.
+          var b = document.createElement('b');
+          b.textContent = text || fallback;
+          line.replaceChildren('«', b, '»');
+        }
+      }, 350);
+    });
+  })();
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var b = this;
+    navigator.clipboard.writeText(b.dataset.link).then(function () {
+      var was = b.textContent;
+      b.textContent = '✓ Αντιγράφηκε';
+      setTimeout(function () { b.textContent = was; }, 2000);
+    });
+  });
+</script>
+</body>
+</html>
