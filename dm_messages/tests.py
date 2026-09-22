@@ -439,6 +439,34 @@ class BinaryUploadTests(TestCase):
         self.assertEqual(message.text, '__neat_voice__:|7',
                          'the duration the bubble draws must survive')
 
+    def _upload_voice(self, raw, filename='v.m4a'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.client.post(
+            f'/api/messages/{self.conversation.id}/',
+            data={'media': SimpleUploadedFile(filename, raw, 'audio/mp4'),
+                  'media_kind': 'voice', 'media_suffix': '|7', 'text': ''},
+            HTTP_AUTHORIZATION=f'Token {self.token}',
+            HTTP_X_NEAT_CLIENT='3',
+        )
+
+    def test_an_mpeg4_voice_note_is_stored_as_m4a(self):
+        res = self._upload_voice(b'\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00')
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertTrue(message.media_url.endswith('.m4a'), message.media_url)
+
+    def test_an_adts_voice_note_is_stored_as_aac(self):
+        """What an iPhone recording to a `.aac` path actually produces.
+
+        It used to be filed as `.m4a` whatever it was, which made nginx
+        announce a raw AAC stream as `audio/x-m4a` — and a player that trusts
+        the extension, as every one on iOS does, cannot open it.
+        """
+        res = self._upload_voice(b'\xff\xf9\x50\x60\x01\x60\x00\x00')
+        self.assertEqual(res.status_code, 201, res.content)
+        message = Message.objects.get(pk=res.json()['id'])
+        self.assertTrue(message.media_url.endswith('.aac'), message.media_url)
+
     def test_json_sending_still_works(self):
         import base64, json as _json
         res = self.client.post(

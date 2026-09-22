@@ -62,6 +62,24 @@ MAX_ANIMATED_BYTES = 8 * 1024 * 1024
 _ANIMATED_FORMATS = {'GIF': 'gif', 'WEBP': 'webp', 'PNG': 'png'}
 
 
+def voice_extension(raw):
+    """'m4a' or 'aac', by what the bytes are rather than what we hoped.
+
+    A voice note reaches here in one of two containers: an iPhone recording to
+    a `.aac` path gets a raw ADTS stream out of AVAudioRecorder, while Android
+    muxes an MPEG-4 file. Both were written out as `.m4a`, so nginx announced
+    half of them as `audio/x-m4a` when they were nothing of the sort — and on
+    iOS, where the parser is chosen by extension and never by content, a file
+    named after the wrong container simply fails to open.
+    """
+    if len(raw) >= 8 and raw[4:8] == b'ftyp':
+        return 'm4a'
+    # ADTS sync word: twelve set bits, then two layer bits that must be zero.
+    if len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xF6) == 0xF0:
+        return 'aac'
+    return 'm4a'
+
+
 def split_payload(text):
     """('image'|'voice', base64, suffix) for a media message, else None.
 
@@ -125,8 +143,9 @@ def store_message_media(text):
                 data = out.getvalue()
         else:
             # Voice notes are already compressed; re-encoding would only lose
-            # quality, so the bytes are written exactly as they arrived.
-            name = f'{STORAGE_DIR}/{uuid.uuid4()}.m4a'
+            # quality, so the bytes are written exactly as they arrived — under
+            # the extension that matches them.
+            name = f'{STORAGE_DIR}/{uuid.uuid4()}.{voice_extension(raw)}'
             data = raw
         stored = default_storage.save(name, ContentFile(data))
     except Exception:
