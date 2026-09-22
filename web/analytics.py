@@ -90,20 +90,45 @@ def _scoped(qs, field):
     return qs.filter(**{f'{field}__gte': cut}) if cut else qs
 
 
+#: Test accounts are created with an address at this domain. They are not
+#: people, and unlike the pre-launch import they are still being made, so a
+#: date cutoff cannot catch them: they inflate signups, sink every rate that
+#: divides by user count, and add fake drop-out to the activation funnel.
+#: Excluded unconditionally — `?all=1` widens the *date* scope, and there is
+#: no reading of "the whole history" under which a test account is a user.
+FAKE_EMAIL_DOMAIN = '@fake.com'
+
+
+def _real(qs, *email_paths):
+    """Drops rows belonging to a test account.
+
+    One `.exclude()` per path rather than a single OR-ed Q. Across a
+    multi-valued relation — a conversation's members — an OR-ed Q is evaluated
+    against one joined row at a time, so a conversation with one fake member
+    and one real one survives it. Chained excludes read as "no member matches",
+    which is what is meant here.
+    """
+    for path in email_paths:
+        qs = qs.exclude(**{f'{path}__iendswith': FAKE_EMAIL_DOMAIN})
+    return qs
+
+
 # One helper per model, so no call site has to remember which timestamp marks
 # an account or a row as belonging to the launch.
-def _users():          return _scoped(User.objects.all(), 'date_joined')
-def _profiles():       return _scoped(Profile.objects.all(), 'user__date_joined')
-def _sessions():       return _scoped(AppSession.objects.all(), 'started')
-def _follows():        return _scoped(Follow.objects.all(), 'created')
-def _notifications():  return _scoped(Notification.objects.all(), 'created')
-def _socials():        return _scoped(SocialAccount.objects.all(), 'created')
-def _conversations():  return _scoped(Conversation.objects.all(), 'created')
-def _messages():       return _scoped(Message.objects.all(), 'created')
-def _events():         return _scoped(Event.objects.all(), 'created')
-def _posts():          return _scoped(Post.objects.all(), 'created')
-def _comments():       return _scoped(PostComment.objects.all(), 'created')
-def _likes():          return _scoped(PostLike.objects.all(), 'created')
+def _users():          return _real(_scoped(User.objects.all(), 'date_joined'), 'email')
+def _profiles():       return _real(_scoped(Profile.objects.all(), 'user__date_joined'), 'user__email')
+def _sessions():       return _real(_scoped(AppSession.objects.all(), 'started'), 'user__email')
+# Both sides: a follow is only real if a real person is at each end of it.
+def _follows():        return _real(_scoped(Follow.objects.all(), 'created'), 'follower__email', 'following__email')
+def _notifications():  return _real(_scoped(Notification.objects.all(), 'created'), 'recipient__email')
+def _socials():        return _real(_scoped(SocialAccount.objects.all(), 'created'), 'user__email')
+# Conversation has no user of its own; its people hang off ConversationMember.
+def _conversations():  return _real(_scoped(Conversation.objects.all(), 'created'), 'members__user__email')
+def _messages():       return _real(_scoped(Message.objects.all(), 'created'), 'sender__email')
+def _events():         return _real(_scoped(Event.objects.all(), 'created'), 'creator__email')
+def _posts():          return _real(_scoped(Post.objects.all(), 'created'), 'user__email')
+def _comments():       return _real(_scoped(PostComment.objects.all(), 'created'), 'user__email')
+def _likes():          return _real(_scoped(PostLike.objects.all(), 'created'), 'user__email')
 
 
 def scope_summary():
@@ -111,15 +136,21 @@ def scope_summary():
     page itself, because a filtered number that looks unfiltered is worse than
     no number."""
     cut = _cutoff()
+    # Counted whether or not the date scope is on, because the test-account
+    # filter is on either way.
+    fake_users = User.objects.filter(
+        email__iendswith=FAKE_EMAIL_DOMAIN).count()
     if cut is None:
         return {'scoped': False, 'launch': launch_date(),
-                'excluded_users': 0, 'excluded_posts': 0}
+                'excluded_users': 0, 'excluded_posts': 0,
+                'excluded_fake_users': fake_users}
     return {
         'scoped': True,
         'launch': cut,
         'live': timezone.now() >= cut,
         'excluded_users': User.objects.filter(date_joined__lt=cut).count(),
         'excluded_posts': Post.objects.filter(created__lt=cut).count(),
+        'excluded_fake_users': fake_users,
     }
 
 
@@ -731,7 +762,7 @@ def diagnosis(data):
 
     push = data.get('push') or {}
     if push.get('total') and push['pct'] < 50:
-        add('critical' if push['pct'] < 30 else 'warning',
+        add('critical' if push['pct'] < 30 else 'warn',
             'Most signups cannot be reached',
             f"{push['unreachable']} of {push['total']} accounts "
             f"({100 - push['pct']:.0f}%) have no push token, so nothing can "
@@ -848,7 +879,13 @@ def diagnosis(data):
             'honest signal of whether a habit is forming.')
 
     order = {'critical': 0, 'warn': 1, 'info': 2, 'good': 3}
-    out.sort(key=lambda f: order[f['level']])
+    # .get, not [], deliberately. A level this dict has never heard of is a
+    # typo in one add() call, and the cost of indexing straight into it was the
+    # entire page 500ing: 'warning' instead of 'warn' above took /analytics
+    # down for everyone the moment push coverage crossed 30%, which is the
+    # branch that produced it. An unknown level now sorts last and the other
+    # findings still render.
+    out.sort(key=lambda f: order.get(f['level'], len(order)))
     return out
 
 
