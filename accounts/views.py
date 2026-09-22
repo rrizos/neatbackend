@@ -154,6 +154,12 @@ def signup(request):
 
         if not username or not password:
             return _bad_request('Username and password are required')
+        # Checked here and not only in the app: a username that needs escaping
+        # is a profile nobody can open, and the account is unusable by the time
+        # anyone notices. The app enforces the same rule at the keyboard.
+        format_error = _username_format_error(username)
+        if format_error:
+            return _bad_request(format_error)
         try:
             validate_password(password, User(username=username, email=email))
         except ValidationError as exc:
@@ -386,6 +392,29 @@ def _username_format_error(name):
     return None
 
 
+#: Characters that end the path segment a username is fetched as, or mean
+#: something else inside it. A name holding one of these is not a matter of
+#: taste: /api/auth/profiles/<username>/ never resolves, so the account's own
+#: profile cannot be opened by anyone, including its owner.
+_URL_UNSAFE_RE = re.compile(r'[\s/\\?#%&+]')
+
+
+def _username_unusable_error(name):
+    """Why [name] could never be reached in a URL, or None if it can.
+
+    The floor under [_username_format_error], for accounts that predate it.
+    Those hold dashes, Greek letters and the occasional emoji, and are left
+    alone — percent-encoding carries all of that. What is refused here is only
+    what no encoding survives, so that an edit cannot recreate the broken
+    accounts that signup used to let through.
+    """
+    if _URL_UNSAFE_RE.search(name):
+        return 'Username cannot contain spaces or any of / \\ ? # % & +.'
+    if set(name) <= {'.'}:
+        return 'Username cannot be only dots.'
+    return None
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'PATCH', 'DELETE', 'OPTIONS'])
 def me(request):
@@ -428,15 +457,20 @@ def me(request):
             if new_username != user.username:
                 if not new_username:
                     return _bad_request('Username cannot be empty')
-                # Format is only enforced for somebody replacing the username
+                # The full format is asked of somebody replacing the username
                 # we invented for them, which is the one case where the value
                 # has never been checked by anything. Applying it to every
                 # edit would start rejecting names existing accounts already
                 # hold and have been using happily.
-                if profile.username_pending:
-                    error = _username_format_error(new_username)
-                    if error:
-                        return _bad_request(error)
+                #
+                # Every edit still has to clear the floor, though: a name no
+                # URL can carry leaves the owner unable to open their own
+                # profile, which is the hole signup used to have.
+                error = (_username_format_error(new_username)
+                         if profile.username_pending
+                         else _username_unusable_error(new_username))
+                if error:
+                    return _bad_request(error)
                 if User.objects.exclude(pk=user.pk).filter(username=new_username).exists():
                     return _bad_request('Username is already taken')
                 user.username = new_username
@@ -824,6 +858,15 @@ def notifications(request):
 
         if request.method == 'POST':
             body = _json_body(request) or {}
+            if body.get('all'):
+                # Opening the tab is what reads it, so the whole lot goes at
+                # once — and here rather than by id, because the list only
+                # fetches the newest fifty and anything older than that would
+                # otherwise keep the badge lit over a tab already looked at.
+                Notification.objects.filter(
+                    recipient=viewer, is_read=False
+                ).update(is_read=True)
+                return _cors_json(JsonResponse({'ok': True}))
             ids = body.get('ids') or []
             Notification.objects.filter(recipient=viewer, id__in=ids).update(is_read=True)
             return _cors_json(JsonResponse({'ok': True}))
