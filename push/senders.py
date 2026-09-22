@@ -123,6 +123,90 @@ def _send_to_user(user, *, title, body, data, silent, image=None):
         DeviceToken.objects.filter(id__in=stale_token_ids).delete()
 
 
+def send_code_push(*, platform=None, batch_size=500):
+    """Wake every install so it downloads a fresh Shorebird patch.
+
+    A patch is swapped in while the Dart VM boots, so whichever launch happens
+    to download it runs the *old* code — which is why a new feature used to
+    show up on people's second launch. Android works around it by relaunching
+    its own process at startup; iOS is not allowed to, so the only way a patch
+    reaches an iOS user's first launch is for the download to have already
+    happened while the app was closed. That is what this push is for.
+
+    It is data-only and deliberately carries no `notification` block: with
+    `content-available` set and no alert keys, iOS wakes the app in the
+    background and shows the user nothing. Android needs `priority='high'`
+    for the same reason — a normal-priority data message can sit in Doze for
+    hours. The client end is `firebaseMessagingBackgroundHandler` in
+    `lib/src/core/push_service.dart`, keyed on `data.type`.
+
+    Run it right after `shorebird patch`, from
+    `manage.py send_code_push`. Returns (sent, failed).
+    """
+    app = get_app()
+    if app is None:
+        logger.warning('send_code_push: no firebase app configured')
+        return (0, 0)
+
+    from firebase_admin import messaging
+
+    tokens = DeviceToken.objects.all()
+    if platform:
+        tokens = tokens.filter(platform=platform)
+    rows = list(tokens.values_list('id', 'token'))
+    if not rows:
+        return (0, 0)
+
+    sent = failed = 0
+    stale_token_ids = []
+    # send_each takes at most 500 messages per call.
+    for start in range(0, len(rows), batch_size):
+        chunk = rows[start:start + batch_size]
+        messages = [
+            messaging.Message(
+                token=token,
+                data={'type': 'codepush'},
+                android=messaging.AndroidConfig(priority='high'),
+                apns=messaging.APNSConfig(
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(content_available=True),
+                    ),
+                    headers={
+                        # Both are required for a silent push: APNs rejects a
+                        # background push sent at priority 10, and refuses to
+                        # deliver one whose push-type does not say background.
+                        'apns-priority': '5',
+                        'apns-push-type': 'background',
+                    },
+                ),
+            )
+            for _token_id, token in chunk
+        ]
+        try:
+            response = messaging.send_each(messages)
+        except Exception:
+            logger.exception('send_code_push: batch starting at %s failed', start)
+            failed += len(chunk)
+            continue
+
+        for (token_id, _token), result in zip(chunk, response.responses):
+            if result.success:
+                sent += 1
+                continue
+            failed += 1
+            exc = result.exception
+            code = getattr(exc, 'code', '') or ''
+            if code in ('NOT_FOUND', 'UNREGISTERED') or type(exc).__name__ == 'UnregisteredError':
+                stale_token_ids.append(token_id)
+            else:
+                logger.warning('send_code_push: token %s failed: %s', token_id, exc)
+
+    if stale_token_ids:
+        DeviceToken.objects.filter(id__in=stale_token_ids).delete()
+
+    return (sent, failed)
+
+
 def send_soft(user, *, title, body, data=None):
     """A notification-center push: shows in the tray, never rings/vibrates."""
     try:
