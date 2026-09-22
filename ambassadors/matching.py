@@ -70,26 +70,35 @@ def _recent_invite_click(user, ip):
 
 
 def _credit_ambassador(user, click):
+    from . import addresses
     from .models import AmbassadorClick, AmbassadorSignup
 
     minutes = max(int((timezone.now() - click.created).total_seconds() // 60), 0)
+    address = addresses.address_for(user) or click.ip_address
+    auto_status, auto_flag = addresses.verdict(address, click.ambassador, user)
+    flags = [
+        'matched by network and time only, with no token: this account '
+        f'signed up {minutes} minutes after a click from the same address. '
+        'Shared mobile networks produce this too — check before approving.'
+    ]
+    if auto_flag:
+        flags.insert(0, auto_flag)
     signup = AmbassadorSignup.objects.create(
         ambassador=click.ambassador,
         click=click,
         user=user,
-        status=AmbassadorSignup.FLAGGED,
+        status=auto_status or AmbassadorSignup.FLAGGED,
         claim_method=AmbassadorSignup.NETWORK,
-        flags=(
-            'matched by network and time only, with no token: this account '
-            f'signed up {minutes} minutes after a click from the same address. '
-            'Shared mobile networks produce this too — check before approving.'
-        ),
+        ip_address=address,
+        flags='\n'.join(flags),
     )
     AmbassadorClick.objects.filter(id=click.id).update(used_at=timezone.now())
     return signup
 
 
 def _credit_invite(user, click):
+    # Invites are not paid, so the one-account-per-address rule does not apply
+    # to them: nothing is lost by counting two flatmates.
     from invites.models import InviteEvent
 
     event = InviteEvent.objects.create(

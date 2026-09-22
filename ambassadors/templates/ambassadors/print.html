@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+{% comment %} The title is what a browser prints in its header, when it prints one. {% endcomment %}
+<title>Neat</title>
+<style>
+  /* One A4 sheet. Zero page margins is also what makes Chrome, Edge and
+     Firefox leave out their header and footer, which they draw in the margin. */
+  @page { size: A4 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+
+  /* Deliberately not a 297mm-tall box. The last version filled the sheet
+     exactly, so any browser that kept its own margins pushed the poster onto
+     a second page. This leaves room for them: 15mm + a 214mm poster fits A4
+     even inside generous default margins. */
+  .sheet { display: flex; justify-content: center; padding-top: 15mm; }
+  .sheet img {
+    display: block; width: {{ width_mm }}mm; height: auto;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+
+  .bar {
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    flex-wrap: wrap; padding: 18px 16px 4px;
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .bar button, .bar a {
+    border: 0; border-radius: 12px; padding: 13px 22px; font: inherit; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .bar button { background: #2F80ED; color: #fff; }
+  .bar a { background: #fff; color: #1c1c1e; border: 1px solid #d5d7dd; }
+  .hint {
+    max-width: 520px; margin: 6px auto 0; padding: 0 16px; text-align: center;
+    color: #6b7280; font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  @media screen {
+    html { background: #e9eaee; }
+    body { background: transparent; }
+    .sheet { padding: 18px 0 40px; }
+    .sheet img { width: min({{ width_mm }}mm, 92vw); box-shadow: 0 10px 40px rgba(0,0,0,.15); }
+  }
+  @media print { .bar, .hint { display: none !important; } }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button type="button" onclick="window.print()">Εκτύπωση</button>
+    <a href="{{ pdf_url }}" target="_blank" rel="noopener">Άνοιγμα ως PDF</a>
+  </div>
+  <p class="hint">
+    Βγαίνει σε μία σελίδα Α4. Αν στο κάτω μέρος τυπωθεί διεύθυνση ή ημερομηνία,
+    βγάλε το τικ από «Κεφαλίδες και υποσέλιδα» στο παράθυρο εκτύπωσης — ή
+    τύπωσέ το από το PDF, που δεν τα έχει ποτέ.
+  </p>
+  <div class="sheet"><img id="poster" src="{{ png_url }}" alt="Neat"></div>
+<script>
+  // The dialog opens by itself once the poster has loaded — printing before
+  // the image arrives gives a blank sheet.
+  (function () {
+    var img = document.getElementById('poster');
+    function go() { setTimeout(function () { window.print(); }, 300); }
+    if (img.complete && img.naturalWidth) { go(); } else { img.addEventListener('load', go); }
+  })();
+</script>
+</body>
+</html>

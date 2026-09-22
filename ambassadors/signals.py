@@ -20,6 +20,18 @@ def attribute_new_account(sender, instance, created, **kwargs):
     if not created:
         return
     try:
+        from .middleware import current_ip
+        from .models import SignupAddress
+
+        # Written for every new account, because whether it turns out to be a
+        # referral is decided later — sometimes hours later, by a post window,
+        # long after this request is gone. Dropped again after the retention
+        # window; see addresses.py.
+        ip = current_ip()
+        if ip:
+            SignupAddress.objects.update_or_create(
+                user=instance, defaults={'ip_address': ip})
+
         from .matching import match_on_network
 
         # One call, both programmes: it picks whichever link was opened most

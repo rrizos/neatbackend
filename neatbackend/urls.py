@@ -56,6 +56,10 @@ urlpatterns = [
     path('ambassadors/', ambassador_views.manage),
     path('ambassadorsstats', ambassador_views.stats, name='ambassadors_stats'),
     path('ambassadorsstats/', ambassador_views.stats),
+    re_path(r'^a/(?P<code>[A-Za-z0-9_-]{1,64})/print/?$',
+            ambassador_views.ambassador_print, name='ambassador_print'),
+    re_path(r'^a/(?P<code>[A-Za-z0-9_-]{1,64})/poster\.(?P<fmt>png|pdf)$',
+            ambassador_views.ambassador_poster, name='ambassador_poster'),
     re_path(r'^a/(?P<code>[A-Za-z0-9_-]{1,64})/?$',
             ambassador_views.ambassador_landing, name='ambassador_landing'),
     # The locked-cities kill switch.
@@ -63,7 +67,7 @@ urlpatterns = [
     path('stoplocked/', lockedcities_views.stop_locked),
     # A creator's own dashboard. The key in the URL is the credential:
     # ambassadors usually have no Neat account to log in with.
-    re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/qr\.(?P<fmt>svg|png)$',
+    re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/qr\.(?P<fmt>svg|png|pdf)$',
             ambassador_views.creator_qr, name='creator_qr'),
     re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/?$',
             ambassador_views.creator_dashboard, name='creator_dashboard'),

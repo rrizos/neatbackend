@@ -13,6 +13,7 @@ every move records who did it.
 
 import hashlib
 import json
+import os
 import random
 import secrets
 from decimal import Decimal, InvalidOperation
@@ -20,11 +21,12 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Q, Sum
-from django.http import JsonResponse
+from django.db.models import Count, Q
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
@@ -33,6 +35,7 @@ from accounts.auth import require_authenticated_user
 from accounts.ratelimit import client_ip, rate_limited
 from lockedcities.cities import APP_CITIES
 
+from . import addresses
 from . import content as content_matching
 from . import qr as qr_module
 from . import qualify
@@ -126,17 +129,67 @@ def _require_named_admin(request):
 
 # ── The link ─────────────────────────────────────────────────────────────────
 
+#: The landing page as tools/deploy_web.sh last published it. Re-read only when
+#: the file changes: it is ~1.7 MB of inlined screenshots.
+_landing = {'key': None, 'html': None}
+
+
+def _landing_html():
+    """neatapp.gr's own index.html, or None where it has not been published
+    (a dev checkout, a test run)."""
+    from web.views import WEB_ROOT
+
+    path = os.path.join(WEB_ROOT, 'index.html')
+    try:
+        key = (path, os.stat(path).st_mtime_ns)
+        if _landing['key'] != key:
+            with open(path, encoding='utf-8') as f:
+                _landing['html'] = f.read()
+            _landing['key'] = key
+    except OSError:
+        return None
+    return _landing['html']
+
+
+def _with_click_token(html, token):
+    """The landing page, with this click's token where the app looks for it.
+
+    Nothing the reader can see changes. The Play badge carries the token as
+    the install referrer, and pressing either badge puts it on the pasteboard
+    for iOS — the same two routes the invite page used.
+    """
+    from urllib.parse import quote
+
+    from web.views import PLAY_STORE_URL
+
+    play = f'{PLAY_STORE_URL}&referrer={quote(f"neat_ct={token}", safe="")}'
+    html = html.replace(f'href="{PLAY_STORE_URL}"', f'href="{escape(play)}"')
+
+    script = (
+        '<script>\n'
+        'document.querySelectorAll(".store-badge").forEach(function (a) {\n'
+        '  a.addEventListener("click", function () {\n'
+        f'    try {{ navigator.clipboard.writeText({json.dumps(f"neat_ct={token}")}); }} catch (e) {{}}\n'
+        '  });\n'
+        '});\n'
+        '</script>\n'
+    )
+    head, body_end, tail = html.rpartition('</body>')
+    if not body_end:
+        return html + script
+    return head + script + body_end + tail
+
+
 @require_http_methods(['GET', 'HEAD'])
 @cache_control(no_store=True)
 def ambassador_landing(request, code):
     """neatapp.gr/a/<code> — the page an ambassador's audience lands on.
 
-    An unknown code renders the ordinary invite page rather than a 404: a
-    mistyped link should still sell the app, and a scraper should not be able
-    to tell a real code from a wrong one by the status line.
+    It is the ordinary landing page, not a page about the ambassador: the link
+    counts the visit and hands out a click token, and the reader sees the same
+    neatapp.gr as anyone else. An unknown code gets the same page with no
+    token, so a scraper cannot tell a real code from a wrong one.
     """
-    from invites.views import _avatar_for_page, _stores_for
-
     ambassador = Ambassador.objects.filter(code=code, is_active=True).first()
 
     # The token minted here is the whole mechanism. It rides out on the Play
@@ -152,40 +205,19 @@ def ambassador_landing(request, code):
                 token=secrets.token_urlsafe(32),
                 visitor=visitor_hash(client_ip(request), request.headers.get('User-Agent', '')[:400]),
                 ip=ip_hash(client_ip(request)),
+                ip_address=client_ip(request)[:45],
                 user_agent=request.headers.get('User-Agent', '')[:300],
             )
             click_token = click.token
 
-    # No city, deliberately. An ambassador posts one link to everyone, and the
-    # people who follow it live anywhere — plenty of them in Αθήνα or
-    # Θεσσαλονίκη, which are already open. Telling those readers they are
-    # helping unlock a city is at best irrelevant and at worst wrong, so this
-    # page sells the app and says nothing about locks.
-    who = ambassador.name if ambassador else 'Ένας φίλος σου'
-    lede = ('Η Neat χωρίζει την Ελλάδα σε πόλεις — κάθε πόλη με το δικό της '
-            'feed, με ό,τι συμβαίνει δίπλα σου.')
-    description = lede
-
-    # The same page the invite links use — one look for one product.
-    return render(request, 'invites/invite.html', {
-        'inviter': '',
-        'avatar': _avatar_for_page(ambassador.user, request) if ambassador and ambassador.user else '',
-        'initial': (who[:1].upper() or 'N'),
-        'stores': _stores_for(request.headers.get('User-Agent', ''), click_token),
-        # Written to the pasteboard when the download button is pressed, and
-        # read back by the app on first launch. Only ever a click token, which
-        # is single-use and worth nothing to anyone else.
-        'clipboard_token': f'neat_ct={click_token}' if click_token else '',
-        'who': who,
-        'title': f'{who} σε προσκαλεί στη Neat',
-        'description': description,
-        'city': None,
-        'lede': lede,
-        # Left off for the same reason as the city: it is an answer to
-        # "when does my city open", which this page no longer raises.
-        'show_greece_note': False,
-        'canonical': request.build_absolute_uri(request.path),
-    })
+    html = _landing_html()
+    if html is None:
+        # Nothing published here to show. The click is already counted, and
+        # the network fallback can still match it.
+        return redirect('/')
+    if click_token:
+        html = _with_click_token(html, click_token)
+    return HttpResponse(html)
 
 
 # ── The claim ────────────────────────────────────────────────────────────────
@@ -222,6 +254,7 @@ def mint_token(request):
         token=secrets.token_urlsafe(32),
         visitor=visitor_hash(ip, request.headers.get('User-Agent', '')[:400]),
         ip=ip_hash(ip),
+        ip_address=ip[:45],
         user_agent=request.headers.get('User-Agent', '')[:300],
     )
     return JsonResponse({'token': click.token})
@@ -300,13 +333,16 @@ def claim(request):
             return JsonResponse({'ok': True, 'credited': False, 'reason': 'predates_click'})
 
         flags = []
+        address = addresses.address_for(user, client_ip(request))
+        auto_status, auto_flag = addresses.verdict(address, ambassador, user)
+
         here = ip_hash(client_ip(request))
         if here != click.ip:
             # Not damning on its own — wifi at the shop, cellular at home —
             # but worth a human glance before it is worth money.
             flags.append('claim IP differs from the IP that asked for the token')
 
-        if AmbassadorClick.objects.filter(
+        if click.visitor and AmbassadorClick.objects.filter(
             visitor=click.visitor, signup__isnull=False,
         ).exclude(id=click.id).exclude(signup__user_id=user.id).exists():
             # One phone, two *different* accounts. Legitimate occasionally (a
@@ -329,6 +365,9 @@ def claim(request):
         if method not in dict(AmbassadorSignup.METHODS):
             method = AmbassadorSignup.TOKEN
 
+        if auto_flag:
+            flags.insert(0, auto_flag)
+
         if replaceable:
             # Free the click the guess was holding, so it is not left looking
             # spent, and re-point the row at the evidence that actually arrived.
@@ -338,10 +377,12 @@ def claim(request):
             existing.click = click
             existing.content = None
             existing.claim_method = method
-            existing.status = AmbassadorSignup.FLAGGED if flags else AmbassadorSignup.PENDING
+            existing.status = auto_status or (
+                AmbassadorSignup.FLAGGED if flags else AmbassadorSignup.PENDING)
             existing.flags = '\n'.join(flags)
-            existing.save(update_fields=['ambassador', 'click', 'content',
-                                         'claim_method', 'status', 'flags'])
+            existing.ip_address = address
+            existing.save(update_fields=['ambassador', 'click', 'content', 'claim_method',
+                                         'status', 'flags', 'ip_address'])
             signup = existing
             if old_click_id:
                 AmbassadorClick.objects.filter(id=old_click_id).update(used_at=None)
@@ -350,9 +391,11 @@ def claim(request):
                 ambassador=ambassador,
                 click=click,
                 user=user,
-                status=AmbassadorSignup.FLAGGED if flags else AmbassadorSignup.PENDING,
+                status=auto_status or (
+                    AmbassadorSignup.FLAGGED if flags else AmbassadorSignup.PENDING),
                 claim_method=method,
                 flags='\n'.join(flags),
+                ip_address=address,
             )
         click.used_at = now
         click.save(update_fields=['used_at'])
@@ -572,6 +615,9 @@ def creator_qr(request, key, fmt):
 
     if fmt == 'png':
         body, content_type, name = qr.png(ambassador.link), 'image/png', f'{stem}.png'
+    elif fmt == 'pdf':
+        body, content_type, name = (qr.pdf(ambassador.link, slogan),
+                                    'application/pdf', f'{stem}.pdf')
     else:
         body, content_type, name = (qr.svg(ambassador.link, slogan),
                                     'image/svg+xml', f'{stem}.svg')
@@ -579,12 +625,91 @@ def creator_qr(request, key, fmt):
     response = HttpResponse(body, content_type=content_type)
     if download:
         response['Content-Disposition'] = f'attachment; filename="{name}"'
+    elif fmt == 'pdf':
+        # Inline, so it opens in the browser's PDF viewer ready to print —
+        # with a real file name if they save it from there instead.
+        response['Content-Disposition'] = f'inline; filename="{name}"'
     # Short, and deliberately so. The link inside rarely changes but the
     # poster around it does, and a day-long cache meant a redesign was
     # invisible to the person it was for. ?v= retires old copies outright;
     # this keeps even an un-versioned request honest.
     response['Cache-Control'] = 'public, max-age=300'
     return response
+
+
+# ── Public posters ───────────────────────────────────────────────────────────
+#
+# Posters live under the public link, /a/<code>/…, and never under the
+# creator's private dashboard key. Everything on a poster is public already —
+# the link it encodes and the line printed under it — so nothing is lost by
+# that, and one thing is gained: a browser prints the page address in its
+# footer, and a print page under /creator/<key>/ put the private key on paper,
+# stuck to a wall, for anyone to read.
+
+def _poster_for(code, request):
+    """The ambassador and the line a poster request is asking for."""
+    from django.http import Http404
+
+    from . import qr
+
+    # Inactive ambassadors included. Their dashboard still shows them their
+    # own code, so the print button there has to work; and the link on the
+    # poster is harmless while they are inactive — it opens the ordinary
+    # invite page and credits nobody.
+    ambassador = Ambassador.objects.filter(code=code).first()
+    if ambassador is None:
+        raise Http404('No such poster')
+    style = request.GET.get('style') or qr.BASIC
+    if style not in qr.STYLES:
+        style = qr.BASIC
+    try:
+        index = int(request.GET['i']) if request.GET.get('i') else None
+    except ValueError:
+        index = None
+    # Only the saved custom line: this URL is public, and a `text` parameter
+    # here would let anyone print anything under a creator's name.
+    slogan = qr.slogan_for(style, ambassador.code, ambassador.custom_slogan, index)
+    return ambassador, style, index, slogan
+
+
+@require_http_methods(['GET', 'HEAD'])
+def ambassador_poster(request, code, fmt):
+    from django.http import HttpResponse
+
+    from . import qr
+
+    ambassador, style, index, slogan = _poster_for(code, request)
+    name = f'neat-{ambassador.code}-{style}.{fmt}'
+    if fmt == 'pdf':
+        response = HttpResponse(qr.pdf(ambassador.link, slogan), content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{name}"'
+    else:
+        response = HttpResponse(qr.poster_png(ambassador.link, slogan), content_type='image/png')
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
+
+
+@require_http_methods(['GET', 'HEAD'])
+@cache_control(no_store=True)
+def ambassador_print(request, code):
+    """A page whose only job is to print one poster on one sheet."""
+    from urllib.parse import urlencode
+
+    from . import qr
+
+    ambassador, style, index, slogan = _poster_for(code, request)
+    params = {'style': style, 'v': qr.DESIGN_VERSION}
+    if index is not None:
+        params['i'] = index
+    if style == qr.CUSTOM:
+        # Changes with the saved line, so a fresh one is never read from cache.
+        params['r'] = hashlib.sha256(ambassador.custom_slogan.encode('utf-8')).hexdigest()[:8]
+    query = urlencode(params)
+    return render(request, 'ambassadors/print.html', {
+        'png_url': f'/a/{ambassador.code}/poster.png?{query}',
+        'pdf_url': f'/a/{ambassador.code}/poster.pdf?{query}',
+        'width_mm': qr.PDF_POSTER_MM,
+    })
 
 
 # ── /ambassadors ─────────────────────────────────────────────────────────────
@@ -752,24 +877,8 @@ def stats(request):
     # job, and impossible to forget to run.
     content_matching.match()
     qualify.refresh_all()
-
-    rows = (
-        Ambassador.objects
-        .annotate(
-            click_count=Count('clicks', distinct=True),
-            app_clicks=Count('clicks', filter=Q(clicks__source=AmbassadorClick.APP), distinct=True),
-            signup_count=Count('signups', distinct=True),
-            pending=Count('signups', filter=Q(signups__status=AmbassadorSignup.PENDING), distinct=True),
-            qualified=Count('signups', filter=Q(signups__status=AmbassadorSignup.QUALIFIED), distinct=True),
-            approved=Count('signups', filter=Q(signups__status=AmbassadorSignup.APPROVED), distinct=True),
-            paid=Count('signups', filter=Q(signups__status=AmbassadorSignup.PAID), distinct=True),
-            flagged=Count('signups', filter=Q(signups__status=AmbassadorSignup.FLAGGED), distinct=True),
-            rejected=Count('signups', filter=Q(signups__status=AmbassadorSignup.REJECTED), distinct=True),
-            owed=Sum('signups__amount', filter=Q(signups__status=AmbassadorSignup.APPROVED)),
-            settled=Sum('signups__amount', filter=Q(signups__status=AmbassadorSignup.PAID)),
-        )
-        .order_by('-approved', '-qualified', '-signup_count')
-    )
+    # Addresses are kept only as long as they can settle a payout dispute.
+    addresses.purge_expired()
 
     review = list(
         AmbassadorSignup.objects
@@ -817,19 +926,15 @@ def stats(request):
         .order_by('-uploaded_at')[:20]
     )
 
-    totals = {
-        'ambassadors': len(rows),
-        'signups': sum(r.signup_count for r in rows),
-        'qualified': sum(r.qualified for r in rows),
-        'approved': sum(r.approved for r in rows),
-        'owed': sum((r.owed or 0) for r in rows),
-        'settled': sum((r.settled or 0) for r in rows),
-    }
+
+    from . import analytics
 
     return render(request, 'ambassadors/stats.html', {
-        'rows': rows,
+        # Everything the analytics sections show. Collected after matching and
+        # re-measuring above, so the numbers describe the state the review
+        # queues below are in, not the one before this page load.
+        'a': analytics.collect(),
         'review': review,
-        'totals': totals,
         'retention_days': qualify.RETENTION_DAYS,
         'min_posts': qualify.MIN_POSTS,
         'min_interactions': qualify.MIN_INTERACTIONS,

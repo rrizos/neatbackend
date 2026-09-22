@@ -2,18 +2,23 @@
 <html lang="el">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 {% comment %} A private link, and nobody's search result. {% endcomment %}
 <meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#000000">
 <title>Neat · {{ ambassador.name }}</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/icons/Icon-192.png">
 <style>
+  /* The same tokens as the invite page (invites/invite.html), because this is
+     the other page a creator sees and two dialects of one product read as two
+     products. */
   :root {
-    --bg: #000000; --card: #0e0e11; --surface: #141414; --ink: #ffffff;
+    --bg: #000000; --card: #0e0e11; --surface: #141417; --ink: #ffffff;
     --muted: #9ca3af; --hairline: rgba(255,255,255,.09); --blue: #2F80ED;
-    --good: #3fb950;
+    --blue-soft: #6aa9ff; --good: #3fb950; --warn: #d29922;
     --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --radius: 18px;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -21,95 +26,193 @@
   body {
     margin: 0; color: var(--ink); font-family: var(--sans); font-size: 16px;
     line-height: 1.5; -webkit-font-smoothing: antialiased;
+    /* Long page, phone in hand: nothing should sit under the home indicator. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* One soft light behind the top of the page. It gives the first screen a
+     centre without drawing anything that has to be maintained. */
+  body::before {
+    content: ''; position: fixed; inset: -20% 0 auto; height: 380px; z-index: -1;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(47,128,237,.18), transparent 70%);
+    pointer-events: none;
   }
   img { display: block; max-width: 100%; }
   a { color: inherit; text-decoration: none; }
-  main { max-width: 620px; margin: 0 auto; padding: 26px 20px 60px; }
+  main { max-width: 620px; margin: 0 auto; padding: 26px 20px 64px; }
 
-  .top { display: inline-block; margin-bottom: 24px; }
-  .top img { width: 56px; height: 56px; }
-  h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -.045em; }
-  .sub { color: var(--muted); font-size: 14.5px; margin: 6px 0 0; }
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .top { display: inline-block; margin-bottom: 22px; }
+  .top img { width: 48px; height: 48px; }
+  h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.045em; line-height: 1.1; }
+  .sub { color: var(--muted); font-size: 14.5px; margin: 8px 0 0; text-wrap: pretty; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600;
+    color: var(--warn); border: 1px solid rgba(210,153,34,.4); border-radius: 100px; padding: 3px 10px;
+  }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 12px; margin: 24px 0 0; }
+  /* ── Cards and headings ─────────────────────────────────────────────── */
+  h2 {
+    font-size: 13px; font-weight: 700; margin: 36px 0 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius);
+    padding: 18px;
+  }
+  /* The redirect after a save lands on #content; keep the heading clear of
+     the top edge when it does. */
+  [id] { scroll-margin-top: 20px; }
+
+  /* ── Earnings ───────────────────────────────────────────────────────── */
+  .earnings { padding: 22px 20px; }
+  .earnings .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+  .earnings .total {
+    display: block; margin: 6px 0 0; font-size: 46px; font-weight: 800; line-height: 1;
+    letter-spacing: -.045em; color: var(--good); font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    height: 8px; border-radius: 100px; background: var(--surface);
+    border: 1px solid var(--hairline); overflow: hidden; margin: 18px 0 0;
+  }
+  .bar i { display: block; height: 100%; background: var(--good); }
+  .split { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 12px 0 0; font-size: 13.5px; color: var(--muted); }
+  .split b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 7px; vertical-align: 1px; }
+  .dot.paid { background: var(--good); }
+  .dot.owed { background: rgba(255,255,255,.22); }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 0; }
   .tile { background: var(--card); border: 1px solid var(--hairline); border-radius: 16px; padding: 16px; }
-  .tile b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.03em; }
-  .tile.money b { color: var(--good); }
+  .tile b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
   .tile span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
 
-  h2 { font-size: 15px; margin: 34px 0 12px; letter-spacing: -.01em; }
-  .card { background: var(--card); border: 1px solid var(--hairline); border-radius: 18px; padding: 18px; }
-
-  .linkrow { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; }
-  .linkbox {
-    flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--hairline);
-    border-radius: 12px; padding: 12px 14px; font-size: 13.5px; font-weight: 500;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  /* ── Buttons ────────────────────────────────────────────────────────── */
   button, .btn {
-    border: 0; border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 700;
-    font-family: inherit; cursor: pointer; background: var(--blue); color: #fff; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; border: 0; border-radius: 12px; padding: 12px 16px;
+    font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+    background: var(--blue); color: #fff; white-space: nowrap;
+    transition: filter .12s ease, transform .12s ease;
+  }
+  button:hover, .btn:hover { filter: brightness(1.08); }
+  button:active, .btn:active { transform: translateY(1px); }
+  button:focus-visible, .btn:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--blue-soft); outline-offset: 2px;
   }
   .btn.ghost { background: transparent; border: 1px solid var(--hairline); color: var(--ink); }
+  .btn.ghost:hover { background: var(--surface); }
 
+  /* ── The link ───────────────────────────────────────────────────────── */
+  .linkrow { display: flex; gap: 8px; align-items: center; }
+  .linkbox {
+    flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 0 14px; min-height: 44px;
+    display: flex; align-items: center; justify-content: flex-start;
+    font-size: 14px; font-weight: 600; color: var(--ink); text-align: left;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    font-family: inherit;
+  }
+  .linkbox:hover { border-color: rgba(255,255,255,.2); }
+  #copy.done { background: var(--good); }
+
+  /* ── QR ─────────────────────────────────────────────────────────────── */
   .qrwrap { text-align: center; }
-  .qr { background: #fff; border-radius: 18px; padding: 14px; display: inline-block; }
+  /* A segmented control rather than three buttons: these are three views of
+     one thing, and spacing them apart made them read as three actions. */
+  .styles {
+    display: flex; gap: 4px; padding: 4px; margin: 0 0 18px;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px;
+  }
+  .styles button {
+    flex: 1; min-height: 38px; padding: 8px 6px; border-radius: 10px;
+    background: transparent; color: var(--muted); font-size: 13.5px; font-weight: 600;
+  }
+  .styles button:hover { color: var(--ink); filter: none; }
+  .styles button[aria-selected="true"] {
+    background: var(--blue); color: #fff; box-shadow: 0 8px 18px -12px rgba(47,128,237,1);
+  }
+  .qr {
+    background: #fff; border-radius: 16px; padding: 14px; display: inline-block;
+    box-shadow: 0 24px 48px -28px rgba(0,0,0,.95);
+  }
   /* Height auto: the poster is taller than it is wide, and forcing it square
      hid the whole band. */
   .qr img { width: 230px; height: auto; display: block; }
-  .qrbtns { display: flex; gap: 8px; justify-content: center; margin: 14px 0 0; flex-wrap: wrap; }
-
-  .styles { display: flex; gap: 8px; margin: 0 0 16px; }
-  .styles button {
-    flex: 1; background: var(--surface); color: var(--muted); font-size: 13.5px;
-    padding: 10px 8px; border: 1px solid var(--hairline);
-  }
-  .styles button[aria-selected="true"] { background: var(--blue); color: #fff; border-color: transparent; }
-  .line { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+  .qrbtns { display: flex; gap: 8px; justify-content: center; margin: 16px 0 0; flex-wrap: wrap; }
+  .qrbtns .btn { flex: 1 1 auto; min-width: 140px; }
+  .line { color: var(--muted); font-size: 14px; margin: 14px 0 0; text-wrap: pretty; }
   .line b { color: var(--ink); font-weight: 600; }
-  .customform { display: flex; gap: 8px; margin: 14px 0 0; }
-  .customform input {
-    flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--hairline);
-    border-radius: 12px; padding: 12px 14px; color: var(--ink); font: inherit; font-size: 14px;
-  }
-  .customform input:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
+  .customform { display: flex; gap: 8px; margin: 16px 0 0; }
+  .customform input { flex: 1; min-width: 0; }
   [hidden] { display: none !important; }
 
-  form.content { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  form.content label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
-  form.content .wide { grid-column: 1 / -1; }
-  form.content input, form.content select {
+  /* ── Fields ─────────────────────────────────────────────────────────── */
+  input, select {
     background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px;
-    padding: 11px 12px; color: var(--ink); font: inherit; font-size: 14px; width: 100%;
-    -webkit-appearance: none; appearance: none;
+    padding: 11px 13px; min-height: 44px; color: var(--ink); font: inherit; font-size: 15px;
+    width: 100%; -webkit-appearance: none; appearance: none;
   }
-  form.content input:focus, form.content select:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
-  form.content button { grid-column: 1 / -1; }
-  .err { color: #ff6b6b; font-size: 13.5px; margin: 0 0 12px; }
-  .posts td { vertical-align: top; }
-  .posts .platform { font-weight: 600; }
-  .posts .meta { color: var(--muted); font-size: 12.5px; }
-  .status { font-size: 11.5px; border-radius: 100px; padding: 2px 9px; border: 1px solid var(--hairline); white-space: nowrap; }
-  .status.pending { color: #d29922; border-color: rgba(210,153,34,.4); }
-  .status.approved { color: var(--good); border-color: rgba(63,185,80,.4); }
-  .status.rejected { color: var(--muted); }
-  @media (max-width: 440px) { form.content { grid-template-columns: 1fr; } }
+  input::placeholder { color: #6b7280; }
+  input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
+  /* appearance:none strips the native arrow, and a select that looks exactly
+     like a text field does not read as a list to open. */
+  select {
+    padding-right: 38px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%239ca3af' stroke-width='1.6'%3E%3Cpath d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center; background-size: 12px 8px;
+  }
+  form.content { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  form.content label { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  form.content .wide { grid-column: 1 / -1; }
+  form.content button { grid-column: 1 / -1; margin: 2px 0 0; }
+  .err {
+    color: #ffb4b4; background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.35);
+    border-radius: 12px; padding: 10px 12px; font-size: 13.5px; margin: 0 0 14px;
+  }
+  @media (max-width: 440px) {
+    form.content { grid-template-columns: 1fr; }
+    .customform { flex-direction: column; }
+    .customform button { width: 100%; }
+  }
 
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  td { padding: 11px 0; border-bottom: 1px solid var(--hairline); font-size: 14.5px; }
-  tr:last-child td { border-bottom: 0; }
-  td.when { color: var(--muted); text-align: right; font-size: 13px; }
-  td.amount { text-align: right; color: var(--good); font-weight: 600; }
-  .empty { color: var(--muted); font-size: 14px; }
-  .note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 12px 0 0; }
-  .pill { font-size: 11.5px; color: var(--muted); border: 1px solid var(--hairline); border-radius: 100px; padding: 2px 9px; }
-  footer { color: #5b6069; font-size: 12.5px; text-align: center; margin: 40px 0 0; }
+  /* ── Lists ──────────────────────────────────────────────────────────── */
+  .rows { list-style: none; margin: 18px 0 0; padding: 0; }
+  .rows li {
+    display: flex; align-items: center; gap: 12px; justify-content: space-between;
+    padding: 13px 0; border-bottom: 1px solid var(--hairline);
+  }
+  .rows li:last-child { border-bottom: 0; }
+  .rows .who { min-width: 0; }
+  .rows .name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rows .meta { color: var(--muted); font-size: 12.5px; margin: 3px 0 0; }
+  .rows .right { text-align: right; flex: none; }
+  .rows .amount { color: var(--good); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .rows .when { color: var(--muted); font-size: 12.5px; margin: 3px 0 0; }
+  .status {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600;
+    border-radius: 100px; padding: 3px 10px; border: 1px solid var(--hairline);
+    color: var(--muted); white-space: nowrap;
+  }
+  .status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .status.pending { color: var(--warn); border-color: rgba(210,153,34,.4); }
+  .status.approved { color: var(--good); border-color: rgba(63,185,80,.4); }
+  .status.closed, .status.rejected { color: var(--muted); }
+
+  .empty { color: var(--muted); font-size: 14.5px; margin: 0; text-wrap: pretty; }
+  .note { color: var(--muted); font-size: 13.5px; line-height: 1.55; margin: 14px 0 0; text-wrap: pretty; }
+  .note b { color: var(--ink); font-weight: 600; }
+  .note.warn { color: var(--warn); }
+  footer { color: #5b6069; font-size: 12.5px; text-align: center; margin: 44px 0 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
 <main>
   <a class="top" href="/" aria-label="Neat">
-    <img src="/brand/logo-dark.png" alt="Neat" width="56" height="56">
+    <img src="/brand/logo-dark.png" alt="Neat" width="48" height="48">
   </a>
 
   <h1>{{ ambassador.name }}</h1>
@@ -121,33 +224,53 @@
     {% endif %}
   </p>
 
+  {% comment %} The money first, and as one figure with its parts under it:
+  "πόσα έβγαλα" is the question this page exists to answer, and four equal
+  tiles made the answer something to assemble. {% endcomment %}
+  <h2>Τα κέρδη σου</h2>
+  <div class="card earnings">
+    <span class="k">Σύνολο</span>
+    <b class="total">€{{ earned|floatformat:2 }}</b>
+    <div class="bar" aria-hidden="true">
+      <i style="width: {% widthratio paid earned 100 %}%"></i>
+    </div>
+    <div class="split">
+      <span><i class="dot paid"></i>Πληρώθηκαν <b>€{{ paid|floatformat:2 }}</b></span>
+      <span><i class="dot owed"></i>Προς πληρωμή <b>€{{ owed|floatformat:2 }}</b></span>
+    </div>
+  </div>
+
   <div class="tiles">
     <div class="tile"><b>{{ approved|length }}</b><span>Μέλη που έφερες</span></div>
-    <div class="tile money"><b>€{{ earned|floatformat:2 }}</b><span>Σύνολο</span></div>
-    <div class="tile money"><b>€{{ owed|floatformat:2 }}</b><span>Προς πληρωμή</span></div>
-    <div class="tile"><b>€{{ paid|floatformat:2 }}</b><span>Πληρώθηκαν</span></div>
+    <div class="tile"><b>{{ opens }}</b><span>Ανοίγματα link</span></div>
   </div>
 
   <h2>Το link σου</h2>
   <div class="card">
     <div class="linkrow">
-      <div class="linkbox" id="link">neatapp.gr/a/{{ ambassador.code }}</div>
+      {% comment %} A button, not a div: the whole box copies, which is what
+      anyone tries first on a phone. {% endcomment %}
+      <button type="button" class="linkbox" id="link" data-link="{{ ambassador.link }}"
+              aria-label="Αντιγραφή του link σου">neatapp.gr/a/{{ ambassador.code }}</button>
       <button id="copy" data-link="{{ ambassador.link }}">Αντιγραφή</button>
     </div>
-    <p class="note">Κάθε άτομο που κατεβάζει τη Neat από αυτό το link μετράει σε σένα.</p>
+    <p class="note" id="copy-status" role="status">Κάθε άτομο που κατεβάζει τη Neat από αυτό το link μετράει σε σένα.</p>
   </div>
 
   <h2>Ο κωδικός σου σε QR</h2>
   <div class="card qrwrap">
-    <div class="styles" role="tablist">
+    <div class="styles" role="tablist" aria-label="Στυλ αφίσας">
       {% for st in styles %}
-        <button type="button" role="tab" data-style="{{ st.id }}"
+        <button type="button" role="tab" id="tab-{{ st.id }}" data-style="{{ st.id }}"
+                aria-controls="pane-{{ st.id }}"
+                {% if st.id != tab %}tabindex="-1"{% endif %}
                 aria-selected="{% if st.id == tab %}true{% else %}false{% endif %}">{{ st.name }}</button>
       {% endfor %}
     </div>
 
     {% for st in styles %}
-      <div class="pane" data-pane="{{ st.id }}" {% if st.id != tab %}hidden{% endif %}>
+      <div class="pane" id="pane-{{ st.id }}" role="tabpanel" aria-labelledby="tab-{{ st.id }}"
+           data-pane="{{ st.id }}" {% if st.id != tab %}hidden{% endif %}>
         <div class="qr">
           <img id="img-{{ st.id }}"
                src="/creator/{{ ambassador.dashboard_key }}/qr.svg?style={{ st.id }}&v={{ qr_version }}{% if st.index != '' %}&i={{ st.index }}{% endif %}{% if st.id == 'custom' %}&r={{ custom_rev }}{% endif %}"
@@ -166,26 +289,23 @@
             <button type="submit">Αποθήκευση</button>
           </form>
           <p class="note">Μέχρι {{ slogan_max }} χαρακτήρες. Όσο πιο σύντομη, τόσο πιο μεγάλα γράμματα στην αφίσα.</p>
+          <p class="note warn" id="print-hint" hidden>Πάτα Αποθήκευση πριν την εκτύπωση — τυπώνεται η αποθηκευμένη ατάκα.</p>
         {% endif %}
 
         <div class="qrbtns">
-          <a class="btn" id="dl-{{ st.id }}"
-             href="/creator/{{ ambassador.dashboard_key }}/qr.svg?style={{ st.id }}&download=1&v={{ qr_version }}{% if st.index != '' %}&i={{ st.index }}{% endif %}{% if st.id == 'custom' %}&r={{ custom_rev }}{% endif %}"
-             download>Κατέβασε για εκτύπωση</a>
+          <a class="btn" id="pr-{{ st.id }}" target="_blank" rel="noopener"
+             href="/a/{{ ambassador.code }}/print?style={{ st.id }}{% if st.index != '' %}&i={{ st.index }}{% endif %}">Εκτύπωση</a>
           <a class="btn ghost" href="/creator/{{ ambassador.dashboard_key }}/qr.png?download=1&v={{ qr_version }}" download>PNG για stories</a>
         </div>
       </div>
     {% endfor %}
 
-    <p class="note">
-      Το αρχείο εκτύπωσης είναι διανυσματικό: το τυπώνεις σε αφίσα, σε
-      αυτοκόλλητο ή σε flyer χωρίς να θολώσει, σε όποιο μέγεθος θέλεις.
-    </p>
+    <p class="note">Η <b>Εκτύπωση</b> ανοίγει την αφίσα σε μία σελίδα Α4, με το παράθυρο εκτύπωσης ήδη ανοιχτό.</p>
   </div>
 
   <h2 id="content">Πρόσθεσε περιεχόμενο</h2>
   <div class="card">
-    <p class="note" style="margin:0 0 14px">
+    <p class="note" style="margin:0 0 16px">
       Ανέβασες story, post ή βίντεο για μια πόλη; Καταχώρησέ το εδώ. Μόλις
       ελεγχθεί, όποιος γράφεται στη Neat σε εκείνη την πόλη από την ώρα της
       ανάρτησης μετράει σε σένα — μαζί με όσους έρχονται από το link σου. Για να
@@ -227,49 +347,51 @@
     </form>
 
     {% if posts %}
-      <table class="posts" style="margin-top:18px">
+      <ul class="rows">
         {% for row in posts %}
-          <tr>
-            <td>
-              <div class="platform">{{ row.post.get_platform_display }} · {{ row.post.city }}</div>
+          <li>
+            <div class="who">
+              <div class="name">{{ row.post.get_platform_display }} · {{ row.post.city }}</div>
               <div class="meta">{{ row.post.uploaded_at|date:"j M, H:i" }}</div>
-            </td>
-            <td class="when">
+            </div>
+            <div class="right">
               {% if row.post.status == 'approved' and row.post.stopped_at %}
-                <span class="status rejected">έκλεισε</span>
-                <div class="meta" style="margin-top:4px">{{ row.brought }} μέλη</div>
+                <span class="status closed">έκλεισε</span>
+                <div class="when">{{ row.brought }} μέλη</div>
               {% elif row.post.status == 'approved' %}
                 <span class="status approved">μετράει τώρα</span>
-                <div class="meta" style="margin-top:4px">{{ row.brought }} μέλη</div>
+                <div class="when">{{ row.brought }} μέλη</div>
               {% elif row.post.status == 'pending' %}
                 <span class="status pending">σε έλεγχο</span>
               {% else %}
                 <span class="status rejected">δεν εγκρίθηκε</span>
               {% endif %}
-            </td>
-          </tr>
+            </div>
+          </li>
         {% endfor %}
-      </table>
+      </ul>
     {% endif %}
   </div>
 
   <h2>Μέλη που έφερες</h2>
   <div class="card">
     {% if approved %}
-      <table>
+      <ul class="rows" style="margin-top:0">
         {% for s in approved %}
-          <tr>
-            <td>
-              @{{ s.user.username }}
-              <div class="meta" style="color:var(--muted);font-size:12px">
+          <li>
+            <div class="who">
+              <div class="name">@{{ s.user.username }}</div>
+              <div class="meta">
                 {% if s.claim_method == 'content' %}από ανάρτηση{% if s.content %} · {{ s.content.city }}{% endif %}{% else %}από το link σου{% endif %}
               </div>
-            </td>
-            <td class="when">{{ s.created|date:"j M Y" }}</td>
-            <td class="amount">€{{ s.amount|floatformat:2 }}</td>
-          </tr>
+            </div>
+            <div class="right">
+              <div class="amount">€{{ s.amount|floatformat:2 }}</div>
+              <div class="when">{{ s.created|date:"j M Y" }}</div>
+            </div>
+          </li>
         {% endfor %}
-      </table>
+      </ul>
     {% else %}
       <p class="empty">Κανένα ακόμα. Μόλις εγκριθεί το πρώτο, εμφανίζεται εδώ.</p>
     {% endif %}
@@ -281,17 +403,35 @@
 <script>
   // Tabs. The panes are all rendered, so switching costs nothing and the
   // images are already in the page by the time anyone presses a button.
-  document.querySelectorAll('.styles button').forEach(function (tab) {
-    tab.addEventListener('click', function () {
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.styles button'));
+
+    function select(tab) {
       var style = tab.dataset.style;
-      document.querySelectorAll('.styles button').forEach(function (b) {
-        b.setAttribute('aria-selected', String(b === tab));
+      tabs.forEach(function (b) {
+        var on = b === tab;
+        b.setAttribute('aria-selected', String(on));
+        // One stop for the whole group, which is how a tablist is meant to
+        // behave: the arrow keys move between the tabs once you are in it.
+        b.tabIndex = on ? 0 : -1;
       });
       document.querySelectorAll('.pane').forEach(function (pane) {
         pane.hidden = pane.dataset.pane !== style;
       });
+    }
+
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var next = tabs[(i + step + tabs.length) % tabs.length];
+        select(next);
+        next.focus();
+      });
     });
-  });
+  })();
 
   // Live preview: the poster redraws as the line is typed, so nobody has to
   // save to find out whether it fits. Saving is still what makes it stick.
@@ -299,7 +439,6 @@
     var input = document.getElementById('slogan');
     var img = document.getElementById('img-custom');
     var line = document.getElementById('line-custom');
-    var dl = document.getElementById('dl-custom');
     if (!input || !img) return;
     // The saved revision stays on the URL even while previewing, so clearing
     // the field shows the saved poster rather than a stale cached one.
@@ -313,8 +452,11 @@
         var text = input.value.trim();
         var q = text ? '&text=' + encodeURIComponent(text) : '';
         img.src = base + q;
-        if (dl) {
-          dl.href = base + '&download=1' + q;
+        // Printing uses the saved line — the print page is public, so it
+        // never takes text from a URL. Say so while there are unsaved edits.
+        var hint = document.getElementById('print-hint');
+        if (hint) {
+          hint.hidden = text === '{{ custom_slogan|escapejs }}';
         }
         if (line) {
           // textContent, not innerHTML: this is whatever the creator typed.
@@ -326,14 +468,35 @@
     });
   })();
 
-  document.getElementById('copy').addEventListener('click', function () {
-    var b = this;
-    navigator.clipboard.writeText(b.dataset.link).then(function () {
-      var was = b.textContent;
-      b.textContent = '✓ Αντιγράφηκε';
-      setTimeout(function () { b.textContent = was; }, 2000);
-    });
-  });
+  // Copying the link. Both the box and the button do it, and the answer is
+  // said in the line under them as well as on the button, so a screen reader
+  // hears it too.
+  (function () {
+    var button = document.getElementById('copy');
+    var box = document.getElementById('link');
+    var status = document.getElementById('copy-status');
+    var said = status ? status.textContent : '';
+    var label = button.textContent;
+    var timer;
+
+    function copy(link) {
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(link).then(function () {
+        clearTimeout(timer);
+        button.textContent = '✓ Αντιγράφηκε';
+        button.classList.add('done');
+        if (status) status.textContent = 'Το link αντιγράφηκε. Επικόλλησέ το όπου θέλεις.';
+        timer = setTimeout(function () {
+          button.textContent = label;
+          button.classList.remove('done');
+          if (status) status.textContent = said;
+        }, 2000);
+      }).catch(function () {});
+    }
+
+    button.addEventListener('click', function () { copy(button.dataset.link); });
+    if (box) box.addEventListener('click', function () { copy(box.dataset.link); });
+  })();
 </script>
 </body>
 </html>

@@ -159,7 +159,12 @@ class AmbassadorClick(models.Model):
     #: Opaque, single-use, and the only thing a claim may present.
     token = models.CharField(max_length=64, unique=True, db_index=True)
     visitor = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    #: Salted hash of the address, for matching without keeping the address.
     ip = models.CharField(max_length=64, blank=True, default='')
+    #: The address itself. Kept because a payout dispute is settled by looking
+    #: at where the signups came from, and a hash cannot be looked at. Personal
+    #: data: admin-only, and dropped after ADDRESS_RETENTION.
+    ip_address = models.CharField(max_length=45, blank=True, default='', db_index=True)
     user_agent = models.CharField(max_length=300, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True, db_index=True)
     used_at = models.DateTimeField(null=True, blank=True)
@@ -255,6 +260,9 @@ class AmbassadorSignup(models.Model):
     claim_method = models.CharField(max_length=10, choices=METHODS, default=TOKEN)
     #: Why this was flagged, one short reason per line. Empty when clean.
     flags = models.TextField(blank=True, default='')
+    #: Where this account was when it was credited. Shown on the review page
+    #: and used by the duplicate-address rule below.
+    ip_address = models.CharField(max_length=45, blank=True, default='', db_index=True)
 
     #: The quality bar, stored as it was measured so the dashboard does not
     #: have to re-derive it for every row on every load.
@@ -351,3 +359,32 @@ class AmbassadorContent(models.Model):
 
     def __str__(self):
         return f'{self.ambassador_id} · {self.platform} · {self.city} · {self.uploaded_at:%Y-%m-%d %H:%M}'
+
+
+class SignupAddress(models.Model):
+    """The address an account was created from.
+
+    Recorded for every new account, not only credited ones, because whether an
+    account turns out to be somebody's referral is decided later — a post
+    window can credit it hours after the fact, by which time the request it
+    arrived on is long gone.
+
+    It is deleted again after `ADDRESS_RETENTION`. The purpose is fraud
+    prevention on paid referrals, and an address is personal data: keeping it
+    beyond the point where it can settle a payout dispute buys nothing and
+    costs something.
+    """
+
+    #: How long an address is kept. Long enough to cover a payout cycle and an
+    #: argument about it; short enough not to become a standing archive of
+    #: where everybody lives.
+    RETENTION = timezone.timedelta(days=90)
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='signup_address',
+    )
+    ip_address = models.CharField(max_length=45, db_index=True)
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f'{self.user_id} @ {self.ip_address}'

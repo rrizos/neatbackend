@@ -113,7 +113,9 @@
               <td>{{ a.signup_count }}</td>
               <td>{{ a.approved }}</td>
               <td>
-                <form method="post" style="display:inline">
+                {% comment %} Disabling asks first. It is one tap on a phone, and it silently stops a creator's link and running posts from crediting anyone — which is how Rizos went quiet unnoticed. {% endcomment %}
+                <form method="post" style="display:inline"
+                      {% if a.is_active %}onsubmit="return confirm('Disable {{ a.name|escapejs }}? Their link and running posts stop crediting anyone until you enable them again.');"{% endif %}>
                   {% csrf_token %}
                   <input type="hidden" name="id" value="{{ a.id }}">
                   <input type="hidden" name="action" value="{% if a.is_active %}deactivate{% else %}activate{% endif %}">

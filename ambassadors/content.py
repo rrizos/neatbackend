@@ -32,6 +32,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
+from . import addresses
+
 logger = logging.getLogger(__name__)
 
 #: How long after a post is stopped it is still scanned. A person can sign up
@@ -108,16 +110,28 @@ def match(ambassador=None):
                 recent = AmbassadorSignup.objects.filter(
                     ambassador=post.ambassador, created__gte=day_ago).count()
                 over_cap = recent >= post.ambassador.daily_cap
+
+                # The address this account signed up from, recorded when it was
+                # created — there is no request here to read one from.
+                address = addresses.address_for(user)
+                auto_status, auto_flag = addresses.verdict(address, post.ambassador, user)
+
+                flags = []
+                if auto_flag:
+                    flags.append(auto_flag)
+                if over_cap:
+                    flags.append(f'over the daily cap of {post.ambassador.daily_cap}')
+
                 AmbassadorSignup.objects.create(
                     ambassador=post.ambassador,
                     click=None,
                     content=post,
                     user=user,
                     claim_method=AmbassadorSignup.CONTENT,
-                    status=(AmbassadorSignup.FLAGGED if over_cap
-                            else AmbassadorSignup.PENDING),
-                    flags=(f'over the daily cap of {post.ambassador.daily_cap}'
-                           if over_cap else ''),
+                    status=auto_status or (AmbassadorSignup.FLAGGED if over_cap
+                                           else AmbassadorSignup.PENDING),
+                    ip_address=address,
+                    flags='\n'.join(flags),
                 )
                 created += 1
         except Exception:

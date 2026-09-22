@@ -30,7 +30,15 @@ QUIET = 4
 #: ?v=, which is the only thing that reliably retires a cached copy — the file
 #: name stays the same, so without it a creator keeps seeing the old design
 #: until their browser feels like asking again.
-DESIGN_VERSION = 4
+DESIGN_VERSION = 6
+
+#: The poster's printed width. The SVG used to declare its size in pixels,
+#: which a print dialog reads at 96 per inch: 880px came out 233mm wide and
+#: 293mm tall, larger than A4's printable area (about 190 x 277mm) in both
+#: directions, so it split across two pages. A physical size is the fix —
+#: printed at 100% on A4, it now fits one page with room to spare, and any
+#: print shop can still scale the vector to whatever size it likes.
+PRINT_WIDTH_MM = 180
 
 #: Neat's blue, and the band it paints across the bottom of a poster.
 BLUE = '#2F80ED'
@@ -125,7 +133,7 @@ def _logo_data_uri(on_dark=False):
         return ''
 
 
-def svg(url, slogan=None, size_px=880):
+def svg(url, slogan=None):
     """A poster: the code, then a blue band that says what it is for.
 
     Proportions are in QR modules rather than pixels, so the whole thing
@@ -144,7 +152,7 @@ def svg(url, slogan=None, size_px=880):
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{size_px}" height="{size_px * height / total:.0f}" '
+        f'width="{PRINT_WIDTH_MM}mm" height="{PRINT_WIDTH_MM * height / total:.1f}mm" '
         f'viewBox="0 0 {total} {height:.3f}" '
         f'role="img" aria-label="{slogan}">',
         f'<rect width="{total}" height="{height:.3f}" fill="#ffffff"/>',
@@ -154,6 +162,14 @@ def svg(url, slogan=None, size_px=880):
     # One rect per run of dark modules rather than per module: the same
     # picture in a fraction of the bytes, which matters when this is inlined
     # into a page.
+    #
+    # Each rect is drawn a hair larger than its cell. Rects that merely touch
+    # leave a seam where their edges meet, and a PDF renderer anti-aliases that
+    # seam into a visible white hairline through every row — invisible on
+    # screen, where crispEdges is honoured, and printed onto the paper, where
+    # it is not. The overlap closes the seams; at a few hundredths of a module
+    # it is far below anything a scanner can see.
+    bleed = 0.04
     for y, row in enumerate(matrix):
         x = 0
         while x < modules:
@@ -162,7 +178,8 @@ def svg(url, slogan=None, size_px=880):
                 while x + run < modules and row[x + run]:
                     run += 1
                 parts.append(
-                    f'<rect x="{x + QUIET}" y="{y + QUIET}" width="{run}" height="1"/>')
+                    f'<rect x="{x + QUIET}" y="{y + QUIET}" '
+                    f'width="{run + bleed:.2f}" height="{1 + bleed:.2f}"/>')
                 x += run
             else:
                 x += 1
@@ -229,3 +246,177 @@ def png(url, scale=16):
     segno.make(url, error=LEVEL).save(
         buffer, kind='png', scale=scale, border=QUIET, dark='#0a0d18', light='#ffffff')
     return buffer.getvalue()
+
+
+# ── A4, as a PDF ──────────────────────────────────────────────────────────────
+#
+# Why a PDF and not a print page: printing a web page lets the browser add its
+# own margins, and a header and footer carrying the page's URL and page
+# numbers. No page can switch those off — they are the reader's print-dialog
+# setting — and the space they take is what pushed the poster onto a second
+# sheet, with the URL (private key included) printed under each. A PDF prints
+# as exactly the page it contains, with nothing added.
+#
+# Drawn with Pillow onto an A4 canvas rather than converted from the SVG, which
+# has three advantages: no new dependency, text measured with the real font
+# instead of estimated, and modules on an exact integer pixel grid, so there
+# is no seam between rows for anything to anti-alias.
+
+import io as _io
+import zlib
+
+from PIL import Image, ImageDraw, ImageFont
+
+PDF_DPI = 300
+A4_MM = (210, 297)
+#: The poster's width on the sheet. Well inside A4, so a printer's own
+#: unprintable edge never reaches it.
+PDF_POSTER_MM = 170
+FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+INK = (10, 13, 24)
+
+
+def _mm(value):
+    return round(value / 25.4 * PDF_DPI)
+
+
+def _logo_image(on_dark):
+    from web.views import WEB_ROOT
+
+    name = 'logo-dark.png' if on_dark else 'logo-light.png'
+    try:
+        return Image.open(os.path.join(WEB_ROOT, 'brand', name)).convert('RGBA')
+    except OSError:
+        return None
+
+
+def _fit_font(path, text, max_width, start):
+    """The largest size, from [start] down, at which [text] fits [max_width]."""
+    size = int(start)
+    while size > 8:
+        font = ImageFont.truetype(path, size)
+        if font.getlength(text) <= max_width:
+            return font
+        size -= 2
+    return ImageFont.truetype(path, 8)
+
+
+def render_poster(url, slogan=None):
+    """The poster alone, at print resolution — no page around it."""
+    slogan = slogan or BASIC_SLOGAN
+    matrix = [list(row) for row in segno.make(url, error=LEVEL).matrix]
+    total = len(matrix) + QUIET * 2
+    # Whole pixels per module: the grid is exact, so neighbouring modules meet
+    # edge to edge with nothing between them.
+    module = _mm(PDF_POSTER_MM) // total
+    poster_w = module * total
+    band_h = round(poster_w * 0.26)
+    page = Image.new('RGB', (poster_w, poster_w + band_h), 'white')
+    draw = ImageDraw.Draw(page)
+    left = top = 0
+
+    for y, row in enumerate(matrix):
+        for x, dark in enumerate(row):
+            if dark:
+                x0 = left + (x + QUIET) * module
+                y0 = top + (y + QUIET) * module
+                draw.rectangle([x0, y0, x0 + module - 1, y0 + module - 1], fill=INK)
+
+    logo = _logo_image(on_dark=False)
+    if logo is not None:
+        span = round(poster_w * LOGO_FRACTION)
+        plate = round(span * 1.42)
+        cx, cy = left + poster_w // 2, top + poster_w // 2
+        draw.rounded_rectangle(
+            [cx - plate // 2, cy - plate // 2, cx + plate // 2, cy + plate // 2],
+            radius=round(plate * 0.18), fill='white')
+        mark = logo.resize((span, span), Image.LANCZOS)
+        page.paste(mark, (cx - span // 2, cy - span // 2), mark)
+
+    band_top = top + poster_w
+    draw.rectangle([left, band_top, left + poster_w - 1, band_top + band_h - 1], fill=BLUE)
+
+    pad = round(poster_w * 0.055)
+    text_x = left + pad
+    pale = _logo_image(on_dark=True)
+    if pale is not None:
+        size = round(band_h * 0.66)
+        mark = pale.resize((size, size), Image.LANCZOS)
+        page.paste(mark, (left + pad, band_top + (band_h - size) // 2), mark)
+        text_x = left + pad + size + round(poster_w * 0.03)
+
+    available = left + poster_w - pad - text_x
+    title = _fit_font(FONT_BOLD, slogan, available, band_h * 0.30)
+    sub = _fit_font(FONT_REGULAR, SUBLINE, available, title.size * 0.72)
+
+    title_box = title.getbbox(slogan)
+    sub_box = sub.getbbox(SUBLINE)
+    title_h = title_box[3] - title_box[1]
+    sub_h = sub_box[3] - sub_box[1]
+    gap = round(title.size * 0.35)
+    y = band_top + (band_h - (title_h + gap + sub_h)) // 2
+    draw.text((text_x, y - title_box[1]), slogan, font=title, fill='white')
+    draw.text((text_x, y + title_h + gap - sub_box[1]), SUBLINE, font=sub,
+              fill=(225, 234, 250))
+    return page
+
+
+def _render_a4(url, slogan):
+    poster = render_poster(url, slogan)
+    width, height = _mm(A4_MM[0]), _mm(A4_MM[1])
+    page = Image.new('RGB', (width, height), 'white')
+    page.paste(poster, ((width - poster.width) // 2, (height - poster.height) // 2))
+    return page
+
+
+def poster_png(url, slogan=None):
+    """The poster as a lossless PNG, for the print page to show and print."""
+    buffer = _io.BytesIO()
+    render_poster(url, slogan).save(buffer, 'PNG', dpi=(PDF_DPI, PDF_DPI), optimize=True)
+    return buffer.getvalue()
+
+
+def _one_page_pdf(image):
+    """A minimal PDF: one A4 page holding one losslessly compressed image.
+
+    Written by hand because Pillow's own PDF writer stores RGB as JPEG, which
+    rings around every sharp edge of a QR code, or palette images as
+    uncompressed hex, which is 17 MB for an A4 page. Flate is lossless, and a
+    poster that is mostly white and flat blue compresses to very little.
+    """
+    w, h = image.size
+    pixels = zlib.compress(image.tobytes(), 9)
+    page_w = A4_MM[0] / 25.4 * 72
+    page_h = A4_MM[1] / 25.4 * 72
+    draw_ops = f'q {page_w:.2f} 0 0 {page_h:.2f} 0 0 cm /Im0 Do Q'.encode()
+
+    objects = [
+        b'<< /Type /Catalog /Pages 2 0 R >>',
+        b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        (f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_w:.2f} {page_h:.2f}] '
+         f'/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>').encode(),
+        (f'<< /Type /XObject /Subtype /Image /Width {w} /Height {h} '
+         f'/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode '
+         f'/Length {len(pixels)} >>\nstream\n').encode() + pixels + b'\nendstream',
+        f'<< /Length {len(draw_ops)} >>\nstream\n'.encode() + draw_ops + b'\nendstream',
+    ]
+
+    out = _io.BytesIO()
+    out.write(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(out.tell())
+        out.write(f'{number} 0 obj\n'.encode() + body + b'\nendobj\n')
+    xref = out.tell()
+    out.write(f'xref\n0 {len(objects) + 1}\n0000000000 65535 f \n'.encode())
+    for offset in offsets:
+        out.write(f'{offset:010d} 00000 n \n'.encode())
+    out.write(f'trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n'
+              f'startxref\n{xref}\n%%EOF\n'.encode())
+    return out.getvalue()
+
+
+def pdf(url, slogan=None):
+    """The poster on one A4 page, ready to print."""
+    return _one_page_pdf(_render_a4(url, slogan))
