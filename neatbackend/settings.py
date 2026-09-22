@@ -381,3 +381,45 @@ MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
 FIREBASE_CREDENTIALS_PATH = os.environ.get(
     'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
 )
+
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+#
+# Without this, a 500 in production leaves no trace anywhere. Django's default
+# configuration routes `django.request` errors to the `mail_admins` handler
+# only, and ADMINS is empty here — so with DEBUG=False the traceback is built,
+# handed to a handler that discards it, and the client gets a bare "Server
+# Error (500)". That is how eleven `/analytics` failures on 2026-09-07 left
+# nothing to debug: no traceback in the journal, no log file, nothing.
+#
+# gunicorn's stdout/stderr already go to the systemd journal, so a console
+# handler is all it takes to make them readable with
+# `journalctl -u gunicorn | grep -A30 Traceback`.
+LOGGING = {
+    'version': 1,
+    # Django's own default handlers stay in place; this adds to them.
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        # The one that carries unhandled-exception tracebacks.
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # App-level logger.exception() calls — push/senders.py and friends.
+        'push': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'web': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
