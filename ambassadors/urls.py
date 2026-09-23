@@ -6,5 +6,6 @@ from . import views
 # pages are wired in neatbackend/urls.py, where their root paths live.
 urlpatterns = [
     path('click/', views.mint_token, name='ambassador_mint'),
+    path('seen/', views.confirm_open, name='ambassador_seen'),
     path('claim/', views.claim, name='ambassador_claim'),
 ]

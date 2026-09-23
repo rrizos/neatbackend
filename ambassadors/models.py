@@ -168,6 +168,18 @@ class AmbassadorClick(models.Model):
     user_agent = models.CharField(max_length=300, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True, db_index=True)
     used_at = models.DateTimeField(null=True, blank=True)
+    #: Whether a person was at the other end of this.
+    #:
+    #: A crawler fetching the link for a preview is a request like any other,
+    #: and counting those told a creator their link had been opened fourteen
+    #: times when two people had opened it. So a WEB row starts false and the
+    #: page itself says otherwise: a script no crawler runs posts the token
+    #: back. APP rows are true on sight, being an installed app asking.
+    #:
+    #: Counting reads this. Attribution never does — a claim is settled by the
+    #: token, so a blocked or failed beacon costs a creator a number and never
+    #: a payout.
+    confirmed = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         indexes = [models.Index(fields=['ambassador', 'source', '-created'])]

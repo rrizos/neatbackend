@@ -199,7 +199,8 @@ def _trend(signups, now):
     start = now - timezone.timedelta(days=TREND_DAYS)
 
     for created in AmbassadorClick.objects.filter(
-            created__gte=start, source=AmbassadorClick.WEB).values_list('created', flat=True):
+            created__gte=start, source=AmbassadorClick.WEB,
+            confirmed=True).values_list('created', flat=True):
         day = timezone.localtime(created).date()
         if day in buckets:
             buckets[day]['opens'] += 1
@@ -257,9 +258,11 @@ def _leaderboard(signups, now):
     clicks = {
         row['ambassador_id']: row
         for row in AmbassadorClick.objects.values('ambassador_id').annotate(
-            opens=Count('id', filter=Q(source=AmbassadorClick.WEB)),
-            opens_7d=Count('id', filter=Q(source=AmbassadorClick.WEB, created__gte=week_ago)),
-            visitors=Count('visitor', filter=Q(source=AmbassadorClick.WEB), distinct=True),
+            opens=Count('id', filter=Q(source=AmbassadorClick.WEB, confirmed=True)),
+            opens_7d=Count('id', filter=Q(source=AmbassadorClick.WEB, confirmed=True,
+                                          created__gte=week_ago)),
+            visitors=Count('visitor', filter=Q(source=AmbassadorClick.WEB, confirmed=True),
+                           distinct=True),
             last_open=Max('created', filter=Q(source=AmbassadorClick.WEB)),
         )
     }
@@ -527,7 +530,10 @@ def collect():
     leaderboard = _leaderboard(signups, now)
     status = Counter(s.status for s in signups)
     link_signups = sum(1 for s in signups if s.claim_method in LINK_METHODS)
-    visitors = (AmbassadorClick.objects.filter(source=AmbassadorClick.WEB)
+    # Confirmed only, here and in the leaderboard: an open is a person, and
+    # a preview crawler is not one. See AmbassadorClick.confirmed.
+    visitors = (AmbassadorClick.objects
+                .filter(source=AmbassadorClick.WEB, confirmed=True)
                 .exclude(visitor='').values('visitor').distinct().count())
 
     owed = sum((r['owed'] for r in leaderboard), Decimal('0'))

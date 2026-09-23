@@ -5,7 +5,9 @@ counting: the visit is recorded, and the click token still reaches the two
 places the app reads it back from.
 """
 
+import json
 import os
+import re
 import tempfile
 from decimal import Decimal
 from unittest import mock
@@ -33,16 +35,27 @@ LANDING = (
 )
 
 
-class AmbassadorLinkTests(TestCase):
-    def setUp(self):
-        cache.clear()
-        self.ambassador = Ambassador.objects.create(name='Μαρία Π.', code='maria')
+class PublishedLanding:
+    """Puts a landing page where the view looks for one.
+
+    Without it /a/<code> has nothing to serve and redirects instead, which is
+    a different path from the one these tests are about.
+    """
+
+    def publish_landing(self):
         self.root = tempfile.mkdtemp()
         with open(os.path.join(self.root, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(LANDING)
         patcher = mock.patch('web.views.WEB_ROOT', self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+
+class AmbassadorLinkTests(PublishedLanding, TestCase):
+    def setUp(self):
+        cache.clear()
+        self.ambassador = Ambassador.objects.create(name='Μαρία Π.', code='maria')
+        self.publish_landing()
 
     def test_shows_the_landing_page_not_the_ambassador(self):
         response = self.client.get('/a/maria')
@@ -165,3 +178,82 @@ class CreatorDashboardTests(TestCase):
 
         self.assertIn('€1.50', body)
         self.assertIn('@kostas', body)
+
+
+class CountingOpensTests(PublishedLanding, TestCase):
+    """What "14 openings" should have said.
+
+    One link shared once recorded fourteen opens in eleven minutes: six
+    `facebookexternalhit` fetches, five more from Meta's own addresses wearing
+    an iPhone user agent, one datacenter scanner, and two people. A preview
+    crawler makes a real request, so nothing about the request itself settles
+    it — only running the page's script does, which is what these pin.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.ambassador = Ambassador.objects.create(name='Βίκυ', code='viki')
+        self.url = f'/creator/{self.ambassador.dashboard_key}/'
+        self.publish_landing()
+
+    def _opens_shown(self):
+        body = self.client.get(self.url).content.decode()
+        # The tile reads "<b>N</b><span>Ανοίγματα link</span>".
+        return int(re.search(r'<b>(\d+)</b><span>Ανοίγματα link', body).group(1))
+
+    def _open_link(self):
+        self.client.get('/a/viki')
+        return AmbassadorClick.objects.latest('id')
+
+    def test_a_fetch_alone_is_not_an_opening(self):
+        self._open_link()
+
+        self.assertEqual(AmbassadorClick.objects.count(), 1, 'the row is still kept')
+        self.assertEqual(self._opens_shown(), 0)
+
+    def test_the_page_saying_a_browser_ran_it_is(self):
+        click = self._open_link()
+
+        res = self.client.post('/api/ambassadors/seen/',
+                               data=json.dumps({'token': click.token}),
+                               content_type='application/json')
+
+        self.assertEqual(res.status_code, 200)
+        click.refresh_from_db()
+        self.assertTrue(click.confirmed)
+        self.assertEqual(self._opens_shown(), 1)
+
+    def test_a_reload_does_not_count_twice(self):
+        click = self._open_link()
+        for _ in range(3):
+            self.client.post('/api/ambassadors/seen/',
+                             data=json.dumps({'token': click.token}),
+                             content_type='application/json')
+
+        self.assertEqual(self._opens_shown(), 1)
+
+    def test_a_made_up_token_counts_nothing_and_says_nothing(self):
+        self._open_link()
+
+        res = self.client.post('/api/ambassadors/seen/',
+                               data=json.dumps({'token': 'not-a-real-token'}),
+                               content_type='application/json')
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {})
+        self.assertEqual(self._opens_shown(), 0)
+
+    def test_the_page_carries_the_beacon(self):
+        body = self.client.get('/a/viki').content.decode()
+        token = AmbassadorClick.objects.latest('id').token
+
+        self.assertIn('/api/ambassadors/seen/', body)
+        self.assertIn(f'JSON.stringify({{token: "{token}"}})', body)
+
+    def test_an_app_asking_for_a_token_is_a_device_already(self):
+        res = self.client.post('/api/ambassadors/click/',
+                               data=json.dumps({'code': 'viki'}),
+                               content_type='application/json')
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(AmbassadorClick.objects.latest('id').confirmed)

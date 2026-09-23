@@ -167,6 +167,13 @@ def _with_click_token(html, token):
 
     script = (
         '<script>\n'
+        # Says a browser rendered this, which is what separates a reader from
+        # a link preview. Sent before anything else so a reader who leaves
+        # immediately still counts.
+        f'(function () {{ var b = JSON.stringify({{token: {json.dumps(token)}}});\n'
+        '  try { if (navigator.sendBeacon) { navigator.sendBeacon("/api/ambassadors/seen/", b); }\n'
+        '        else { fetch("/api/ambassadors/seen/", {method: "POST", body: b, keepalive: true}); }\n'
+        '  } catch (e) {} })();\n'
         'document.querySelectorAll(".store-badge").forEach(function (a) {\n'
         '  a.addEventListener("click", function () {\n'
         f'    try {{ navigator.clipboard.writeText({json.dumps(f"neat_ct={token}")}); }} catch (e) {{}}\n'
@@ -251,6 +258,7 @@ def mint_token(request):
     click = AmbassadorClick.objects.create(
         ambassador=ambassador,
         source=AmbassadorClick.APP,
+        confirmed=True,
         token=secrets.token_urlsafe(32),
         visitor=visitor_hash(ip, request.headers.get('User-Agent', '')[:400]),
         ip=ip_hash(ip),
@@ -258,6 +266,36 @@ def mint_token(request):
         user_agent=request.headers.get('User-Agent', '')[:300],
     )
     return JsonResponse({'token': click.token})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def confirm_open(request):
+    """The landing page reporting that a browser rendered it.
+
+    Unauthenticated, like the other two: it happens before any account exists.
+    It is worth nothing to forge — the most a made-up token could do is mark a
+    click that already happened as having been seen, which buys the sender no
+    money and no attribution, since a claim is settled by the token itself.
+    """
+    ip = client_ip(request)
+    if rate_limited(f'amb-seen:{ip}', limit=120, window_seconds=3600):
+        return JsonResponse({})
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except ValueError:
+        body = {}
+
+    token = (body.get('token') or '').strip()
+    if token:
+        # An update, not a fetch-then-save: the same page can fire this twice
+        # (a reload, a restored tab), and a flag being set again is nothing.
+        AmbassadorClick.objects.filter(
+            token=token, source=AmbassadorClick.WEB).update(confirmed=True)
+    # The same empty answer either way, so this cannot be used to test which
+    # tokens exist.
+    return JsonResponse({})
 
 
 @csrf_exempt
@@ -547,7 +585,8 @@ def creator_dashboard(request, key):
         'paid': paid,
         'earned': owed + paid,
         'rate': ambassador.payout_per_signup,
-        'opens': AmbassadorClick.objects.filter(ambassador=ambassador).count(),
+        'opens': AmbassadorClick.objects.filter(
+            ambassador=ambassador, confirmed=True).count(),
         'qr_version': qr_module.DESIGN_VERSION,
         # Every style, so the page can show what each one actually looks like
         # rather than describing it.
