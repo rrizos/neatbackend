@@ -103,8 +103,14 @@
                 <span class="link" id="l{{ a.id }}">neatapp.gr/a/{{ a.code }}</span>
                 <button class="copy" type="button" data-link="https://neatapp.gr/a/{{ a.code }}">copy</button>
                 <div style="margin-top:6px">
-                  <span class="link">their dashboard</span>
-                  <button class="copy" type="button" data-link="{{ a.dashboard_link }}">copy private link</button>
+                  {% comment %} What to send a creator: the short way in and
+                  the PIN it asks for, in one paste. The long private link is
+                  still here for the cases where a PIN is one step too many.
+                  {% endcomment %}
+                  <span class="link">{{ a.short_dashboard_link }} · {{ a.dashboard_pin }}</span>
+                  <button class="copy" type="button"
+                          data-link="Ο πίνακάς σου: https://{{ a.short_dashboard_link }} — κωδικός {{ a.dashboard_pin }}">copy dashboard + PIN</button>
+                  <button class="copy" type="button" data-link="{{ a.dashboard_link }}">copy long link</button>
                 </div>
               </td>
               <td>€{{ a.payout_per_signup }}</td>

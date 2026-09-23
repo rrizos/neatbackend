@@ -398,7 +398,19 @@
   </div>
 
 
-  <footer>neatapp.gr · κράτα αυτό το link ιδιωτικό</footer>
+  {% comment %} So the way back in is learned from the page itself, rather
+  than from the message it first arrived in. {% endcomment %}
+  <h2>Πώς ξαναμπαίνεις</h2>
+  <div class="card">
+    <p class="note" style="margin:0">
+      Από <b>neatapp.gr/c/{{ ambassador.code }}</b> με τον κωδικό
+      <b>{{ ambassador.dashboard_pin }}</b> — ο ίδιος κωδικός που είναι και
+      στην αφίσα σου, οπότε δεν χρειάζεται να κρατήσεις κάτι άλλο. Σε αυτό το
+      κινητό θα σε θυμάται για 90 μέρες.
+    </p>
+  </div>
+
+  <footer>neatapp.gr · ο κωδικός σου είναι δικός σου — μην τον δίνεις</footer>
 </main>
 <script>
   // Tabs. The panes are all rendered, so switching costs nothing and the

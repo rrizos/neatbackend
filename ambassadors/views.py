@@ -499,6 +499,79 @@ def _log_content(ambassador, data):
     return ''
 
 
+#: How long a phone is remembered after its one PIN. Long enough that a
+#: creator who checks their figures every few weeks is never asked twice.
+CREATOR_COOKIE = 'neat_creator'
+CREATOR_COOKIE_AGE = 90 * 24 * 3600
+_COOKIE_SALT = 'ambassadors.creator-entry'
+
+
+def _remembered_code(request):
+    """The code this browser has already proved it knows the PIN for."""
+    from django.core import signing
+
+    raw = request.COOKIES.get(CREATOR_COOKIE, '')
+    if not raw:
+        return ''
+    try:
+        return signing.loads(raw, salt=_COOKIE_SALT, max_age=CREATOR_COOKIE_AGE)
+    except signing.BadSignature:
+        return ''
+
+
+@csrf_protect
+@require_http_methods(['GET', 'HEAD', 'POST'])
+@cache_control(no_store=True)
+def creator_entry(request, code):
+    """neatapp.gr/c/<code> — the way in that a creator can remember.
+
+    The long /creator/<key> link still works and is still what the dashboard
+    itself is served from; this only decides whether to hand it over. The
+    memorable half is the code already printed on their poster, so the secret
+    has to live somewhere else, and six digits is the most anyone will retype
+    on a phone. That is a much smaller haystack than a 32-character key, so
+    the guessing is what is defended: attempts are capped per address and per
+    code, and a wrong code and a wrong PIN are answered identically, so this
+    cannot be used to find out which creators exist.
+    """
+    from django.core import signing
+
+    ambassador = Ambassador.objects.filter(code=code, is_active=True).first()
+
+    # Already proved it on this phone, within the ninety days.
+    if ambassador is not None and _remembered_code(request) == code:
+        return redirect('creator_dashboard', key=ambassador.dashboard_key)
+
+    error = ''
+    if request.method == 'POST':
+        ip = client_ip(request)
+        if (rate_limited(f'creator-pin-ip:{ip}', limit=12, window_seconds=3600)
+                or rate_limited(f'creator-pin-code:{code}', limit=25, window_seconds=3600)):
+            error = 'Πολλές προσπάθειες. Δοκίμασε ξανά σε λίγο.'
+        else:
+            given = ''.join(ch for ch in (request.POST.get('pin') or '') if ch.isdigit())
+            # compare_digest, and only after the rate limit: the timing of a
+            # comparison should not be the thing that leaks a digit.
+            if (ambassador is not None and given
+                    and secrets.compare_digest(given, ambassador.dashboard_pin)):
+                response = redirect('creator_dashboard', key=ambassador.dashboard_key)
+                response.set_cookie(
+                    CREATOR_COOKIE,
+                    signing.dumps(code, salt=_COOKIE_SALT),
+                    max_age=CREATOR_COOKIE_AGE,
+                    secure=not settings.DEBUG,
+                    httponly=True,
+                    samesite='Lax',
+                )
+                return response
+            error = 'Λάθος κωδικός.'
+
+    return render(request, 'ambassadors/creator_entry.html', {
+        'code': code,
+        'error': error,
+    }, status=200)
+
+
 @csrf_protect
 @require_http_methods(['GET', 'HEAD', 'POST'])
 @cache_control(no_store=True)

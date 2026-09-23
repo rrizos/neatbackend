@@ -61,6 +61,19 @@ def new_code(name=''):
     return code
 
 
+def new_dashboard_pin():
+    """The six digits a creator types at neatapp.gr/c/<code>.
+
+    Stored as it is, deliberately. It is a server-generated code for one low
+    value page, never chosen by the creator and so never a password they use
+    anywhere else, and an admin has to be able to read it back to send it on.
+    What it defends is the guessing of a short URL; against anyone who already
+    has the database it defends nothing, and neither would a hash, since the
+    earnings it protects are in the same tables.
+    """
+    return f'{secrets.randbelow(1000000):06d}'
+
+
 def new_dashboard_key():
     """The secret in a creator's dashboard URL. Long enough that the URL is
     the only way in, short enough to paste into a message."""
@@ -117,6 +130,10 @@ class Ambassador(models.Model):
 
     #: The creator's own poster line, when they want one. Empty means they are
     #: using one of the ready-made styles.
+    #: The other half of neatapp.gr/c/<code>, which is short enough to say
+    #: out loud precisely because this is not in it.
+    dashboard_pin = models.CharField(max_length=6, default=new_dashboard_pin)
+
     custom_slogan = models.CharField(max_length=60, blank=True, default='')
 
     is_active = models.BooleanField(default=True)
@@ -137,6 +154,11 @@ class Ambassador(models.Model):
     @property
     def dashboard_link(self):
         return f'https://neatapp.gr/creator/{self.dashboard_key}'
+
+    @property
+    def short_dashboard_link(self):
+        """The one a creator is told, and can get back to from memory."""
+        return f'neatapp.gr/c/{self.code}'
 
 
 class AmbassadorClick(models.Model):

@@ -71,5 +71,9 @@ urlpatterns = [
             ambassador_views.creator_qr, name='creator_qr'),
     re_path(r'^creator/(?P<key>[A-Za-z0-9_-]{16,64})/?$',
             ambassador_views.creator_dashboard, name='creator_dashboard'),
+    # The memorable way in: the code from their own poster, plus a PIN. It
+    # hands over the link above, which is still what the dashboard lives at.
+    re_path(r'^c/(?P<code>[A-Za-z0-9_-]{1,64})/?$',
+            ambassador_views.creator_entry, name='creator_entry'),
     re_path(r'^media/(?P<path>.*)$', serve_media),
 ]

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{% comment %} Nobody's search result, and nothing here says whether this code
+exists. {% endcomment %}
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#000000">
+<title>Neat · ο πίνακάς σου</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/icons/Icon-192.png">
+<style>
+  /* The dashboard's own tokens: this is its front door and should not look
+     like a different site. */
+  :root {
+    --bg: #000000; --card: #0e0e11; --surface: #141417; --ink: #ffffff;
+    --muted: #9ca3af; --hairline: rgba(255,255,255,.09); --blue: #2F80ED;
+    --blue-soft: #6aa9ff;
+    --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0; min-height: 100svh; display: grid; place-items: center;
+    padding: 24px; color: var(--ink); font-family: var(--sans); font-size: 16px;
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ''; position: fixed; inset: -20% 0 auto; height: 380px; z-index: -1;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(47,128,237,.18), transparent 70%);
+    pointer-events: none;
+  }
+  img { display: block; max-width: 100%; }
+  form {
+    width: 100%; max-width: 360px; background: var(--card);
+    border: 1px solid var(--hairline); border-radius: 18px; padding: 24px;
+  }
+  .logo { width: 44px; height: 44px; margin: 0 auto 18px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.035em; text-align: center; }
+  p.sub { margin: 8px 0 0; color: var(--muted); font-size: 14px; text-align: center; text-wrap: pretty; }
+  p.sub b { color: var(--ink); font-weight: 600; }
+  label { display: block; margin: 22px 0 0; font-size: 12.5px; color: var(--muted); }
+  input {
+    display: block; width: 100%; margin: 8px 0 0; background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 12px; padding: 12px 14px;
+    min-height: 52px; color: var(--ink); font: inherit; font-size: 24px;
+    font-weight: 700; text-align: center; letter-spacing: .5em; text-indent: .5em;
+    -webkit-appearance: none; appearance: none;
+  }
+  input::placeholder { color: #4b5563; font-weight: 600; letter-spacing: .4em; }
+  input:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: transparent; }
+  button {
+    width: 100%; margin: 14px 0 0; min-height: 48px; border: 0; border-radius: 12px;
+    background: var(--blue); color: #fff; font-family: inherit; font-size: 15px;
+    font-weight: 700; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--blue-soft); outline-offset: 2px; }
+  .err {
+    margin: 16px 0 0; color: #ffb4b4; background: rgba(248,81,73,.12);
+    border: 1px solid rgba(248,81,73,.35); border-radius: 12px; padding: 10px 12px;
+    font-size: 13.5px; text-align: center;
+  }
+  .note { margin: 18px 0 0; color: var(--muted); font-size: 12.5px; text-align: center; text-wrap: pretty; }
+  footer { margin: 22px 0 0; color: #5b6069; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<form method="post" autocomplete="off">
+  {% csrf_token %}
+  <img class="logo" src="/brand/logo-dark.png" alt="Neat" width="44" height="44">
+  <h1>Ο πίνακάς σου</h1>
+  <p class="sub">neatapp.gr/c/<b>{{ code }}</b></p>
+
+  <label for="pin">Ο εξαψήφιος κωδικός σου</label>
+  {% comment %} inputmode numeric brings up the number pad; one-time-code lets
+  a phone offer it from a message if that is where it was sent. {% endcomment %}
+  <input id="pin" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+         autocomplete="one-time-code" placeholder="••••••" autofocus required>
+
+  {% if error %}<p class="err">{{ error }}</p>{% endif %}
+
+  <button type="submit">Είσοδος</button>
+  <p class="note">Θα σε θυμάται σε αυτό το κινητό για 90 μέρες.</p>
+</form>
+<footer>neatapp.gr</footer>
+</body>
+</html>

@@ -257,3 +257,91 @@ class CountingOpensTests(PublishedLanding, TestCase):
 
         self.assertEqual(res.status_code, 200)
         self.assertTrue(AmbassadorClick.objects.latest('id').confirmed)
+
+
+class CreatorEntryTests(PublishedLanding, TestCase):
+    """neatapp.gr/c/<code> — the way in a creator can remember.
+
+    The memorable half is the code already on their poster, so everything
+    rests on the six digits: these pin that a wrong one gets nowhere, that a
+    right one is not asked for again on the same phone, and that the page
+    says the same thing either way about which creators exist.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.ambassador = Ambassador.objects.create(name='Βίκυ', code='viki')
+        self.pin = self.ambassador.dashboard_pin
+
+    def test_the_pin_hands_over_the_dashboard(self):
+        res = self.client.post('/c/viki', {'pin': self.pin})
+
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res['Location'].rstrip('/'),
+                         f'/creator/{self.ambassador.dashboard_key}')
+
+    def test_the_wrong_pin_does_not(self):
+        wrong = '000000' if self.pin != '000000' else '111111'
+
+        res = self.client.post('/c/viki', {'pin': wrong})
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('Λάθος κωδικός', res.content.decode())
+
+    def test_the_same_phone_is_not_asked_twice(self):
+        self.client.post('/c/viki', {'pin': self.pin})
+
+        res = self.client.get('/c/viki')
+
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res['Location'].rstrip('/'),
+                         f'/creator/{self.ambassador.dashboard_key}')
+
+    def test_a_phone_that_knows_one_code_does_not_know_another(self):
+        other = Ambassador.objects.create(name='Άλλος', code='allos')
+        self.client.post('/c/viki', {'pin': self.pin})
+
+        res = self.client.get('/c/allos')
+
+        self.assertEqual(res.status_code, 200, 'asked for the other PIN')
+        self.assertNotIn(other.dashboard_key, res.content.decode())
+
+    def test_an_unknown_code_looks_exactly_like_a_wrong_pin(self):
+        real = self.client.post('/c/viki', {'pin': '999999' if self.pin != '999999' else '888888'})
+        fake = self.client.post('/c/nobody-at-all', {'pin': '999999'})
+
+        self.assertEqual(real.status_code, fake.status_code)
+        self.assertIn('Λάθος κωδικός', fake.content.decode())
+
+    def test_guessing_is_capped(self):
+        wrong = '000000' if self.pin != '000000' else '111111'
+        for _ in range(12):
+            self.client.post('/c/viki', {'pin': wrong})
+
+        res = self.client.post('/c/viki', {'pin': self.pin})
+
+        self.assertEqual(res.status_code, 200, 'the right PIN is refused too')
+        self.assertIn('Πολλές προσπάθειες', res.content.decode())
+
+    def test_an_inactive_ambassador_cannot_be_let_in(self):
+        self.ambassador.is_active = False
+        self.ambassador.save(update_fields=['is_active'])
+
+        res = self.client.post('/c/viki', {'pin': self.pin})
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('Λάθος κωδικός', res.content.decode())
+
+    def test_the_dashboard_says_how_to_come_back(self):
+        body = self.client.get(f'/creator/{self.ambassador.dashboard_key}/').content.decode()
+
+        self.assertIn('neatapp.gr/c/viki', body)
+        self.assertIn(self.pin, body)
+
+    def test_every_ambassador_gets_their_own_pin(self):
+        pins = {Ambassador.objects.create(name=f'A{i}', code=f'code{i}').dashboard_pin
+                for i in range(12)}
+
+        self.assertGreater(len(pins), 1, 'one shared PIN is the same as none')
+        for pin in pins:
+            self.assertRegex(pin, r'^\d{6}$')
