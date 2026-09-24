@@ -1,10 +1,16 @@
+import base64
 import json
+import tempfile
+from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.files.storage import default_storage
+from django.test import TestCase, override_settings
 
 from accounts.models import AuthToken, Profile
 
+from .media import store_message_media
 from .models import Conversation, ConversationMember, Message
 
 User = get_user_model()
@@ -478,3 +484,57 @@ class BinaryUploadTests(TestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         self.assertTrue(Message.objects.get(pk=res.json()['id']).media_url)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='neat-test-media-'))
+class VoiceNoteContainerTests(TestCase):
+    """Every voice note is stored in one container, whatever recorded it.
+
+    The installed app writes what it downloads to a file it always names
+    `.aac`, and iOS picks its parser from that name alone — so an Android
+    recording, which is MPEG-4, described itself as something it was not and
+    never opened. Normalising on the way in fixes the phones already out
+    there, which no app release can.
+    """
+
+    #: Enough of each container for the sniffer: 'ftyp' at offset 4 is MPEG-4,
+    #: and a twelve-bit sync word with zero layer bits is ADTS.
+    MPEG4 = b'\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00' + b'\x11' * 64
+    ADTS = b'\xff\xf1\x50\x80\x00\x1f\xfc' + b'\x22' * 64
+
+    def _store(self, raw):
+        payload = base64.b64encode(raw).decode()
+        return store_message_media(f'__neat_voice__:{payload}|5')
+
+    def test_an_adts_recording_is_left_exactly_as_it_arrived(self):
+        with mock.patch('dm_messages.media.to_adts') as remux:
+            url, text = self._store(self.ADTS)
+
+        remux.assert_not_called()
+        self.assertTrue(url.endswith('.aac'))
+        self.assertEqual(text, '__neat_voice__:|5')
+        with default_storage.open(url[len(settings.MEDIA_URL):], 'rb') as fh:
+            self.assertEqual(fh.read(), self.ADTS)
+
+    def test_an_mpeg4_recording_is_repackaged(self):
+        with mock.patch('dm_messages.media.to_adts', return_value=self.ADTS):
+            url, _ = self._store(self.MPEG4)
+
+        self.assertTrue(url.endswith('.aac'), url)
+        with default_storage.open(url[len(settings.MEDIA_URL):], 'rb') as fh:
+            self.assertEqual(fh.read(), self.ADTS)
+
+    def test_what_ffmpeg_cannot_repackage_keeps_the_name_its_bytes_deserve(self):
+        """Worse than converting, better than a name that lies: at least the
+        client that does look at the bytes gets a truthful extension."""
+        with mock.patch('dm_messages.media.to_adts', return_value=None):
+            url, _ = self._store(self.MPEG4)
+
+        self.assertTrue(url.endswith('.m4a'), url)
+
+    def test_a_voice_note_never_loses_its_length(self):
+        """The `|seconds` suffix is what the bubble draws before playing."""
+        with mock.patch('dm_messages.media.to_adts', return_value=self.ADTS):
+            _, text = self._store(self.MPEG4)
+
+        self.assertEqual(text, '__neat_voice__:|5')
