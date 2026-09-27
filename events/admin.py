@@ -12,6 +12,7 @@ that parsed like one.
 """
 
 from django.contrib import admin
+from django.utils import timezone
 from django.utils.html import format_html
 
 from .models import Event
@@ -31,10 +32,14 @@ class EventAdmin(admin.ModelAdmin):
     def when(self, event):
         if not event.date:
             return '—'
+        # In Athens time, which is the only time this means anything in — and
+        # what makes the check below work at all: stored UTC, a midnight start
+        # reads as 21:00 the previous day and the warning never fires.
+        local = timezone.localtime(event.date)
+        stamp = local.strftime('%d/%m %H:%M')
         # Midnight almost always means the source gave a day and no time, which
         # is the thing to fix before publishing rather than a real start.
-        stamp = event.date.strftime('%d/%m %H:%M')
-        if event.date.hour == 0 and event.date.minute == 0:
+        if local.hour == 0 and local.minute == 0:
             return format_html('<span style="color:#b45309">{} (no time?)</span>', stamp)
         return stamp
 
