@@ -260,6 +260,38 @@ def from_ical(row, *, city, source_url, source='ical'):
     )
 
 
+def from_extracted(row, *, city, source_url, source='llm'):
+    """A row a model read off a page, as a Candidate.
+
+    Trusted no further than any other source: the fields go through the same
+    cleaning and the same length limits, the date through the same parser, and
+    the result into the same review queue. What a model adds is only that
+    there was something to read at all.
+    """
+    title = _text(row.get('title'), TITLE_MAX)
+    raw_start = row.get('starts_at')
+    starts_at = parse_iso(raw_start)
+    if not title or starts_at is None:
+        return None
+
+    tickets_url = _url(row.get('tickets_url'))
+    return Candidate(
+        title=title,
+        starts_at=starts_at,
+        city=city,
+        source=source,
+        source_url=source_url,
+        external_id=f'{source_url}#{title}#{starts_at.isoformat()}'[:EXTERNAL_ID_MAX],
+        description=_text(row.get('description'), DESCRIPTION_MAX),
+        location=_text(row.get('location'), LOCATION_MAX),
+        category=_text(row.get('category'), CATEGORY_MAX),
+        tickets_url=tickets_url,
+        has_tickets=bool(tickets_url),
+        time_known=has_clock_time(raw_start),
+        warnings=[] if has_clock_time(raw_start) else ['no start time on the page'],
+    )
+
+
 def is_worth_keeping(candidate, now=None, horizon_days=120):
     """Whether an event is still ahead of us and not absurdly far off.
 

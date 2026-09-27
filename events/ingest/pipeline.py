@@ -14,7 +14,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from . import ical, jsonld, normalise, robots
+from . import extract, ical, jsonld, normalise, robots
 from .dedupe import find_existing
 
 logger = logging.getLogger(__name__)
@@ -44,10 +44,15 @@ class Result:
                 f'skipped {self.skipped}')
 
 
-def candidates_from(source, text, final_url):
+def candidates_from(source, text, final_url, *, today=None):
     """Whatever [text] publishes, as Candidates."""
     city = source['city']
-    if source['kind'] == 'ical':
+    if source['kind'] == 'llm':
+        # The page says nothing a parser can read, so something has to read it
+        # the way a person would. Everything it returns is still pending.
+        rows = extract.extract(text, url=final_url, today=today)
+        found = [normalise.from_extracted(r, city=city, source_url=final_url) for r in rows]
+    elif source['kind'] == 'ical':
         if not ical.looks_like_ical(text):
             return []
         rows = ical.events_in(text, default_tz=normalise.ATHENS)
@@ -110,7 +115,8 @@ def ingest_source(source, *, dry_run=False, now=None, fetch=None):
         result.error = f'could not read ({exc.__class__.__name__}: {exc})'
         return result
 
-    candidates = candidates_from(source, text, final_url)
+    candidates = candidates_from(
+        source, text, final_url, today=now.astimezone(normalise.ATHENS).date().isoformat())
     result.found = len(candidates)
 
     fresh = [c for c in candidates if normalise.is_worth_keeping(c, now=now)]

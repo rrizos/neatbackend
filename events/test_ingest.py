@@ -11,6 +11,7 @@ which is also how to add a source — paste its page in and see what comes out.
 """
 
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -343,3 +344,118 @@ class ReviewGateTests(TestCase):
 
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(Event.objects.get(title='Δικό μου').status, Event.PUBLISHED)
+
+
+class ExtractionTests(TestCase):
+    """Reading a page that publishes no data.
+
+    The provider is stubbed everywhere here: what matters is not what a model
+    says but what we do with it — that the text we send is the page and not
+    its scripts, that a refusal or an outage is quiet, and that nothing it
+    returns escapes the checks every other source goes through.
+    """
+
+    #: Long enough to be worth sending: extract.py ignores a page with almost
+    #: no text, because that is a cookie wall or a redirect rather than a
+    #: programme, and spending a free-tier call on it is waste.
+    PAGE = '''<html><head><style>.a{color:red}</style>
+        <script>var x = "ΣΥΝΑΥΛΙΑ ΠΟΥ ΔΕΝ ΥΠΑΡΧΕΙ";</script></head>
+        <body><h1>Πρόγραμμα</h1>
+        <p>7 Οκτωβρίου, 20:30 — Quatuor Modigliani</p>
+        <p>Το Μέγαρο Μουσικής Αθηνών παρουσιάζει τη νέα καλλιτεχνική περίοδο,
+        με συναυλίες κλασικής μουσικής, ρεσιτάλ, όπερα σε ζωντανή μετάδοση και
+        εκδηλώσεις για παιδιά και οικογένειες σε όλες τις αίθουσες.</p>
+        <p>Πληροφορίες και εισιτήρια στο ταμείο και τηλεφωνικά κάθε μέρα.</p>
+        </body></html>'''
+
+    def test_the_model_is_sent_the_page_and_not_its_scripts(self):
+        from events.ingest import extract
+
+        text = extract.page_text(self.PAGE)
+
+        self.assertIn('Πρόγραμμα', text)
+        self.assertNotIn('ΔΕΝ ΥΠΑΡΧΕΙ', text)
+        self.assertNotIn('color:red', text)
+
+    def test_what_comes_back_becomes_an_ordinary_candidate(self):
+        candidate = normalise.from_extracted(
+            {'title': 'Quatuor Modigliani', 'starts_at': '2026-10-07T20:30',
+             'location': 'Μέγαρο'},
+            city=ATH, source_url='https://www.megaron.gr/',
+        )
+
+        self.assertEqual(candidate.source, 'llm')
+        self.assertEqual(candidate.starts_at.hour, 20)
+        self.assertEqual(candidate.starts_at.tzinfo, ATHENS)
+        self.assertTrue(candidate.time_known)
+
+    def test_a_day_with_no_time_is_flagged_not_invented(self):
+        candidate = normalise.from_extracted(
+            {'title': 'Έκθεση', 'starts_at': '2026-10-08'},
+            city=ATH, source_url='https://x.gr',
+        )
+
+        self.assertFalse(candidate.time_known)
+
+    def test_a_row_with_no_date_is_dropped(self):
+        self.assertIsNone(normalise.from_extracted(
+            {'title': 'Κάποτε το φθινόπωρο'}, city=ATH, source_url='https://x.gr'))
+
+    def test_no_key_means_no_call_and_no_noise(self):
+        from events.ingest import extract
+
+        with self.settings(GEMINI_API_KEY=''):
+            self.assertEqual(
+                extract.extract(self.PAGE, url='https://x.gr', today='2026-09-28'), [])
+
+    def test_a_provider_that_is_down_yields_nothing(self):
+        from events.ingest import extract
+
+        def refuse(prompt, *, api_key, **kw):
+            return None
+
+        with mock.patch.dict(extract.PROVIDERS, {'gemini': refuse}):
+            with self.settings(GEMINI_API_KEY='k'):
+                self.assertEqual(
+                    extract.extract(self.PAGE, url='https://x.gr', today='2026-09-28'), [])
+
+    def test_a_chatty_answer_is_a_parse_failure_not_a_bad_event(self):
+        from events.ingest import extract
+
+        def chatty(prompt, *, api_key, **kw):
+            return {'output': [{'type': 'text', 'text': 'Καλημέρα! Δεν βρήκα τίποτα.'}]}
+
+        with mock.patch.dict(extract.PROVIDERS, {'gemini': chatty}):
+            with self.settings(GEMINI_API_KEY='k'):
+                self.assertEqual(
+                    extract.extract(self.PAGE, url='https://x.gr', today='2026-09-28'), [])
+
+    def test_the_whole_path_files_what_a_model_read_for_review(self):
+        import json as _json
+
+        from events.ingest import extract
+
+        when = (dj_timezone.now() + timedelta(days=9)).astimezone(ATHENS)
+
+        def answer(prompt, *, api_key, **kw):
+            return {'output': [{'type': 'text', 'text': _json.dumps(
+                {'events': [{'title': 'Μια συναυλία',
+                             'starts_at': when.strftime('%Y-%m-%dT%H:%M'),
+                             'location': 'Μέγαρο'}]})}]}
+
+        def fetch(url, *a, **kw):
+            if url.endswith('robots.txt'):
+                return url, 'User-agent: *\nDisallow:\n'
+            return url, self.PAGE
+
+        source = {'name': 'megaron', 'city': ATH, 'kind': 'llm',
+                  'url': 'https://www.megaron.gr/'}
+        with mock.patch.dict(extract.PROVIDERS, {'gemini': answer}):
+            with self.settings(GEMINI_API_KEY='k'):
+                result = pipeline.ingest_source(source, fetch=fetch)
+
+        self.assertEqual((result.found, result.created), (1, 1))
+        event = Event.objects.get()
+        self.assertEqual(event.status, Event.PENDING)
+        self.assertEqual(event.source, 'llm')
+        self.assertEqual(event.city, ATH)

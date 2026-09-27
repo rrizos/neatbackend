@@ -43,10 +43,33 @@ useful thing to have learned cheaply. Three ways forward, in order of yield:
 adding it here, which is the quick way to check a new candidate source.
 """
 
-#: Feeds and pages read on every run. Empty on purpose: see above — a seed
-#: that yields nothing is worse than none, because it looks like it works.
-SEEDS = []
+#: Read on every run. Each was fetched and checked before being put here;
+#: `kind: llm` means the page publishes no data and has to be read (see
+#: extract.py), which is the only thing that works on the Greek venues.
+#:
+#: Verified 2026-09-28: megaron 16 events, tch 97.
+SEEDS = [
+    {'name': 'megaron', 'city': 'Αθήνα', 'kind': 'llm',
+     'url': 'https://www.megaron.gr/'},
+    {'name': 'tch', 'city': 'Θεσσαλονίκη', 'kind': 'llm',
+     'url': 'https://www.tch.gr/'},
+]
 
+#: Checked and not usable, so nobody spends an afternoon rediscovering it:
+#:
+#:   snfcc.org, onassis.org   serve ~300 bytes of HTML and render in the
+#:                            browser; they need a headless browser, not a
+#:                            better prompt
+#:   technopolis-athens.com   no ld+json, and the programme is an image
+#:   eventbrite.com           the API cannot search (see below) and the site
+#:                            is behind a bot wall
+#:
+#: Eventbrite, checked 2026-09-28 with a real token: /v3/events/search/ is
+#: gone (404) — they withdrew public search — /v3/events/{id}/ works but only
+#: for an id you already have, and the account owns no organisations. So their
+#: API cannot discover anything, and the ids only exist on the site they do
+#: not want crawled. Ticketmaster's Discovery API still has real search with
+#: Greek coverage and is the one worth adding next.
 
 def for_cities(cities=None):
     """The seeds, optionally narrowed to a set of cities."""

@@ -378,6 +378,11 @@ MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
 # Firebase console (Project settings → Service accounts). Never commit this
 # file; defaults to a gitignored path next to manage.py for local dev, and
 # should be set via the env var on the server.
+# Reading event pages that publish no structured data (events/ingest/extract.py).
+# Free tier, and empty by default: without it the ingester simply skips the
+# sources that need a model and says so.
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
+
 FIREBASE_CREDENTIALS_PATH = os.environ.get(
     'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
 )
