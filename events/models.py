@@ -14,6 +14,21 @@ class Event(models.Model):
         (COMMUNITY, 'Community'),
     ]
 
+    #: An event now arrives one of two ways: a person types it into the app, or
+    #: an ingester reads it off a page that published it (events/ingest/).
+    #: Anything a person created is live the moment they save it, as it always
+    #: was. Anything crawled waits to be looked at — a wrong date in a "what is
+    #: on today" list costs more trust than a short list does.
+    PENDING = 'pending'
+    PUBLISHED = 'published'
+    REJECTED = 'rejected'
+
+    STATUSES = [
+        (PENDING, 'Waiting for review'),
+        (PUBLISHED, 'Published'),
+        (REJECTED, 'Rejected'),
+    ]
+
     city = models.CharField(max_length=120)
     event_type = models.CharField(max_length=16, choices=EVENT_TYPES)
     title = models.CharField(max_length=180)
@@ -36,8 +51,30 @@ class Event(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    status = models.CharField(
+        max_length=10, choices=STATUSES, default=PUBLISHED, db_index=True,
+    )
+    #: Which ingester found this, or '' for an event a person created here.
+    source = models.CharField(max_length=20, blank=True, default='')
+    #: The page it was read from. A reviewer checks the claim against it, and
+    #: it is the honest place to send anyone who wants the full details.
+    source_url = models.TextField(blank=True, default='')
+    #: The id the source uses for it — a schema.org @id, an iCal UID. Stable
+    #: across re-crawls, which is the whole difference between updating an
+    #: event and posting it again.
+    external_id = models.CharField(max_length=200, blank=True, default='')
+    #: Hash of the fields taken from the source, so a page that has not
+    #: changed costs one comparison and no write.
+    content_hash = models.CharField(max_length=64, blank=True, default='')
+
     class Meta:
         ordering = ['-attendees', '-created']
+        indexes = [
+            # How the ingester finds the row it wrote last time. Not a unique
+            # constraint: MySQL will not build one with a condition, and
+            # `external_id` is empty for everything people create.
+            models.Index(fields=['source', 'external_id']),
+        ]
 
     def to_dict(self, attending_event_ids=None):
         """attending_event_ids, when given, is the set of event ids the

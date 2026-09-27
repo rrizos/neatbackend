@@ -181,7 +181,11 @@ def events_list(request):
         return _unauthorized()
     city = (request.GET.get('city') or _viewer_city(viewer)).strip()
     event_type = (request.GET.get('type') or '').strip()
-    events = Event.objects.all()
+    # Published only. Anything an ingester found is `pending` until a person
+    # has checked it against its source (events/ingest/, events/admin.py), and
+    # an unchecked date on a page about tonight is worse than an empty page.
+    # Events created in the app are published on save, as they always were.
+    events = Event.objects.filter(status=Event.PUBLISHED)
     if city:
         events = events.filter(city=city)
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:
