@@ -346,6 +346,101 @@ class ReviewGateTests(TestCase):
         self.assertEqual(Event.objects.get(title='Δικό μου').status, Event.PUBLISHED)
 
 
+class TicketmasterTests(TestCase):
+    """The API source.
+
+    Its value over reading a page is the clock time, so that is what these
+    watch most closely — along with the two things that made it return nothing
+    at first: the city name it files Greek cities under, and the venue city
+    winning over the one we asked with.
+    """
+
+    ROW = {
+        'id': 'G5vzZ9Xc',
+        'name': 'BARAKOS ORCHESTRA',
+        'dates': {'start': {'localDate': '2026-11-20', 'localTime': '20:30:00'}},
+        '_embedded': {'venues': [{
+            'name': 'Theatre of the NO',
+            'address': {'line1': 'Πειραιώς 100'},
+            'city': {'name': 'Athens'},
+        }]},
+        'classifications': [{'segment': {'name': 'Music'}}],
+        'images': [{'url': 'https://t.gr/small.jpg', 'width': 300},
+                   {'url': 'https://t.gr/big.jpg', 'width': 2048}],
+        'url': 'https://www.ticketmaster.gr/event/123',
+    }
+
+    def test_greek_cities_are_asked_for_by_the_name_the_index_uses(self):
+        """Asking for "Αθήνα" returns nothing; "Athens" returns ninety-odd."""
+        from events.ingest import ticketmaster
+
+        self.assertEqual(ticketmaster.latin_name('Αθήνα'), 'Athens')
+        self.assertEqual(ticketmaster.latin_name('Θεσσαλονίκη'), 'Thessaloniki')
+        # Somewhere they have never heard of is asked for as itself.
+        self.assertEqual(ticketmaster.latin_name('Καστοριά'), 'Καστοριά')
+
+    def test_a_row_keeps_its_hour(self):
+        from events.ingest import ticketmaster
+
+        row = ticketmaster.to_row(self.ROW, fallback_city=ATH)
+        candidate = normalise.from_ticketmaster(row, city=ATH)
+
+        self.assertEqual(candidate.starts_at.hour, 20)
+        self.assertEqual(candidate.starts_at.minute, 30)
+        self.assertEqual(candidate.starts_at.tzinfo, ATHENS)
+        self.assertTrue(candidate.time_known)
+
+    def test_it_takes_the_venue_the_picture_and_the_tickets(self):
+        from events.ingest import ticketmaster
+
+        candidate = normalise.from_ticketmaster(
+            ticketmaster.to_row(self.ROW, fallback_city=ATH), city=ATH)
+
+        self.assertEqual(candidate.location, 'Theatre of the NO, Πειραιώς 100')
+        self.assertEqual(candidate.image_url, 'https://t.gr/big.jpg')
+        self.assertTrue(candidate.has_tickets)
+        self.assertEqual(candidate.external_id, 'G5vzZ9Xc')
+
+    def test_an_event_with_no_date_is_dropped(self):
+        from events.ingest import ticketmaster
+
+        row = dict(self.ROW, dates={'start': {}})
+
+        self.assertIsNone(ticketmaster.to_row(row, fallback_city=ATH))
+
+    def test_a_date_with_no_time_is_flagged(self):
+        from events.ingest import ticketmaster
+
+        row = ticketmaster.to_row(
+            dict(self.ROW, dates={'start': {'localDate': '2026-11-20'}}), fallback_city=ATH)
+
+        self.assertFalse(normalise.from_ticketmaster(row, city=ATH).time_known)
+
+    def test_no_key_means_no_call(self):
+        from events.ingest import ticketmaster
+
+        with self.settings(TICKETMASTER_API_KEY=''):
+            self.assertEqual(ticketmaster.rows_for(ATH), [])
+
+    def test_the_whole_path_files_them_for_review(self):
+        from events.ingest import ticketmaster
+
+        when = (dj_timezone.now() + timedelta(days=15)).astimezone(ATHENS)
+        row = dict(self.ROW, dates={'start': {
+            'localDate': when.strftime('%Y-%m-%d'), 'localTime': '21:00:00'}})
+
+        with mock.patch.object(ticketmaster, 'fetch_city', return_value=[row]):
+            with self.settings(TICKETMASTER_API_KEY='k'):
+                result = pipeline.ingest_source(
+                    {'name': 'tm', 'city': ATH, 'kind': 'ticketmaster', 'url': ''})
+
+        self.assertEqual((result.found, result.created), (1, 1))
+        event = Event.objects.get()
+        self.assertEqual(event.status, Event.PENDING)
+        self.assertEqual(event.source, 'ticketmaster')
+        self.assertEqual(dj_timezone.localtime(event.date).hour, 21)
+
+
 class ExtractionTests(TestCase):
     """Reading a page that publishes no data.
 

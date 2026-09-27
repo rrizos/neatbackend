@@ -292,6 +292,42 @@ def from_extracted(row, *, city, source_url, source='llm'):
     )
 
 
+def from_ticketmaster(row, *, city, source='ticketmaster'):
+    """A Ticketmaster row as a Candidate.
+
+    Their city is the venue's city, so it wins over the city we asked under —
+    the same rule the schema.org path follows, and it is what keeps a suburb
+    from being filed under the wrong feed.
+    """
+    from lockedcities.cities import APP_CITIES
+
+    title = _text(row.get('title'), TITLE_MAX)
+    raw_start = row.get('starts_at')
+    starts_at = parse_iso(raw_start)
+    if not title or starts_at is None:
+        return None
+
+    named = _text(row.get('city'), 80)
+    matched = next((c for c in APP_CITIES if c.casefold() in named.casefold()), '') if named else ''
+
+    url = _url(row.get('url'))
+    return Candidate(
+        title=title,
+        starts_at=starts_at,
+        city=matched or city,
+        source=source,
+        source_url=url,
+        external_id=_text(row.get('id'), EXTERNAL_ID_MAX) or f'{url}#{title}',
+        location=_text(row.get('location'), LOCATION_MAX),
+        image_url=_url(row.get('image_url')),
+        category=_text(row.get('category'), CATEGORY_MAX),
+        tickets_url=url,
+        has_tickets=bool(row.get('has_tickets')),
+        time_known=has_clock_time(raw_start),
+        warnings=[] if has_clock_time(raw_start) else ['no start time from the API'],
+    )
+
+
 def is_worth_keeping(candidate, now=None, horizon_days=120):
     """Whether an event is still ahead of us and not absurdly far off.
 

@@ -383,6 +383,10 @@ MEDIA_CDN_URL = os.environ.get('MEDIA_CDN_URL', '').strip()
 # sources that need a model and says so.
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 
+# Ticketmaster's Discovery API (events/ingest/ticketmaster.py). The one source
+# that answers with real start times, which a programme page often does not.
+TICKETMASTER_API_KEY = os.environ.get('TICKETMASTER_API_KEY', '').strip()
+
 FIREBASE_CREDENTIALS_PATH = os.environ.get(
     'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
 )

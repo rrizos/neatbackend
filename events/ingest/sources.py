@@ -47,8 +47,13 @@ adding it here, which is the quick way to check a new candidate source.
 #: `kind: llm` means the page publishes no data and has to be read (see
 #: extract.py), which is the only thing that works on the Greek venues.
 #:
-#: Verified 2026-09-28: megaron 16 events, tch 97.
+#: Verified 2026-09-28: ticketmaster 96 in Αθήνα and 2 in Θεσσαλονίκη (with
+#: real start times), megaron 15, tch 56.
 SEEDS = [
+    # Asked by city, and worth having even where the venues below cover the
+    # same nights: it is the only source that reliably knows the hour.
+    {'name': 'ticketmaster-ath', 'city': 'Αθήνα', 'kind': 'ticketmaster', 'url': ''},
+    {'name': 'ticketmaster-skg', 'city': 'Θεσσαλονίκη', 'kind': 'ticketmaster', 'url': ''},
     {'name': 'megaron', 'city': 'Αθήνα', 'kind': 'llm',
      'url': 'https://www.megaron.gr/'},
     {'name': 'tch', 'city': 'Θεσσαλονίκη', 'kind': 'llm',

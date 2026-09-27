@@ -14,7 +14,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from . import extract, ical, jsonld, normalise, robots
+from . import extract, ical, jsonld, normalise, robots, ticketmaster
 from .dedupe import find_existing
 
 logger = logging.getLogger(__name__)
@@ -94,10 +94,17 @@ def _apply(candidate, event):
 
 def ingest_source(source, *, dry_run=False, now=None, fetch=None):
     """Read one source and write what is new. Returns a Result."""
-    from events.models import Event
-
     now = now or timezone.now()
     result = Result(source=source['name'])
+
+    if source['kind'] == 'ticketmaster':
+        # An API, so there is no page to fetch and nothing to ask robots.txt
+        # about: the key is the permission.
+        rows = ticketmaster.rows_for(source['city'])
+        candidates = [c for c in
+                      (normalise.from_ticketmaster(r, city=source['city']) for r in rows)
+                      if c is not None]
+        return _write(result, candidates, now=now, dry_run=dry_run)
 
     if fetch is None:
         from linkpreview.fetcher import fetch_head_html as fetch
@@ -117,6 +124,13 @@ def ingest_source(source, *, dry_run=False, now=None, fetch=None):
 
     candidates = candidates_from(
         source, text, final_url, today=now.astimezone(normalise.ATHENS).date().isoformat())
+    return _write(result, candidates, now=now, dry_run=dry_run)
+
+
+def _write(result, candidates, *, now, dry_run):
+    """Match [candidates] against what we hold and file what is new."""
+    from events.models import Event
+
     result.found = len(candidates)
 
     fresh = [c for c in candidates if normalise.is_worth_keeping(c, now=now)]
