@@ -1,72 +1,136 @@
-# neatbackend
+<h1 align="center">Neat — backend</h1>
 
-## Deploying
+<p align="center">
+  <strong>A social network with one feed per city.</strong><br>
+  You post in the city you live in. Every other city in Greece you can watch.
+</p>
 
-The app talks to this over plain JSON views (no DRF). After pulling code that
-touches a model, **run migrations before restarting gunicorn** — the DM views
-select every `Message` column, so serving new code against an un-migrated
-database takes messaging down entirely rather than degrading:
+<p align="center">
+  <a href="https://apps.apple.com/gr/app/id6748038152">App Store</a> ·
+  <a href="https://play.google.com/store/apps/details?id=gr.app.neat">Google Play</a> ·
+  <a href="https://neatapp.gr">neatapp.gr</a> ·
+  <a href="https://github.com/rrizos/neatfrontend">App repo</a>
+</p>
 
-```sh
-python manage.py migrate
+<p align="center">
+  <img src="docs/images/feed.jpg" width="230" alt="A city feed: Thessaloniki">
+  <img src="docs/images/virals.jpg" width="230" alt="Virals: the top posts in a city this month">
+  <img src="docs/images/map.jpg" width="230" alt="The map of Greece">
+</p>
+
+---
+
+## What Neat is
+
+Neat splits Greece into cities, and every city has its own feed. You post,
+like and comment in the city you live in; every other city you can read in
+**Spectator Mode** but not change. One national feed, **Ελλάδα**, is open to
+everyone. That restriction is the product: it keeps each city's feed made of
+the people who are actually there, which is what makes it worth reading.
+
+Around the feeds: **Virals** (each city's top ten posts by day, week and
+month), direct messages with photos, voice notes and view-once pictures,
+events, and a live map of Greece whose pins warm up when a city is unusually
+busy. Cities **unlock** as they reach enough local members, and invite links
+and a street-poster ambassador programme bring those members in.
+
+Neat is live on iOS and Android, in Greek and English, across 76 cities.
+
+## This repository
+
+This is the server: the JSON API the app talks to, the WebSocket server for
+direct messages, the video pipeline, push notifications, the server-rendered
+pages on neatapp.gr, and the internal tools (analytics, health, moderation,
+the ambassador programme). The mobile app and the landing page are in
+**[rrizos/neatfrontend](https://github.com/rrizos/neatfrontend)**.
+
+```mermaid
+flowchart TB
+    app["iOS / Android app"]
+    browser["Browser"]
+    subgraph box["One server · AWS Lightsail"]
+        nginx["nginx<br/>TLS · static site · /media/"]
+        wsgi["Django API<br/>gunicorn · WSGI"]
+        asgi["DM WebSocket<br/>gunicorn · ASGI (Channels)"]
+        worker["neat-transcode<br/>video · link previews"]
+        redis[("Redis")]
+        disk[("Media files")]
+    end
+    db[("MySQL<br/>managed")]
+    fcm["Firebase Cloud Messaging"]
+    app -->|"HTTPS · WebSocket"| nginx
+    browser -->|"neatapp.gr"| nginx
+    nginx --> wsgi & asgi
+    nginx --> disk
+    wsgi & asgi --- redis
+    worker --> disk
+    wsgi & asgi & worker --> db
+    wsgi -.->|push| fcm
 ```
 
-`_ensure_messages_tables()` in `dm_messages/views.py` creates *missing tables*
-on the fly, which is why the DM app survived a fresh database without a
-migrate. It does not add *columns*, so it is no safety net here.
+Plain Django: function views returning JSON, no Django REST Framework, no
+Celery. Every request path is readable top to bottom in one file, and the whole
+system runs on a single small instance with a managed database.
 
-## What a conversation costs to open
+| App | What it does |
+|---|---|
+| [`accounts/`](accounts) | Sign-up and sign-in (email, Apple, Google), profiles, follows, blocks, search, notifications, the admin API |
+| [`posts/`](posts) | Feeds, posts, media uploads, the video transcode queue, polls, comments, likes, saves, Virals, city heat, reports |
+| [`dm_messages/`](dm_messages) | Direct messages: REST endpoints and the realtime WebSocket consumer; photos, voice notes, view-once photos, reactions |
+| [`events/`](events) | Official and community events, attendance, comments |
+| [`push/`](push) | Device registration and Firebase push notifications |
+| [`linkpreview/`](linkpreview) | Safe Open Graph / oEmbed fetching for link cards |
+| [`security/`](security) | A tamper-evident audit log, threat detection, the admin security API |
+| [`web/`](web) | Server-rendered pages: shared posts (`/post/<id>`), the safety portal, account deletion, `/analytics`, `/health`, `/runbook` |
+| `invites/` † | Personal invite links and referral attribution |
+| `ambassadors/` † | The street-poster ambassador programme: short links, QR posters, creator dashboards, payouts |
+| `lockedcities/` † | The locked-cities kill switch |
+| [`neatbackend/`](neatbackend) | Settings, URLs, ASGI/WSGI, CDN and time-format helpers |
 
-Photos and voice notes are base64 inside `Message.text`, so a thread's weight
-follows its media, not its message count. Three things keep that off the
-critical path, and all three are covered by `dm_messages/tests.py`:
+† On the `referrals-ambassadors-killswitch` branch, live in production, not yet
+merged into `main`. See [Operations → Branches](docs/operations.md#branches-and-production).
 
-- **Threads are paged.** `GET /api/messages/<id>/` returns the newest 40 with
-  `has_more`; older pages come from `?before=<message id>`.
-- **Media is fetched on demand.** Clients that send `X-Neat-Client: 2` get the
-  message without its payload (`text: "__neat_image__:"`, plus `media: true`)
-  and pull the bytes from
-  `GET /api/messages/<conv>/messages/<id>/media/` when a bubble is drawn or a
-  voice note played. That response is the one here that may be cached, since a
-  message's media never changes. Anything without the header is an older build
-  and still gets the base64 inline.
-- **The database never ships bytes it doesn't need to.** `_load_thread_window`
-  defers `text` and reads back only a prefix-sized head and tail, and the
-  inbox's preview is a `SUBSTR` — so listing a thread or the inbox no longer
-  drags every photo across the connection to MySQL.
+## Documentation
 
-Measured on a synthetic thread of 400 messages and 25 photos: opening it went
-from 7.34 MB to 0.01 MB.
+| Doc | Read it for |
+|---|---|
+| [Architecture](docs/architecture.md) | How a request is served, where data and media live, realtime, the video pipeline, caching, security, and the measured decisions behind them |
+| [Apps](docs/apps.md) | Each Django app in turn: its job, models, endpoints, commands and tests |
+| [API reference](docs/api.md) | Every endpoint the app calls |
+| [Operations](docs/operations.md) | Deploying, the services on the box, scheduled jobs, management commands, health and incident response |
 
-## Temporary photos ("view once" / "allow replay")
+## Running it locally
 
-`Message.photo_mode` is `''` for everything ordinary, or `once`/`replay` for a
-photo the sender chose to make temporary (`dm_messages/models.py`). The rule
-the feature stands on is that the picture lives in exactly one place:
-
-- The thread and the inbox never carry the bytes — `_message_to_dict` sends
-  `text: ''` for a message with a mode, and the inbox sends a bare
-  `__neat_image__:` so the client can still say "sent a photo".
-- `POST /api/messages/<conversation>/messages/<message>/open/` is the only
-  route to them. It spends one viewing, and on the last allowed one it clears
-  `Message.text`, so the bytes stop existing rather than merely being hidden.
-- **Each participant has their own viewings**, the sender included: `once` is
-  one each, `replay` two each, tracked in `MessageOpen` rather than a single
-  counter on the message. One side spending theirs leaves the other's
-  untouched — a shared counter greyed the photo out for the sender the moment
-  the recipient opened it. The bytes are cleared only once *nobody* has a
-  viewing left.
-- Because "how many viewings are left" is now a different answer per person,
-  updates to a temporary photo go out with `_push_message`, one payload per
-  member, instead of a single broadcast. Each payload also carries
-  `opened_by_other`, which is what the sender's "Opened" line reports.
-
-`dm_messages/tests.py` covers all of it:
+Python 3.12+ (Django 6).
 
 ```sh
-python manage.py test dm_messages
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver
 ```
 
-Clients older than this feature ignore `photo_mode` and simply show an empty
-bubble where a temporary photo is — they never see the picture, and nothing
-they send can create one.
+With no database settings in the environment it uses SQLite, an in-memory
+channel layer and a database cache, so nothing else needs to be running. Push,
+email and Apple/Google sign-in stay off until their settings are present — see
+[Operations → Configuration](docs/operations.md#configuration). Video encoding
+and voice-note conversion need `ffmpeg` on the `PATH`.
+
+> **Note:** `main` does not start as committed — see
+> [Operations → Branches](docs/operations.md#branches-and-production). Until
+> that is fixed, run from `referrals-ambassadors-killswitch`.
+
+## Tests
+
+```sh
+.venv/bin/python manage.py test        # 281 tests on referrals-ambassadors-killswitch, ~45 s, SQLite
+```
+
+The suite leans on the parts that fail expensively: the feed's payload shape and
+query count, the transcode queue, view-once photos, voice-note containers,
+Apple/Google token verification, the link-preview fetcher, event ingestion,
+ambassador attribution and the health page.
+
+## Licence
+
+Proprietary. © 2026 Neat. All rights reserved.

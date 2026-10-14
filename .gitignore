@@ -10,3 +10,7 @@ firebase-service-account.json
 *.bak-*
 db.sqlite3.bak*
 media/
+
+# macOS metadata
+.DS_Store
+._*
