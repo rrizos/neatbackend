@@ -299,9 +299,11 @@ class PipelineTests(TestCase):
         describes the same evening."""
         author = User.objects.create_user('mihaliss', password='x')
         Profile.objects.update_or_create(user=author, defaults={'city': ATH})
+        # Stored the way the app's create form stores it: the wall clock.
         mine = Event.objects.create(
             city=ATH, event_type=Event.COMMUNITY, title='Μια συναυλία',
-            description='το γράφω εγώ', date=self.when, creator=author,
+            description='το γράφω εγώ', date=normalise.as_wall_clock(self.when),
+            creator=author,
         )
 
         pipeline.ingest_source(self.source, fetch=self._fetch(self._page()))
@@ -438,7 +440,8 @@ class TicketmasterTests(TestCase):
         event = Event.objects.get()
         self.assertEqual(event.status, Event.PENDING)
         self.assertEqual(event.source, 'ticketmaster')
-        self.assertEqual(dj_timezone.localtime(event.date).hour, 21)
+        # The hour on the ticket is the hour stored — see normalise.as_wall_clock.
+        self.assertEqual(event.date.astimezone(timezone.utc).hour, 21)
 
 
 class ExtractionTests(TestCase):

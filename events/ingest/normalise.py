@@ -192,6 +192,23 @@ def _offers(node):
     return url, bool(url) and not sold_out
 
 
+def as_wall_clock(starts_at):
+    """[starts_at] in the convention every stored event follows.
+
+    An event's `date` holds the Athens wall-clock time, labelled UTC: that is
+    what the app's own create form has always stored (see
+    events.views._parse_event_datetime), and what the app shows back without
+    converting. A real instant stored as-is would read two or three hours
+    early in the app, and would never match the same evening created by hand
+    within dedupe's 90 minutes.
+    """
+    if starts_at is None:
+        return None
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=ATHENS)
+    return starts_at.astimezone(ATHENS).replace(tzinfo=timezone.utc)
+
+
 def has_clock_time(value):
     """Whether a startDate said anything about *when* in the day."""
     return ':' in str(value or '')

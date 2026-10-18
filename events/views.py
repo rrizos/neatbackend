@@ -3,9 +3,11 @@ import re
 
 from django.contrib.auth import get_user_model
 from django.db import connection
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -20,6 +22,8 @@ from .images import store_event_image, store_event_image_upload
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
 
 User = get_user_model()
+
+ATHENS = ZoneInfo('Europe/Athens')
 
 
 def _cors_json(response):
@@ -146,9 +150,20 @@ def _notify_mentions(text, actor, city, event, verb='mentioned you in a comment'
 # Upper bound on one city's event list. See events_list.
 _EVENT_LIST_CAP = 200
 
+# How far back the list reaches. Matches the "completed" section in the app.
+_PAST_EVENTS_KEPT = timedelta(days=7)
 
-@csrf_exempt
-@require_http_methods(['GET', 'POST', 'OPTIONS'])
+
+def _wall_clock_now():
+    """Now, in the convention event dates are stored in.
+
+    An event's `date` is the Athens wall-clock time somebody typed, labelled
+    UTC (see _parse_event_datetime), so comparing it with the real current
+    instant would be off by two or three hours.
+    """
+    return timezone.localtime(timezone.now(), ATHENS).replace(tzinfo=datetime_timezone.utc)
+
+
 def _body_and_files(request):
     """The request body, whether it arrived as JSON or multipart.
 
@@ -172,6 +187,12 @@ def _body_and_files(request):
     return _json_body(request), {}
 
 
+# Token-authenticated like every other API view, so CSRF-exempt. These two
+# decorators once sat on `_body_and_files` above — inserted between them and
+# this view — which left creating an event refused by the CSRF check (403)
+# while every other event action worked.
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'OPTIONS'])
 def events_list(request):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
@@ -186,6 +207,13 @@ def events_list(request):
     # an unchecked date on a page about tonight is worse than an empty page.
     # Events created in the app are published on save, as they always were.
     events = Event.objects.filter(status=Event.PUBLISHED)
+    if request.method == 'GET':
+        # The tab shows the last week as "completed" and nothing older, so
+        # anything before that is weight with nowhere to go — and, ordered by
+        # attendance, it would crowd upcoming events out of the cap below.
+        events = events.filter(
+            Q(date__isnull=True) | Q(date__gte=_wall_clock_now() - _PAST_EVENTS_KEPT)
+        )
     if city:
         events = events.filter(city=city)
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:

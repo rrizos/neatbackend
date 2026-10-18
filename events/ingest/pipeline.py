@@ -138,6 +138,13 @@ def _write(result, candidates, *, now, dry_run):
     if not fresh:
         return result
 
+    # From here on, times are in the stored convention, so they compare with
+    # events people created and land in the app at the hour on the poster.
+    # It also changes the content hash, so rows written before this existed
+    # are corrected the next time their source is read.
+    for candidate in fresh:
+        candidate.starts_at = normalise.as_wall_clock(candidate.starts_at)
+
     # One query for everything that could be a match, instead of one per
     # candidate: same cities, and a window around the dates in hand.
     earliest = min(c.starts_at for c in fresh) - timedelta(days=1)
