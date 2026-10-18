@@ -99,6 +99,38 @@ def public_url(url):
     return url
 
 
+def store_event_image_from_url(image_url):
+    """Copy a picture published elsewhere into our media, returning its URL.
+
+    For listings we did not write ourselves (events/ingest/curated.py): the
+    organiser's poster is fetched once, through the link-preview fetcher's
+    SSRF checks, and re-encoded like an uploaded picture — so the card loads
+    from our own host and keeps working if the organiser's site moves or
+    blocks hotlinking. Returns '' on any failure; never raises.
+    """
+    if not _PIL_OK or not image_url or not image_url.startswith(('http://', 'https://')):
+        return ''
+    try:
+        from linkpreview.fetcher import fetch_image
+
+        raw, _ctype = fetch_image(image_url)
+        # Decode before trusting it: a payload labelled image/jpeg that is not
+        # an image must never be served back from our domain.
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
+        img.thumbnail((MAX_PX, MAX_PX), Image.LANCZOS)
+        out = io.BytesIO()
+        img.convert('RGB').save(
+            out, format='JPEG', quality=85, optimize=True, progressive=True
+        )
+        name = default_storage.save(
+            f'{STORAGE_DIR}/{uuid.uuid4()}.jpg', ContentFile(out.getvalue())
+        )
+        return default_storage.url(name)
+    except Exception as exc:
+        logger.info('event image not copied (%s): %s', exc, image_url[:120])
+        return ''
+
+
 def store_event_image_upload(uploaded, previous_url=''):
     """Store an event picture that arrived as a binary file part.
 
