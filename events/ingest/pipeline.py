@@ -24,6 +24,22 @@ logger = logging.getLogger(__name__)
 MAX_WRITES_PER_SOURCE = 100
 
 
+def _hosted_image(url):
+    """A source's poster, copied onto our own host — see events/images.py.
+
+    Crawled candidates used to go straight into `image_url` as the source's
+    own link, which breaks the moment that site blocks hotlinking, deletes
+    the page, or moves the file — exactly the kind of thing a site a reviewer
+    has never heard of does without notice. events/ingest/curated.py already
+    copies images this way for hand-picked listings; this brings the
+    automated crawl to the same place instead of trusting someone else's URL
+    to keep working. Never raises — a copy failure falls back to the
+    original link rather than losing the picture outright.
+    """
+    from events.images import store_event_image_from_url
+    return store_event_image_from_url(url)
+
+
 @dataclass
 class Result:
     """What one source did, in the words the command prints."""
@@ -81,10 +97,12 @@ def _apply(candidate, event):
     event.source_url = candidate.source_url
     event.tickets_url = candidate.tickets_url or event.tickets_url
     event.has_tickets = candidate.has_tickets or event.has_tickets
-    for name in ('title', 'description', 'location', 'image_url', 'organizer', 'category'):
+    for name in ('title', 'description', 'location', 'organizer', 'category'):
         value = getattr(candidate, name)
         if value:
             setattr(event, name, value)
+    if candidate.image_url and candidate.image_url != event.image_url:
+        event.image_url = _hosted_image(candidate.image_url) or candidate.image_url
 
     after = (event.title, event.description, event.location, event.image_url,
              event.organizer, event.category, event.tickets_url,
@@ -173,7 +191,8 @@ def _write(result, candidates, *, now, dry_run):
                 title=candidate.title,
                 description=candidate.description,
                 location=candidate.location,
-                image_url=candidate.image_url,
+                image_url=(_hosted_image(candidate.image_url) or candidate.image_url)
+                    if candidate.image_url else '',
                 category=candidate.category,
                 date=candidate.starts_at,
                 organizer=candidate.organizer,
