@@ -18,6 +18,8 @@ from accounts.auth import require_authenticated_user
 from accounts.models import Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 
+from posts.images import store_comment_image_data
+
 from .images import store_event_image, store_event_image_upload
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
 
@@ -397,6 +399,22 @@ def event_update(request, event_id):
     return _cors_json(JsonResponse({'event': event.to_dict(attending_event_ids=attending_ids)}))
 
 
+def _comment_thread(event, viewer):
+    """Top-level comments, each with its own replies nested inside —
+    to_dict() does the nesting (one level, same as posts), so this must stay
+    scoped to parent__isnull=True or every reply would print twice: once
+    nested under its parent, once again as its own top-level-looking entry.
+    """
+    comments = (
+        event.comment_rows
+        .filter(parent__isnull=True)
+        .select_related('user')
+        .prefetch_related('like_rows', 'replies__user', 'replies__like_rows')
+        .order_by('-pinned', 'created')
+    )
+    return [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'POST', 'DELETE', 'OPTIONS'])
 def event_comments(request, event_id):
@@ -414,8 +432,7 @@ def event_comments(request, event_id):
         return _bad_request('You can only interact in your city')
 
     if request.method == 'GET':
-        comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-        return _cors_json(JsonResponse({'comments': [comment.to_dict(viewer=viewer, owner_id=event.creator_id) for comment in comments]}))
+        return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
     body = _json_body(request)
     if body is None:
@@ -433,14 +450,34 @@ def event_comments(request, event_id):
         if comment.user_id != viewer.id and not is_admin:
             return _cors_json(JsonResponse({'error': "Cannot delete other user's comment"}, status=403))
         comment.delete()
-        comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-        return _cors_json(JsonResponse({'comments': [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]}))
+        return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
     text = (body.get('text') or '').strip()
-    if not text:
+    image_url = (body.get('imageUrl') or '').strip()
+    if image_url.startswith('data:'):
+        image_url = store_comment_image_data(image_url) or image_url
+    parent_id = body.get('parentId')
+    reply_to_username = (body.get('replyToUsername') or '').strip()[:150]
+
+    if not text and not image_url:
         return _bad_request('Comment text is required')
-    comment = EventComment.objects.create(event=event, user=viewer, text=text)
-    _notify(event.creator or viewer, viewer, 'commented on your event', 'event', event.id, event.title)
+
+    parent = None
+    if parent_id is not None:
+        try:
+            parent = EventComment.objects.get(pk=int(parent_id), event=event)
+        except (EventComment.DoesNotExist, ValueError):
+            return _cors_json(JsonResponse({'error': 'Parent comment not found'}, status=404))
+
+    comment = EventComment.objects.create(
+        event=event, user=viewer, text=text, image_url=image_url,
+        parent=parent,
+        reply_to_username=reply_to_username if parent_id else '',
+    )
+    if parent is None:
+        _notify(event.creator or viewer, viewer, 'commented on your event', 'event', event.id, event.title)
+    else:
+        _notify(parent.user, viewer, 'replied to your comment', 'event', event.id, event.title)
     _notify_mentions(text, viewer, event.city, event)
     return _cors_json(JsonResponse({'comment': comment.to_dict(viewer=viewer, owner_id=event.creator_id)}, status=201))
 
@@ -502,8 +539,7 @@ def event_comment_pin(request, comment_id):
         comment.pinned = False
     comment.save(update_fields=['pinned'])
 
-    comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-    return _cors_json(JsonResponse({'comments': [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]}))
+    return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
 
 @csrf_exempt
