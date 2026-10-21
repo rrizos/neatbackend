@@ -21,6 +21,9 @@ row where the guarantee is enforceable.
 import base64
 import io
 import logging
+import os
+import subprocess
+import tempfile
 import uuid
 
 from django.conf import settings
@@ -60,6 +63,69 @@ MAX_ANIMATED_BYTES = 8 * 1024 * 1024
 # Formats that can carry animation, and the extension each is stored under so
 # nginx serves it with the right content type.
 _ANIMATED_FORMATS = {'GIF': 'gif', 'WEBP': 'webp', 'PNG': 'png'}
+
+
+#: Long enough for any voice note, short enough that a stuck ffmpeg cannot
+#: hold a worker. A remux of a minute of audio takes tens of milliseconds.
+VOICE_REMUX_TIMEOUT = 20
+
+
+def to_adts(raw):
+    """The same audio as a raw ADTS stream, or None if it cannot be made.
+
+    Every voice note is stored in this one container, whatever the phone that
+    recorded it produced, because the installed app does not look: it writes
+    whatever bytes it downloads to a file it always names `.aac`, and iOS
+    picks its parser from that name alone. An MPEG-4 recording — which is what
+    Android makes — therefore arrived under a name that described something
+    else and simply refused to open. That is the bug behind "voice messages
+    load for ever": on an iPhone, every voice note sent from an Android phone.
+
+    The app will learn to name the file after the bytes (it sniffs them now),
+    but a release only reaches the phones that take it, and this reaches every
+    phone at once. It is a remux and not a re-encode — the AAC frames are
+    copied through untouched, so it costs no quality and about 50ms.
+    """
+    with tempfile.TemporaryDirectory(prefix='neat-voice-') as work:
+        src = os.path.join(work, 'in')
+        dst = os.path.join(work, 'out.aac')
+        with open(src, 'wb') as fh:
+            fh.write(raw)
+        try:
+            done = subprocess.run(
+                ['nice', '-n', '15', 'ffmpeg', '-v', 'error', '-y', '-i', src,
+                 # Copy, not encode: same frames, different wrapper.
+                 '-c:a', 'copy', '-f', 'adts', dst],
+                capture_output=True, timeout=VOICE_REMUX_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError):
+            logger.warning('voice remux could not run', exc_info=True)
+            return None
+        if done.returncode != 0 or not os.path.exists(dst):
+            logger.warning('voice remux failed: %s',
+                           done.stderr[-300:].decode('utf-8', 'replace'))
+            return None
+        with open(dst, 'rb') as fh:
+            out = fh.read()
+    return out or None
+
+
+def voice_extension(raw):
+    """'m4a' or 'aac', by what the bytes are rather than what we hoped.
+
+    A voice note reaches here in one of two containers: an iPhone recording to
+    a `.aac` path gets a raw ADTS stream out of AVAudioRecorder, while Android
+    muxes an MPEG-4 file. Both were written out as `.m4a`, so nginx announced
+    half of them as `audio/x-m4a` when they were nothing of the sort — and on
+    iOS, where the parser is chosen by extension and never by content, a file
+    named after the wrong container simply fails to open.
+    """
+    if len(raw) >= 8 and raw[4:8] == b'ftyp':
+        return 'm4a'
+    # ADTS sync word: twelve set bits, then two layer bits that must be zero.
+    if len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xF6) == 0xF0:
+        return 'aac'
+    return 'm4a'
 
 
 def split_payload(text):
@@ -125,9 +191,18 @@ def store_message_media(text):
                 data = out.getvalue()
         else:
             # Voice notes are already compressed; re-encoding would only lose
-            # quality, so the bytes are written exactly as they arrived.
-            name = f'{STORAGE_DIR}/{uuid.uuid4()}.m4a'
+            # quality. What does happen is a remux into the one container
+            # every client can be relied on to open — see to_adts. A phone
+            # that already recorded ADTS is left alone, and anything ffmpeg
+            # cannot repackage is stored as it arrived, under the extension
+            # its bytes deserve, which is still better than a wrong one.
             data = raw
+            ext = voice_extension(raw)
+            if ext != 'aac':
+                converted = to_adts(raw)
+                if converted:
+                    data, ext = converted, 'aac'
+            name = f'{STORAGE_DIR}/{uuid.uuid4()}.{ext}'
         stored = default_storage.save(name, ContentFile(data))
     except Exception:
         logger.exception('could not store DM media')

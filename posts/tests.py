@@ -373,3 +373,62 @@ class StagedUploadTests(TestCase):
         StagedUpload.objects.update(created=timezone.now() - timezone.timedelta(days=2))
         call_command('purge_staged_uploads', hours=24)
         self.assertEqual(StagedUpload.objects.count(), 0)
+
+
+class CityFeedIsOneCityTests(TestCase):
+    """A city feed shows one city, whoever is reading it.
+
+    An admin's feed skipped the city filter, so every city arrived in one
+    stream: a post made in Θεσσαλονίκη appeared in the Αθήνα feed as well,
+    which from inside the app is indistinguishable from the post having been
+    filed in both places. Nothing depended on the unfiltered version.
+    """
+
+    ATH = 'Αθήνα'
+    SKG = 'Θεσσαλονίκη'
+
+    def setUp(self):
+        self.athens_post = self._post_from('mihaliss', self.ATH)
+        self.salonica_post = self._post_from('katerina_', self.SKG)
+
+    def _post_from(self, username, city):
+        user = User.objects.create_user(username, password='x')
+        Profile.objects.update_or_create(user=user, defaults={'city': city})
+        return Post.objects.create(user=user, city=city, text=f'από {city}')
+
+    def _reader(self, username, city, is_admin=False):
+        user = User.objects.create_user(username, password='x')
+        Profile.objects.update_or_create(
+            user=user, defaults={'city': city, 'is_admin': is_admin})
+        return AuthToken.create_for_user(user).key
+
+    def _cities_seen(self, token, query=''):
+        res = self.client.get(f'/api/posts/{query}',
+                              HTTP_AUTHORIZATION=f'Token {token}',
+                              HTTP_X_NEAT_CLIENT='3')
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        rows = body if isinstance(body, list) else body.get('results', body.get('posts', []))
+        return {row['city'] for row in rows}
+
+    def test_an_ordinary_reader_sees_only_their_city(self):
+        token = self._reader('reader', self.ATH)
+
+        self.assertEqual(self._cities_seen(token), {self.ATH})
+
+    def test_an_admin_sees_only_their_city_too(self):
+        token = self._reader('boss', self.ATH, is_admin=True)
+
+        self.assertEqual(self._cities_seen(token), {self.ATH},
+                         'the admin feed was every city at once')
+
+    def test_an_admin_can_still_look_at_another_city_by_asking(self):
+        """The switcher asks for a city by name, and that still works."""
+        token = self._reader('boss', self.ATH, is_admin=True)
+
+        self.assertEqual(self._cities_seen(token, f'?city={self.SKG}'), {self.SKG})
+
+    def test_asking_for_your_own_city_is_the_same_as_not_asking(self):
+        token = self._reader('reader', self.SKG)
+
+        self.assertEqual(self._cities_seen(token, f'?city={self.SKG}'), {self.SKG})

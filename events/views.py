@@ -3,9 +3,11 @@ import re
 
 from django.contrib.auth import get_user_model
 from django.db import connection
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -16,10 +18,14 @@ from accounts.auth import require_authenticated_user
 from accounts.models import Notification, blocked_user_ids, is_blocked
 from accounts.serializers import user_to_dict
 
+from posts.images import store_comment_image_data
+
 from .images import store_event_image, store_event_image_upload
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
 
 User = get_user_model()
+
+ATHENS = ZoneInfo('Europe/Athens')
 
 
 def _cors_json(response):
@@ -146,9 +152,20 @@ def _notify_mentions(text, actor, city, event, verb='mentioned you in a comment'
 # Upper bound on one city's event list. See events_list.
 _EVENT_LIST_CAP = 200
 
+# How far back the list reaches. Matches the "completed" section in the app.
+_PAST_EVENTS_KEPT = timedelta(days=7)
 
-@csrf_exempt
-@require_http_methods(['GET', 'POST', 'OPTIONS'])
+
+def _wall_clock_now():
+    """Now, in the convention event dates are stored in.
+
+    An event's `date` is the Athens wall-clock time somebody typed, labelled
+    UTC (see _parse_event_datetime), so comparing it with the real current
+    instant would be off by two or three hours.
+    """
+    return timezone.localtime(timezone.now(), ATHENS).replace(tzinfo=datetime_timezone.utc)
+
+
 def _body_and_files(request):
     """The request body, whether it arrived as JSON or multipart.
 
@@ -172,6 +189,12 @@ def _body_and_files(request):
     return _json_body(request), {}
 
 
+# Token-authenticated like every other API view, so CSRF-exempt. These two
+# decorators once sat on `_body_and_files` above — inserted between them and
+# this view — which left creating an event refused by the CSRF check (403)
+# while every other event action worked.
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'OPTIONS'])
 def events_list(request):
     if request.method == 'OPTIONS':
         return _cors_json(HttpResponse())
@@ -181,7 +204,18 @@ def events_list(request):
         return _unauthorized()
     city = (request.GET.get('city') or _viewer_city(viewer)).strip()
     event_type = (request.GET.get('type') or '').strip()
-    events = Event.objects.all()
+    # Published only. Anything an ingester found is `pending` until a person
+    # has checked it against its source (events/ingest/, events/admin.py), and
+    # an unchecked date on a page about tonight is worse than an empty page.
+    # Events created in the app are published on save, as they always were.
+    events = Event.objects.filter(status=Event.PUBLISHED)
+    if request.method == 'GET':
+        # The tab shows the last week as "completed" and nothing older, so
+        # anything before that is weight with nowhere to go — and, ordered by
+        # attendance, it would crowd upcoming events out of the cap below.
+        events = events.filter(
+            Q(date__isnull=True) | Q(date__gte=_wall_clock_now() - _PAST_EVENTS_KEPT)
+        )
     if city:
         events = events.filter(city=city)
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:
@@ -365,6 +399,22 @@ def event_update(request, event_id):
     return _cors_json(JsonResponse({'event': event.to_dict(attending_event_ids=attending_ids)}))
 
 
+def _comment_thread(event, viewer):
+    """Top-level comments, each with its own replies nested inside —
+    to_dict() does the nesting (one level, same as posts), so this must stay
+    scoped to parent__isnull=True or every reply would print twice: once
+    nested under its parent, once again as its own top-level-looking entry.
+    """
+    comments = (
+        event.comment_rows
+        .filter(parent__isnull=True)
+        .select_related('user')
+        .prefetch_related('like_rows', 'replies__user', 'replies__like_rows')
+        .order_by('-pinned', 'created')
+    )
+    return [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'POST', 'DELETE', 'OPTIONS'])
 def event_comments(request, event_id):
@@ -382,8 +432,7 @@ def event_comments(request, event_id):
         return _bad_request('You can only interact in your city')
 
     if request.method == 'GET':
-        comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-        return _cors_json(JsonResponse({'comments': [comment.to_dict(viewer=viewer, owner_id=event.creator_id) for comment in comments]}))
+        return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
     body = _json_body(request)
     if body is None:
@@ -401,14 +450,34 @@ def event_comments(request, event_id):
         if comment.user_id != viewer.id and not is_admin:
             return _cors_json(JsonResponse({'error': "Cannot delete other user's comment"}, status=403))
         comment.delete()
-        comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-        return _cors_json(JsonResponse({'comments': [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]}))
+        return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
     text = (body.get('text') or '').strip()
-    if not text:
+    image_url = (body.get('imageUrl') or '').strip()
+    if image_url.startswith('data:'):
+        image_url = store_comment_image_data(image_url) or image_url
+    parent_id = body.get('parentId')
+    reply_to_username = (body.get('replyToUsername') or '').strip()[:150]
+
+    if not text and not image_url:
         return _bad_request('Comment text is required')
-    comment = EventComment.objects.create(event=event, user=viewer, text=text)
-    _notify(event.creator or viewer, viewer, 'commented on your event', 'event', event.id, event.title)
+
+    parent = None
+    if parent_id is not None:
+        try:
+            parent = EventComment.objects.get(pk=int(parent_id), event=event)
+        except (EventComment.DoesNotExist, ValueError):
+            return _cors_json(JsonResponse({'error': 'Parent comment not found'}, status=404))
+
+    comment = EventComment.objects.create(
+        event=event, user=viewer, text=text, image_url=image_url,
+        parent=parent,
+        reply_to_username=reply_to_username if parent_id else '',
+    )
+    if parent is None:
+        _notify(event.creator or viewer, viewer, 'commented on your event', 'event', event.id, event.title)
+    else:
+        _notify(parent.user, viewer, 'replied to your comment', 'event', event.id, event.title)
     _notify_mentions(text, viewer, event.city, event)
     return _cors_json(JsonResponse({'comment': comment.to_dict(viewer=viewer, owner_id=event.creator_id)}, status=201))
 
@@ -470,8 +539,7 @@ def event_comment_pin(request, comment_id):
         comment.pinned = False
     comment.save(update_fields=['pinned'])
 
-    comments = event.comment_rows.select_related('user').prefetch_related('like_rows').order_by('-pinned', 'created')
-    return _cors_json(JsonResponse({'comments': [c.to_dict(viewer=viewer, owner_id=event.creator_id) for c in comments]}))
+    return _cors_json(JsonResponse({'comments': _comment_thread(event, viewer)}))
 
 
 @csrf_exempt

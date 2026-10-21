@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 
+from accounts.avatars import avatar_for as _avatar_for
 from .images import public_url as _public_image_url
 from neatbackend.timefmt import local_iso
 
@@ -12,6 +13,21 @@ class Event(models.Model):
     EVENT_TYPES = [
         (OFFICIAL, 'Official'),
         (COMMUNITY, 'Community'),
+    ]
+
+    #: An event now arrives one of two ways: a person types it into the app, or
+    #: an ingester reads it off a page that published it (events/ingest/).
+    #: Anything a person created is live the moment they save it, as it always
+    #: was. Anything crawled waits to be looked at — a wrong date in a "what is
+    #: on today" list costs more trust than a short list does.
+    PENDING = 'pending'
+    PUBLISHED = 'published'
+    REJECTED = 'rejected'
+
+    STATUSES = [
+        (PENDING, 'Waiting for review'),
+        (PUBLISHED, 'Published'),
+        (REJECTED, 'Rejected'),
     ]
 
     city = models.CharField(max_length=120)
@@ -36,8 +52,30 @@ class Event(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    status = models.CharField(
+        max_length=10, choices=STATUSES, default=PUBLISHED, db_index=True,
+    )
+    #: Which ingester found this, or '' for an event a person created here.
+    source = models.CharField(max_length=20, blank=True, default='')
+    #: The page it was read from. A reviewer checks the claim against it, and
+    #: it is the honest place to send anyone who wants the full details.
+    source_url = models.TextField(blank=True, default='')
+    #: The id the source uses for it — a schema.org @id, an iCal UID. Stable
+    #: across re-crawls, which is the whole difference between updating an
+    #: event and posting it again.
+    external_id = models.CharField(max_length=200, blank=True, default='')
+    #: Hash of the fields taken from the source, so a page that has not
+    #: changed costs one comparison and no write.
+    content_hash = models.CharField(max_length=64, blank=True, default='')
+
     class Meta:
         ordering = ['-attendees', '-created']
+        indexes = [
+            # How the ingester finds the row it wrote last time. Not a unique
+            # constraint: MySQL will not build one with a condition, and
+            # `external_id` is empty for everything people create.
+            models.Index(fields=['source', 'external_id']),
+        ]
 
     def to_dict(self, attending_event_ids=None):
         """attending_event_ids, when given, is the set of event ids the
@@ -124,7 +162,13 @@ class EventReport(models.Model):
 class EventComment(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='comment_rows')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='event_comments')
+    # One level of nesting, same as PostComment: a reply to a reply attaches
+    # to the top-level comment instead (see events/views.py event_comments),
+    # so this never needs to walk more than one hop to find the thread root.
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
     text = models.TextField()
+    image_url = models.TextField(blank=True, default='')
+    reply_to_username = models.CharField(max_length=150, blank=True, default='')
     pinned = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
 
@@ -146,15 +190,26 @@ class EventComment(models.Model):
         if viewer is not None and viewer.is_authenticated:
             liked = self.like_rows.filter(user=viewer).exists()
         liked_by_owner = bool(owner_id) and self.like_rows.filter(user_id=owner_id).exists()
+        # Same shape as PostComment.to_dict() — the app's comment sheet is
+        # shared between posts and events and reads both identically.
+        replies = []
+        if not self.parent_id:
+            for r in self.replies.select_related('user').prefetch_related('like_rows').order_by('created'):
+                replies.append(r.to_dict(viewer=viewer, owner_id=owner_id))
         return {
             'id': self.id,
             'author': self.user.username,
             'text': self.text,
+            'imageUrl': self.image_url,
+            'parentId': self.parent_id,
+            'replyToUsername': self.reply_to_username or None,
             'created': local_iso(self.created),
+            'avatarUrl': _avatar_for(getattr(self.user, 'profile', None)),
             'pinned': self.pinned,
             'likes': self.like_rows.count(),
             'liked': liked,
             'likedByOwner': liked_by_owner,
+            'replies': replies,
         }
 
 

@@ -708,15 +708,21 @@ def posts_list(request):
             )
         posts = posts.all().order_by("-created", "-id")
         requested_city = (request.GET.get("city") or "").strip()
-        is_admin_viewer = viewer and viewer.is_authenticated and getattr(getattr(viewer, 'profile', None), 'is_admin', False)
         if requested_city:
             posts = posts.filter(city=requested_city, scope='city')
             if viewer_city and requested_city != viewer_city:
                 viewer = None
-        elif viewer_city and not is_admin_viewer:
+        elif viewer_city:
+            # An admin's feed is their own city's feed, like everybody else's.
+            # It used to skip this filter, which poured every city into one
+            # stream for them: post in Θεσσαλονίκη and it appears in the Αθήνα
+            # feed too, which from the app looks exactly like the post having
+            # been filed in both. Nothing needed the unfiltered version —
+            # moderation happens on the posts in front of you, and another
+            # city is a tap away in the switcher, which asks for it by name.
             posts = posts.filter(city=viewer_city, scope='city')
         else:
-            # Unauthenticated or admin with no city filter — still exclude greece posts
+            # Unauthenticated with no city filter — still exclude greece posts
             posts = posts.filter(scope='city')
         viewer_following_ids = None
         if viewer and viewer.is_authenticated:

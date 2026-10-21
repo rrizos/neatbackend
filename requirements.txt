@@ -13,3 +13,4 @@ channels_redis
 redis
 uvicorn[standard]
 uvicorn-worker
+segno==1.6.6

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>neat locked cities</title>
+<style>
+  :root {
+    --ground: #0e1116; --panel: #161b22; --ink: #e6edf3; --ink-2: #8b949e;
+    --rule: #262c36; --accent: #2f81f7; --good: #3fb950; --bad: #f85149; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink); padding: 32px 20px 64px;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 44rem; margin: 0 auto; }
+  header.page { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 1.3rem; letter-spacing: -.01em; }
+  a { color: var(--accent); }
+  p.sub { margin: 6px 0 0; color: var(--ink-2); font-size: .88rem; }
+  .state {
+    display: flex; align-items: center; gap: 14px; margin: 24px 0 0;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 20px;
+  }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .dot.on { background: var(--good); box-shadow: 0 0 0 4px rgba(63,185,80,.15); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 0 4px rgba(248,81,73,.15); }
+  .state .label { font-size: 1.1rem; font-weight: 600; letter-spacing: -.01em; }
+  .state .meta { color: var(--ink-2); font-size: .85rem; }
+  .numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 12px; margin: 14px 0 0; }
+  .num { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; }
+  .num b { display: block; font-size: 1.4rem; font-weight: 600; letter-spacing: -.02em; }
+  .num span { color: var(--ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+  form.act { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 20px; margin: 22px 0 0; }
+  form.act.danger { border-color: rgba(248,81,73,.35); }
+  h2 { margin: 0 0 8px; font-size: 1rem; }
+  label { display: block; font-size: .8rem; color: var(--ink-2); margin: 14px 0 6px; }
+  input[type=text] {
+    background: var(--ground); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 10px 12px; color: var(--ink); font-size: .95rem; font-family: inherit; width: 12rem;
+  }
+  button {
+    margin-top: 14px; border: 0; border-radius: 8px; padding: 12px 20px;
+    font-size: .95rem; font-weight: 700; cursor: pointer; font-family: inherit; color: #fff;
+  }
+  button.off { background: var(--bad); }
+  button.on { background: var(--good); color: #06240f; }
+  .error { color: var(--bad); font-size: .86rem; margin: 12px 0 0; }
+  .note { color: var(--ink-2); font-size: .85rem; margin: 10px 0 0; }
+  .warn { color: var(--warn); }
+  code { background: var(--ground); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; font-size: .85em; }
+  footer { margin: 34px 0 0; color: var(--ink-2); font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>locked cities</h1>
+      <p class="sub">The switch. Takes effect on phones already installed, with no release and no patch.</p>
+    </div>
+    <a href="?logout=1">Sign out</a>
+  </header>
+
+  <div class="state">
+    <span class="dot {% if enabled %}on{% else %}off{% endif %}"></span>
+    <div>
+      <div class="label">
+        {% if enabled %}Locked cities are ON{% else %}Locked cities are OFF — every city is open{% endif %}
+      </div>
+      <div class="meta">
+        {% if changed_at %}Last changed {{ changed_at|date:"j M Y, H:i" }}{% if changed_by %} by {{ changed_by }}{% endif %}.{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="numbers">
+    <div class="num"><b>{{ rows }}</b><span>City rows</span></div>
+    <div class="num"><b>{{ locked }}</b><span>Locked</span></div>
+    <div class="num"><b>{{ open }}</b><span>Open</span></div>
+    <div class="num"><b>{{ app_cities }}</b><span>Cities in the app</span></div>
+  </div>
+
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  {% if enabled %}
+    <form class="act danger" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="off">
+      <h2>Turn locked cities off</h2>
+      <p class="note">
+        Every city starts reporting itself as open, including to copies of the
+        app already installed. Feeds open, the lock screens stop appearing, and
+        posting to a city feed is allowed again. Phones pick it up the next
+        time they ask the server — the map on their next visit to it, the feed
+        on their next launch or refresh. Nobody has to update anything.
+      </p>
+      <p class="note">
+        It is reversible: the current lock state of all {{ rows }} cities is
+        written down first, and turning it back on restores exactly that.
+      </p>
+      <label>Type {{ confirm_word }} to confirm</label>
+      <input type="text" name="confirm" autocapitalize="characters" autocomplete="off" placeholder="{{ confirm_word }}">
+      <br>
+      <button class="off" type="submit">Turn locked cities off</button>
+    </form>
+  {% else %}
+    <form class="act" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="on">
+      <h2>Turn locked cities back on</h2>
+      <p class="note">
+        Restores every city to the state it was in when the switch was thrown,
+        and removes the rows the switch had to create. Cities that have since
+        passed their threshold stay open, because they were unlocked on their
+        own merits rather than by the switch.
+      </p>
+      <button class="on" type="submit">Turn locked cities back on</button>
+    </form>
+  {% endif %}
+
+  {% if missing %}
+    <p class="note warn">
+      {{ missing|length }} cities the app draws have no row here
+      ({{ missing|join:", " }}). While the feature is on, the app treats a city
+      it hears nothing about as locked. Turning the switch off creates rows for
+      all of them, which is the only way to open them on an installed phone.
+    </p>
+  {% endif %}
+
+  <footer>
+    This does not touch <code>LOCKED_CITIES_ENABLED</code>, and you should not
+    either. Setting that to False empties the lock API, and an empty response
+    means <i>locked</i> to the shipped app — it would lock every city on every
+    phone, which is the opposite of what this page is for.
+  </footer>
+</div>
+</body>
+</html>
