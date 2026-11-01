@@ -507,6 +507,10 @@ def _maybe_unlock_city(city_name):
         config.save(update_fields=['member_count_cache'])
 
 
+# TEMP_OCTOBER_FREEZE: pins the charts to October. Set to None to restore normal behavior.
+_TEMP_CHARTS_NOW = datetime.datetime(2026, 10, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
+
+
 def _viral_period_start(period):
     """Calendar-aligned period start (today/this week's Monday/this month),
     computed in the server's UTC clock. This can be a few hours off from a
@@ -514,7 +518,7 @@ def _viral_period_start(period):
     included right at the edge of the window -- it doesn't affect the
     ranking of posts safely inside it, and this app has no per-user
     timezone stored anywhere to do better than that."""
-    now = timezone.now()
+    now = _TEMP_CHARTS_NOW or timezone.now()
     if period == "daily":
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
     if period == "monthly":
@@ -564,6 +568,8 @@ def viral_posts(request):
     if viewer and viewer.is_authenticated:
         posts = posts.exclude(user_id__in=blocked_user_ids(viewer))
 
+    if _TEMP_CHARTS_NOW:  # TEMP_OCTOBER_FREEZE
+        posts = posts.filter(created__lte=_TEMP_CHARTS_NOW)
     posts = (
         posts.filter(created__gte=_viral_period_start(period))
         .annotate(comment_count=Count("comment_rows", distinct=True))
