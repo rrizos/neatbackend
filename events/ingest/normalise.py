@@ -53,6 +53,14 @@ class Candidate:
     #: honestly appear on a page about tonight.
     time_known: bool = True
     warnings: list = field(default_factory=list)
+    #: What the research pass (research.py) said about it, if it was the one
+    #: that found it: popularity 1–5, the evidence in a sentence, the pages it
+    #: cited, and whether one of those pages was fetched and said the same.
+    #: Signals, not facts — they rank the event and are never shown as text.
+    popularity: int = 0
+    why: str = ''
+    citations: list = field(default_factory=list)
+    verified: bool = False
 
     @property
     def content_hash(self):
@@ -342,6 +350,64 @@ def from_ticketmaster(row, *, city, source='ticketmaster'):
         has_tickets=bool(row.get('has_tickets')),
         time_known=has_clock_time(raw_start),
         warnings=[] if has_clock_time(raw_start) else ['no start time from the API'],
+    )
+
+
+def from_research(row, *, city, source='research'):
+    """A row the research pass found, as a Candidate.
+
+    The same cleaning and the same date parser as every other source. The
+    external id is made from the city, the day and the folded title, so the
+    same show found again tomorrow — under a slightly different headline, or
+    with an hour that was missing today — is recognised as the same row.
+    """
+    import hashlib
+
+    from . import curated
+    from .dedupe import match_key
+
+    title = _text(row.get('title'), TITLE_MAX)
+    raw_start = row.get('starts_at')
+    starts_at = parse_iso(raw_start)
+    if not title or starts_at is None:
+        return None
+
+    citations = [u for u in (_url(c) for c in row.get('source_urls') or []) if u]
+    if not citations:
+        # Nothing to check it against is nothing to list.
+        return None
+
+    try:
+        popularity = int(row.get('popularity') or 0)
+    except (TypeError, ValueError):
+        popularity = 0
+    popularity = popularity if 1 <= popularity <= 5 else 0
+
+    category = _text(row.get('category'), CATEGORY_MAX)
+    if category not in curated.CATEGORIES:
+        category = ''
+    tickets_url = _url(row.get('tickets_url'))
+    key = f'{city}|{starts_at.date().isoformat()}|{match_key(title)}'
+
+    return Candidate(
+        title=title,
+        starts_at=starts_at,
+        city=city,
+        source=source,
+        source_url=citations[0],
+        external_id=f'{source}:{hashlib.sha1(key.encode("utf-8")).hexdigest()[:20]}',
+        description=_text(row.get('description'), DESCRIPTION_MAX),
+        location=_text(row.get('venue'), LOCATION_MAX),
+        image_url=_url(row.get('image_url')),
+        category=category,
+        tickets_url=tickets_url if len(tickets_url) <= 200 else '',
+        has_tickets=bool(tickets_url),
+        time_known=has_clock_time(raw_start),
+        warnings=[] if has_clock_time(raw_start) else ['no start time found'],
+        popularity=popularity,
+        why=_text(row.get('why'), 240),
+        citations=citations[:6],
+        verified=bool(row.get('verified')),
     )
 
 

@@ -68,6 +68,18 @@ class Event(models.Model):
     #: changed costs one comparison and no write.
     content_hash = models.CharField(max_length=64, blank=True, default='')
 
+    #: How much this event is worth a reader's attention, 0–100, from
+    #: events/ranking.py. Stored so the review queue can sort by it; the tab
+    #: recomputes it on every read, because app attendance moves it.
+    quality = models.PositiveSmallIntegerField(default=0, db_index=True)
+    #: What the sources said about it beyond the facts: which of them listed
+    #: it, and what the research pass found about its popularity. See
+    #: events/ranking.py for the keys and how much each one counts.
+    signals = models.JSONField(default=dict, blank=True)
+    #: A person on the team says this one belongs on the tab, whatever the
+    #: score says. It also puts the event first in the city's list.
+    editor_pick = models.BooleanField(default=False)
+
     class Meta:
         ordering = ['-attendees', '-created']
         indexes = [

@@ -387,6 +387,27 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
 # that answers with real start times, which a programme page often does not.
 TICKETMASTER_API_KEY = os.environ.get('TICKETMASTER_API_KEY', '').strip()
 
+# The research pass (events/ingest/research.py): a model with web search asked
+# what each city is actually talking about. Whichever key is set picks the
+# provider unless EVENTS_RESEARCH_PROVIDER names one ("claude" or "gemini");
+# with neither, research is skipped and the run says so.
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+EVENTS_RESEARCH_PROVIDER = os.environ.get('EVENTS_RESEARCH_PROVIDER', '').strip()
+EVENTS_RESEARCH_MODEL = os.environ.get('EVENTS_RESEARCH_MODEL', '').strip()
+EVENTS_RESEARCH_EFFORT = os.environ.get('EVENTS_RESEARCH_EFFORT', '').strip()
+EVENTS_RESEARCH_GEMINI_MODELS = os.environ.get('EVENTS_RESEARCH_GEMINI_MODELS', '').strip()
+
+# What the events tab shows (events/ranking.py): crawled events need this
+# score (0-100) to be listed, and at most this many are listed per city per
+# day. Events people create in the app are never filtered.
+EVENTS_MIN_QUALITY = int(os.environ.get('EVENTS_MIN_QUALITY') or 45)
+EVENTS_MAX_PER_DAY = int(os.environ.get('EVENTS_MAX_PER_DAY') or 8)
+
+# Unset (the default): every crawled event waits for review. Set, e.g. 70:
+# crawled events with a real start time that two independent sources agree on
+# and that score at least this are published by the crawl itself.
+EVENTS_AUTO_PUBLISH_SCORE = os.environ.get('EVENTS_AUTO_PUBLISH_SCORE', '').strip() or None
+
 FIREBASE_CREDENTIALS_PATH = os.environ.get(
     'FIREBASE_CREDENTIALS_PATH', str(BASE_DIR / 'firebase-service-account.json')
 )

@@ -13,7 +13,8 @@ is taken out of it.
 """
 
 import re
-from datetime import timedelta
+import unicodedata
+from datetime import time, timedelta
 from difflib import SequenceMatcher
 
 #: Two events in one city starting this far apart are not the same event.
@@ -46,13 +47,67 @@ def fingerprint(title):
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def titles_match(left, right):
-    a, b = fingerprint(left), fingerprint(right)
+def fold(text):
+    """[text] without case or accents, for comparing and nothing else.
+
+    Ticket sellers write "ΛΕΥΤΕΡΗΣ ΠΑΝΤΑΖΗΣ", the press writes "Λευτέρης
+    Πανταζής", and Greek capitals carry no accents. Only ever used next to a
+    narrower test (same city, same evening), where a collision between two
+    genuinely different names is far less likely than a missed duplicate.
+    """
+    decomposed = unicodedata.normalize('NFD', (text or '').casefold())
+    return ''.join(ch for ch in decomposed if unicodedata.category(ch) != 'Mn')
+
+
+_FOLDED_NOISE = re.compile(
+    r'\b(live|show|concert|συναυλια|παρασταση|εκδηλωση|sold\s*out|'
+    r'εξαντληθηκε|tickets?|εισιτηρια|official|presents|feat\.?|ft\.?)\b',
+)
+
+
+def match_key(title):
+    """[title] folded and stripped of noise: equal for the same show however
+    a source capitalises or accents it."""
+    text = _FOLDED_NOISE.sub(' ', fold(title))
+    text = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _alike(a, b):
     if not a or not b:
         return False
     if a == b or a in b or b in a:
         return True
     return SequenceMatcher(None, a, b).ratio() >= TITLE_RATIO
+
+
+def titles_match(left, right):
+    return (_alike(fingerprint(left), fingerprint(right))
+            or _alike(match_key(left), match_key(right)))
+
+
+def has_no_time(when):
+    """Whether a stored date is a day with no hour.
+
+    Midnight exactly is what a source that gave only a day turns into (see
+    normalise.from_jsonld and the admin's "no time?" warning); a real start
+    time has never been seen to land on 00:00:00.000.
+    """
+    return when is not None and when.time() == time(0, 0)
+
+
+def same_evening(left, right):
+    """Two stored dates that describe one event.
+
+    Within the hour and a half sources disagree by, or the same day when one
+    of them only knew the day — a research page often says "Saturday 14th"
+    where the ticket seller says 21:00.
+    """
+    if left is None or right is None:
+        return False
+    if has_no_time(left) or has_no_time(right):
+        return left.date() == right.date()
+    return abs(left - right) <= SAME_TIME_WINDOW
 
 
 def find_existing(candidate, queryset):
@@ -74,7 +129,7 @@ def find_existing(candidate, queryset):
     for existing in queryset:
         if existing.date is None or existing.city != candidate.city:
             continue
-        if abs(existing.date - candidate.starts_at) > SAME_TIME_WINDOW:
+        if not same_evening(existing.date, candidate.starts_at):
             continue
         if titles_match(existing.title, candidate.title):
             return existing

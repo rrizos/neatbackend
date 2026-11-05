@@ -3,7 +3,7 @@ import re
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
@@ -20,6 +20,7 @@ from accounts.serializers import user_to_dict
 
 from posts.images import store_comment_image_data
 
+from . import ranking
 from .images import store_event_image, store_event_image_upload
 from .models import Event, EventAttendance, EventComment, EventCommentLike, EventCommentReport, EventReport
 
@@ -152,6 +153,11 @@ def _notify_mentions(text, actor, city, event, verb='mentioned you in a comment'
 # Upper bound on one city's event list. See events_list.
 _EVENT_LIST_CAP = 200
 
+# How many published events the list considers before ranking picks the ones
+# it shows. Well over what a city holds in the tab's window; it bounds the
+# work, not the answer.
+_EVENT_SCAN_CAP = 1500
+
 # How far back the list reaches. Matches the "completed" section in the app.
 _PAST_EVENTS_KEPT = timedelta(days=7)
 
@@ -221,14 +227,22 @@ def events_list(request):
     if event_type in {Event.OFFICIAL, Event.COMMUNITY}:
         events = events.filter(event_type=event_type)
     if request.method == 'GET':
-        # Bounded because each row carries its picture as base64 in
-        # `image_url`, so the response grows by tens of KB per event with
-        # nothing to stop it. A no-op at today's volumes (17 events in total);
-        # it exists so a city that accumulates hundreds cannot turn this into a
-        # multi-megabyte response on the tab's every open. `Meta.ordering`
-        # keeps the busiest and newest, which is what the tab shows first
-        # anyway.
-        events = list(events[:_EVENT_LIST_CAP])
+        # Not everything published is worth a line on the tab: ticket sellers
+        # list everything they sell, and a play running for six weeks would
+        # otherwise sit on every one of those days. events/ranking.py scores
+        # each event and keeps the city's best — always every event people
+        # created here and every one picked by hand — one line per run, a
+        # bounded number per day, best first.
+        candidates = list(
+            events.select_related('creator')
+            .annotate(report_count=Count('reports'))
+            .order_by('date')[:_EVENT_SCAN_CAP]
+        )
+        events = ranking.select_for_listing(candidates, now=_wall_clock_now())
+        # Bounded so a city that accumulates hundreds cannot turn this into a
+        # multi-megabyte response on the tab's every open; ranking has already
+        # put the ones worth keeping first.
+        events = events[:_EVENT_LIST_CAP]
         attending_ids = Event.attending_ids_for(viewer, events)
         return _cors_json(JsonResponse({
             'events': [event.to_dict(attending_event_ids=attending_ids) for event in events],

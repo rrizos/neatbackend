@@ -1,7 +1,25 @@
 """Where to look, and what looking actually found.
 
 A source is four things: a name, the city it speaks for, how to read it
-(`jsonld` or `ical`), and a URL. Add one here and the next run picks it up.
+(`jsonld`, `ical`, `llm`, `ticketmaster` or `research`), and a URL. Add one
+here and the next run picks it up.
+
+## The hybrid (2026-11-05)
+
+What the sources below found was real but mostly not worth showing: a ticket
+seller lists the Tuesday quiz night next to the stadium show, and gives no way
+to tell them apart. So there are now two kinds of source, run in this order:
+
+1. **Structured** — Ticketmaster's API and the venues' own programme pages.
+   Exact facts: the hour, the venue, the tickets link, the poster.
+2. **Research** — research.py, one per city: a model with web search reading
+   the ticket sellers, the culture press, local news and the public social
+   posts search engines show, for what the city is actually talking about.
+   It finds what (1) cannot reach, and rates how popular each event is.
+
+Research runs last so it lands on the rows (1) already wrote: an evening both
+found becomes one row with the facts from (1) and the popularity from (2).
+events/ranking.py turns all of it into the score the tab filters on.
 
     {'name': 'snfcc', 'city': 'Αθήνα', 'kind': 'jsonld', 'url': 'https://…'}
 
@@ -76,12 +94,50 @@ SEEDS = [
 #: not want crawled. Ticketmaster's Discovery API still has real search with
 #: Greek coverage and is the one worth adding next.
 
-def for_cities(cities=None):
-    """The seeds, optionally narrowed to a set of cities."""
-    if not cities:
-        return list(SEEDS)
-    wanted = {c.strip() for c in cities if c and c.strip()}
-    return [s for s in SEEDS if s['city'] in wanted]
+#: Researched on every run, biggest first: the cities with the most to find,
+#: and the ones Ticketmaster's index also knows by name. Every other city the
+#: app has is researched with `ingest_events --research-all`, which is worth
+#: running weekly — a town of 30,000 does not have a new headline every day.
+RESEARCH_CITIES = [
+    'Αθήνα', 'Θεσσαλονίκη', 'Πάτρα', 'Ηράκλειο', 'Λάρισα', 'Βόλος', 'Ιωάννινα',
+    'Χανιά', 'Ρόδος', 'Κέρκυρα', 'Καβάλα', 'Καλαμάτα', 'Αλεξανδρούπολη',
+    'Χαλκίδα', 'Ρέθυμνο',
+]
+
+STRUCTURED_KINDS = {'jsonld', 'ical', 'llm', 'ticketmaster'}
+
+
+def research_seed(city):
+    return {'name': f'research-{city}', 'city': city, 'kind': 'research', 'url': ''}
+
+
+def research_seeds(all_cities=False):
+    """One research source per city: the main ones, or every city in the app."""
+    if all_cities:
+        from lockedcities.cities import APP_CITIES
+
+        cities = RESEARCH_CITIES + [c for c in APP_CITIES if c not in RESEARCH_CITIES]
+    else:
+        cities = RESEARCH_CITIES
+    return [research_seed(c) for c in cities]
+
+
+def for_cities(cities=None, *, only=None, research_all=False):
+    """The seeds, structured ones first, optionally narrowed.
+
+    [only] is 'structured' or 'research'; [cities] narrows to those cities,
+    and a city named there is researched even if it is not a main one.
+    """
+    wanted = {c.strip() for c in cities or [] if c and c.strip()}
+    chosen = []
+    if only in (None, 'structured'):
+        chosen += [s for s in SEEDS if not wanted or s['city'] in wanted]
+    if only in (None, 'research'):
+        if wanted:
+            chosen += [research_seed(c) for c in sorted(wanted)]
+        else:
+            chosen += research_seeds(all_cities=research_all)
+    return chosen
 
 
 def one_off(url, city, kind='jsonld'):

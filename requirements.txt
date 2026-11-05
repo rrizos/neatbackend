@@ -14,3 +14,6 @@ redis
 uvicorn[standard]
 uvicorn-worker
 segno==1.6.6
+# The events research pass, when it runs on Claude (events/ingest/research_claude.py).
+# Imported only when used, so a server without it simply skips that provider.
+anthropic>=2.6
