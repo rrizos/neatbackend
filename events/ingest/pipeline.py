@@ -96,7 +96,7 @@ def candidates_from(source, text, final_url, *, today=None):
     return [c for c in found if c is not None]
 
 
-def _apply(candidate, event):
+def _apply(candidate, event, *, copy_images=True):
     """Copy a candidate onto an event row. Returns True if anything changed.
 
     Deliberately not a blanket overwrite: `attendees` belongs to our users,
@@ -117,7 +117,10 @@ def _apply(candidate, event):
         if value:
             setattr(event, name, value)
     if candidate.image_url and candidate.image_url != event.image_url:
-        event.image_url = _hosted_image(candidate.image_url) or candidate.image_url
+        # A dry run says what would change without fetching and storing the
+        # poster, which is a write of its own.
+        hosted = _hosted_image(candidate.image_url) if copy_images else ''
+        event.image_url = hosted or candidate.image_url
 
     after = (event.title, event.description, event.location, event.image_url,
              event.organizer, event.category, event.tickets_url,
@@ -236,7 +239,7 @@ def _note(event, candidate):
     return True
 
 
-def _fill_gaps(candidate, event):
+def _fill_gaps(candidate, event, *, copy_images=True):
     """What a research sighting may add to a row another source owns.
 
     Only what is missing. A model's reading of a page is less exact than the
@@ -245,7 +248,8 @@ def _fill_gaps(candidate, event):
     """
     changed = False
     if candidate.image_url and not event.image_url:
-        event.image_url = _hosted_image(candidate.image_url) or candidate.image_url
+        hosted = _hosted_image(candidate.image_url) if copy_images else ''
+        event.image_url = hosted or candidate.image_url
         changed = True
     for name in ('description', 'category', 'tickets_url', 'location'):
         value = getattr(candidate, name)
@@ -388,7 +392,7 @@ def _write(result, candidates, *, now, dry_run, publish_above=None):
             # Another source owns this row's facts; research only adds its
             # signals and fills what is missing. The content hash stays the
             # owner's, so the owner's next crawl still sees "unchanged".
-            changed = _fill_gaps(candidate, existing)
+            changed = _fill_gaps(candidate, existing, copy_images=not dry_run)
             if dry_run:
                 result.updated += 1 if changed else 0
                 result.unchanged += 0 if changed else 1
@@ -410,7 +414,7 @@ def _write(result, candidates, *, now, dry_run, publish_above=None):
             existing.source = candidate.source
             existing.external_id = candidate.external_id
 
-        changed = _apply(candidate, existing)
+        changed = _apply(candidate, existing, copy_images=not dry_run)
         existing.content_hash = candidate.content_hash
         existing.external_id = existing.external_id or candidate.external_id
         existing.source = existing.source or candidate.source

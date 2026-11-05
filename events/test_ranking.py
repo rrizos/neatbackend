@@ -287,6 +287,16 @@ class ResearchPipelineTests(TestCase):
         self.assertEqual(set(event.signals['sources']), {'research', 'ticketmaster'})
         self.assertEqual(event.signals['popularity'], 4)
 
+    def test_a_dry_run_does_not_copy_posters(self):
+        self._ticketmaster_row()
+        Event.objects.update(image_url='')
+
+        with mock.patch.object(pipeline, '_hosted_image') as copy:
+            self._run([research_row(image_url='https://www.more.com/p.jpg')], dry_run=True)
+
+        copy.assert_not_called()
+        self.assertEqual(Event.objects.get().image_url, '')
+
     def test_no_provider_is_a_line_in_the_run_not_a_crash(self):
         with self.settings(ANTHROPIC_API_KEY='', GEMINI_API_KEY='', EVENTS_RESEARCH_PROVIDER=''):
             result = pipeline.ingest_source(self.SOURCE, fetch=self._no_fetch)
