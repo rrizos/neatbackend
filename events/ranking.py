@@ -159,8 +159,11 @@ def score(event, *, reports=0):
     if event.date is not None and not has_no_time(event.date):
         points += 5
     else:
-        # A day with no hour cannot honestly sit on a page about tonight.
-        points -= 25
+        # The app shows such an event with its date and no hour, which is
+        # honest, but it is a half-finished listing and nobody can plan an
+        # evening around it — and a source that cannot say the hour often
+        # has the day wrong too.
+        points -= 12
         reasons.append('no start time')
     if event.image_url:
         points += 7

@@ -117,6 +117,26 @@ class CuratedLoadTests(TestCase):
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(report.skipped[0][1], 'already listed')
 
+    def test_a_crawled_listing_of_the_same_evening_is_taken_over(self):
+        """A crawler often has the day and not the hour; the checked entry has
+        both, and the row people may already be going to keeps its id."""
+        crawled = Event.objects.create(
+            city=ATH, event_type=Event.OFFICIAL, title='ΜΕΓΑΛΗ ΣΥΝΑΥΛΙΑ',
+            date=datetime(2026, 11, 20, 0, 0, tzinfo=timezone.utc), attendees=3,
+            source='llm', source_url='https://www.venue.gr/programme',
+            image_url='https://img/crawled.jpg', status=Event.PUBLISHED,
+        )
+
+        report = load([entry(image_url='')], copy_images=False)
+
+        self.assertEqual(report.replaced, ['Μεγάλη συναυλία'])
+        event = Event.objects.get()
+        self.assertEqual(event.pk, crawled.pk)
+        self.assertEqual((event.source, event.date.astimezone(timezone.utc).hour), ('curated', 21))
+        self.assertEqual(event.attendees, 3)
+        self.assertEqual(event.image_url, 'https://img/crawled.jpg')
+        self.assertEqual(set(event.signals['sources']), {'llm:venue.gr', 'curated'})
+
     def test_what_cannot_be_checked_or_shown_is_skipped(self):
         report = load([
             entry(title='Παλιά', start='2026-09-01T21:00:00'),

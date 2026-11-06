@@ -22,6 +22,13 @@ these, they are published straight away; everything else about them is what
 an ingested event gets — the same dedupe against what is already listed, the
 same storage convention for times, and `source = "curated"`, so the whole set
 can be found, updated in place by loading a newer file, or removed.
+
+When an entry is an evening a crawler already filed, the entry takes that row
+over rather than being skipped: a person checked it, so its hour, venue and
+wording replace what a program read off a page (which is often a day with no
+hour). The row keeps its id, its attendees and its comments, and remembers the
+crawler as one more source that listed it. An event a *person* created here is
+still never touched — that listing is theirs.
 """
 
 import hashlib
@@ -50,17 +57,19 @@ CATEGORIES = {
 class Report:
     created: list = field(default_factory=list)
     updated: list = field(default_factory=list)
+    replaced: list = field(default_factory=list)  # crawled rows taken over
     unchanged: list = field(default_factory=list)
     skipped: list = field(default_factory=list)  # (title, reason)
 
     def lines(self):
         for label, rows in (('new', self.created), ('updated', self.updated),
-                            ('unchanged', self.unchanged)):
+                            ('replaced', self.replaced), ('unchanged', self.unchanged)):
             for title in rows:
                 yield f'  {label:9} {title}'
         for title, reason in self.skipped:
             yield f'  skipped   {title} — {reason}'
         yield (f'{len(self.created)} new, {len(self.updated)} updated, '
+               f'{len(self.replaced)} replaced a crawled listing, '
                f'{len(self.unchanged)} unchanged, {len(self.skipped)} skipped')
 
 
@@ -170,31 +179,51 @@ def load(entries, *, dry_run=False, now=None, copy_images=True, store_image=None
         digest = candidate.content_hash
 
         mine = Event.objects.filter(source=SOURCE, external_id=candidate.external_id).first()
+        crawled = None
         if mine is None:
-            # Listed already by someone else — a person, or the crawler —
-            # is one listing too many.
+            # Listed already by someone else is one listing too many: a
+            # person's listing stands, a crawler's is replaced by this one.
             nearby = Event.objects.filter(
                 city=candidate.city,
                 date__gte=candidate.starts_at - _NEARBY,
                 date__lte=candidate.starts_at + _NEARBY,
             ).exclude(status=Event.REJECTED)
-            if find_existing(candidate, list(nearby)) is not None:
-                report.skipped.append((label, 'already listed'))
-                continue
+            existing = find_existing(candidate, list(nearby))
+            if existing is not None:
+                if not existing.source or existing.source == SOURCE:
+                    report.skipped.append((label, 'already listed'))
+                    continue
+                crawled = existing
         elif mine.content_hash == digest:
             report.unchanged.append(label)
             continue
 
+        bucket = (report.replaced if crawled is not None
+                  else report.created if mine is None else report.updated)
         if dry_run:
-            (report.created if mine is None else report.updated).append(label)
+            bucket.append(label)
             continue
 
         image = candidate.image_url
         if copy_images and image:
             image = store_image(image) or image
 
-        event = mine or Event(source=SOURCE, external_id=candidate.external_id,
-                              event_type=Event.OFFICIAL)
+        event = mine or crawled or Event(source=SOURCE, external_id=candidate.external_id,
+                                         event_type=Event.OFFICIAL)
+        if crawled is not None:
+            from .pipeline import _sighting
+
+            signals = dict(crawled.signals) if isinstance(crawled.signals, dict) else {}
+            sources = [x for x in signals.get('sources') or [] if isinstance(x, str)]
+            for name in (_sighting(crawled.source, crawled.source_url), SOURCE):
+                if name not in sources:
+                    sources.append(name)
+            signals['sources'] = sources
+            event.signals = signals
+            event.source = SOURCE
+            event.external_id = candidate.external_id
+            # The crawler's picture is better than none.
+            image = image or crawled.image_url
         previous_image = event.image_url
         event.city = candidate.city
         event.title = candidate.title
@@ -209,10 +238,12 @@ def load(entries, *, dry_run=False, now=None, copy_images=True, store_image=None
         event.image_url = image
         event.content_hash = digest
         event.status = Event.PUBLISHED
+        from events import ranking
+        ranking.refresh(event)
         event.save()
         if previous_image and previous_image != image:
             discard_event_image(previous_image)
-        (report.created if mine is None else report.updated).append(label)
+        bucket.append(label)
 
     return report
 
